@@ -107,13 +107,28 @@ def _render_questions() -> None:
 
 
 def _submit_quiz(quiz, answers: dict) -> None:
+    from frontend.demo_mode import is_demo
     user_id = st.session_state["user_id"]
     db_path = st.session_state["db_path"]
 
     result = evaluate(quiz, answers, user_id=user_id)
-    save_attempt(result, difficulty=quiz.difficulty, db_path=db_path)
 
-    stats = get_module_stats(quiz.module_id, user_id, db_path=db_path)
+    if not is_demo():
+        save_attempt(result, difficulty=quiz.difficulty, db_path=db_path)
+        stats = get_module_stats(quiz.module_id, user_id, db_path=db_path)
+    else:
+        # Demo mode: compute stats without persisting to DB
+        from analytics.models import ModuleStats
+        stats = ModuleStats(
+            module_id=quiz.module_id,
+            total_attempts=1,
+            min_score=result.percentage,
+            max_score=result.percentage,
+            avg_score=result.percentage,
+            user_score=result.percentage,
+            user_percentile=100.0,
+            user_attempts=1,
+        )
 
     st.session_state["quiz_result"] = result
     st.session_state["quiz_stats"] = stats

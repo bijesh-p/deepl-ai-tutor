@@ -7,6 +7,10 @@ st.set_page_config(
     initial_sidebar_state="auto",
 )
 
+# Demo Mode toggle — rendered on every page
+from frontend.demo_mode import render_demo_toggle, is_demo
+render_demo_toggle()
+
 # Initialise navigation state
 if "page" not in st.session_state:
     st.session_state["page"] = "upload"
@@ -36,8 +40,17 @@ elif page == "quiz":
 elif page == "results":
     result = st.session_state.get("quiz_result")
     stats = st.session_state.get("quiz_stats")
+
+    # In demo mode, load fixture results if not yet available
+    if (result is None or stats is None) and is_demo():
+        from frontend.demo_mode import load_demo_result
+        result, stats = load_demo_result()
+        st.session_state["quiz_result"] = result
+        st.session_state["quiz_stats"] = stats
+
     if result is None or stats is None:
         st.session_state["page"] = "quiz"
         st.rerun()
+
     from frontend.results_page import render_results_page
     render_results_page(result, stats)

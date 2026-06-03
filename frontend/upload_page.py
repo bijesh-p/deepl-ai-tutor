@@ -38,10 +38,22 @@ def _get_llm() -> LLMClient:
 
 
 def render_upload_page() -> None:
+    from frontend.demo_mode import is_demo, load_demo_session
+
     st.title("AI Tutor")
     st.subheader("Transform any document into an interactive learning module")
 
     st.markdown("---")
+
+    if is_demo():
+        st.info(
+            "**Demo Mode is on.** No PDF or API key needed. "
+            "Click **Load Demo Module** to explore the app with pre-built sample content."
+        )
+        if st.button("Load Demo Module", type="primary"):
+            load_demo_session()
+            st.rerun()
+        return
 
     username = st.text_input(
         "Your name",
