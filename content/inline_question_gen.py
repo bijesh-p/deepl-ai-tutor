@@ -1,63 +1,88 @@
 from __future__ import annotations
 
 import uuid
-
 from content.llm_client import LLMClient
 from content.models import EnrichedTopic, Question
 
-_SYSTEM = (
-    "You are an expert at writing concise multiple-choice questions that test "
-    "genuine understanding, not just memorisation. "
-    "Each question must have exactly 4 options with clear correct and incorrect answers."
-)
-
-_SCHEMA = {
-    "type": "array",
-    "items": {
+_TOOL_SCHEMA = {
+    "name": "return_questions",
+    "description": "Return 2 inline comprehension questions for the topic.",
+    "input_schema": {
         "type": "object",
         "properties": {
-            "question_text": {"type": "string"},
-            "question_type": {"type": "string", "enum": ["single_choice", "multiple_choice"]},
-            "options": {"type": "array", "items": {"type": "string"}, "minItems": 4, "maxItems": 4},
-            "correct_answers": {"type": "array", "items": {"type": "integer"}},
-            "explanation": {"type": "string"},
+            "questions": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 2,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "question_text": {"type": "string"},
+                        "question_type": {
+                            "type": "string",
+                            "enum": ["single_choice", "multiple_choice"],
+                        },
+                        "options": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "minItems": 4,
+                            "maxItems": 4,
+                        },
+                        "correct_answers": {
+                            "type": "array",
+                            "items": {"type": "integer"},
+                            "description": "Zero-based indices of correct option(s).",
+                        },
+                        "explanation": {"type": "string"},
+                    },
+                    "required": [
+                        "question_text",
+                        "question_type",
+                        "options",
+                        "correct_answers",
+                        "explanation",
+                    ],
+                },
+            }
         },
-        "required": ["question_text", "question_type", "options", "correct_answers", "explanation"],
+        "required": ["questions"],
     },
 }
 
+_SYSTEM = (
+    "You are an expert educator writing quick comprehension checks. "
+    "Generate exactly 2 questions that test the key concepts of the topic. "
+    "Mix single-choice and multiple-choice. Each question must have exactly 4 options."
+)
 
-def generate_inline_questions(topic: EnrichedTopic, llm: LLMClient) -> list[Question]:
-    """Generate 2-3 inline reinforcement questions for a topic.
 
-    Questions are embedded in the learning module viewer and give immediate
-    feedback — they are distinct from the comprehensive end-of-module quiz.
-    """
+def generate_inline_questions(
+    enriched: EnrichedTopic,
+    llm: LLMClient,
+) -> list[Question]:
+    """Generate 2 inline comprehension questions for an enriched topic."""
     prompt = (
-        f"Topic: '{topic.topic.title}'\n\n"
-        f"Content summary: {topic.topic.summary}\n\n"
-        f"Key takeaways:\n" + "\n".join(f"- {t}" for t in topic.key_takeaways) + "\n\n"
-        "Write exactly 2-3 short comprehension questions for this topic. "
-        "Use 'single_choice' when only one answer is correct; "
-        "'multiple_choice' when multiple options are correct. "
-        "Each question must have exactly 4 options. "
-        "correct_answers is a list of 0-based indices of the correct option(s). "
-        "Include a clear explanation shown after the student answers. "
-        "Return a JSON array of question objects."
+        f"Topic: {enriched.topic.title}\n\n"
+        f"{enriched.content_md}\n\n"
+        "Generate 2 comprehension questions for this topic."
     )
 
-    raw: list[dict] = llm.generate(prompt, system=_SYSTEM, response_schema=_SCHEMA)
+    result = llm.generate(
+        prompt=prompt,
+        system=_SYSTEM,
+        tool_schema=_TOOL_SCHEMA,
+    )
 
     questions: list[Question] = []
-    for item in raw[:3]:  # cap at 3
+    for q in result["questions"]:
         questions.append(
             Question(
                 question_id=str(uuid.uuid4()),
-                question_text=item["question_text"],
-                question_type=item["question_type"],
-                options=item["options"],
-                correct_answers=item["correct_answers"],
-                explanation=item["explanation"],
+                question_text=q["question_text"],
+                question_type=q["question_type"],
+                options=q["options"],
+                correct_answers=q["correct_answers"],
+                explanation=q["explanation"],
             )
         )
     return questions

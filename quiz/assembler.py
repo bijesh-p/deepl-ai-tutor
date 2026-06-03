@@ -4,8 +4,9 @@ import random
 import uuid
 from datetime import datetime, timezone
 
-from quiz.difficulty import adjacent_levels, validate_difficulty
 from quiz.models import Quiz, QuestionBank, QuizQuestion
+
+_DIFFICULTY_ORDER = ["easy", "medium", "hard"]
 
 
 def assemble_quiz(
@@ -13,32 +14,12 @@ def assemble_quiz(
     difficulty: str,
     num_questions: int = 10,
 ) -> Quiz:
-    """Select and shuffle questions from the bank to form a Quiz.
+    """Select and randomise questions from the bank for a quiz session.
 
-    Filters by the requested difficulty first. If there are not enough
-    questions at that level, fills from adjacent difficulty levels
-    (nearest first). No LLM call — pure logic.
-
-    Args:
-        bank: The full question pool for a module.
-        difficulty: Requested difficulty ('easy', 'medium', 'hard').
-        num_questions: Target number of questions (default 10).
-
-    Returns:
-        A Quiz with randomly ordered questions.
+    Falls back to adjacent difficulty levels if there are not enough
+    questions at the requested level.
     """
-    difficulty = validate_difficulty(difficulty)
-    by_level: dict[str, list[QuizQuestion]] = {"easy": [], "medium": [], "hard": []}
-    for q in bank.questions:
-        by_level[q.difficulty].append(q)
-
-    selected: list[QuizQuestion] = []
-    for level in adjacent_levels(difficulty):
-        if len(selected) >= num_questions:
-            break
-        pool = by_level[level]
-        need = num_questions - len(selected)
-        selected.extend(random.sample(pool, min(need, len(pool))))
+    selected = _select_questions(bank.questions, difficulty, num_questions)
 
     random.shuffle(selected)
 
@@ -49,3 +30,30 @@ def assemble_quiz(
         questions=selected,
         created_at=datetime.now(timezone.utc).isoformat(),
     )
+
+
+def _select_questions(
+    questions: list[QuizQuestion],
+    difficulty: str,
+    n: int,
+) -> list[QuizQuestion]:
+    by_difficulty: dict[str, list[QuizQuestion]] = {d: [] for d in _DIFFICULTY_ORDER}
+    for q in questions:
+        if q.difficulty in by_difficulty:
+            by_difficulty[q.difficulty].append(q)
+
+    primary = list(by_difficulty.get(difficulty, []))
+    random.shuffle(primary)
+    selected = primary[:n]
+
+    if len(selected) < n:
+        # Fill from adjacent difficulties
+        remaining = n - len(selected)
+        others: list[QuizQuestion] = []
+        for d in _DIFFICULTY_ORDER:
+            if d != difficulty:
+                others.extend(by_difficulty[d])
+        random.shuffle(others)
+        selected += others[:remaining]
+
+    return selected

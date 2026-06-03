@@ -6,49 +6,32 @@ from quiz.models import AnswerResult, Quiz, QuizResult
 
 
 def evaluate(quiz: Quiz, user_answers: dict[str, list[int]], user_id: str) -> QuizResult:
-    """Score a completed quiz attempt.
-
-    Args:
-        quiz: The Quiz that was presented to the user.
-        user_answers: Mapping of question_id → list of selected option indices.
-        user_id: Identifier of the user taking the quiz.
-
-    Returns:
-        QuizResult with per-question breakdown and overall score.
-
-    Scoring rules:
-        - single_choice: correct if the single selected index matches the one correct answer.
-        - multiple_choice: correct only if selected set exactly equals correct set (no extras, no omissions).
-    """
+    """Score user answers and return a QuizResult."""
     answer_results: list[AnswerResult] = []
-    num_correct = 0
 
-    for q in quiz.questions:
-        selected = sorted(user_answers.get(q.question_id, []))
-        correct = sorted(q.correct_answers)
-        is_correct = selected == correct
-
-        if is_correct:
-            num_correct += 1
-
+    for question in quiz.questions:
+        selected = user_answers.get(question.question_id, [])
+        correct = question.correct_answers
+        is_correct = sorted(selected) == sorted(correct)
         answer_results.append(
             AnswerResult(
-                question_id=q.question_id,
+                question_id=question.question_id,
                 selected=selected,
                 correct=correct,
                 is_correct=is_correct,
-                explanation=q.explanation,
+                explanation=question.explanation,
             )
         )
 
-    total = len(quiz.questions)
-    percentage = round((num_correct / total) * 100, 2) if total > 0 else 0.0
+    score = sum(1 for r in answer_results if r.is_correct)
+    total = len(answer_results)
+    percentage = round(score / total * 100, 1) if total else 0.0
 
     return QuizResult(
         quiz_id=quiz.quiz_id,
         module_id=quiz.module_id,
         user_id=user_id,
-        score=num_correct,
+        score=score,
         total=total,
         percentage=percentage,
         answers=answer_results,

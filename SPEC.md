@@ -1,7 +1,37 @@
 # SPEC.md — AI Tutor System Specification
 
-> **Version:** 0.1 (MVP)
-> **Last updated:** 2026-05-31
+> **Version:** 0.3 (Role-based access + persistent module library)
+> **Last updated:** 2026-06-03
+
+---
+
+## 0. Release Phases
+
+The project is delivered in two phases to de-risk the LLM integration and end-to-end pipeline before broadening format support.
+
+### Phase 1 — PDF POC (current)
+
+**Goal:** A fully working, end-to-end application using **PDF as the only input format**. All five work streams must be functional and integrated. This phase proves the pipeline works and introduces role-based access with a persistent module library.
+
+**Scope constraints:**
+- Input: `.pdf` files only (PPTX and DOCX parsers are deferred to Phase 2)
+- LLM provider: Anthropic Claude (via `anthropic` SDK) — single provider for POC
+- Diagram type: Mermaid only (no extracted-image diagrams)
+- Deployment: local Streamlit run (`streamlit run app.py`)
+- **Two roles: Admin and User** (simple password for admin, username-only for users)
+- PDF content capped at first 4 pages for POC to keep LLM calls fast
+
+**Definition of done for Phase 1:**
+- [ ] Admin logs in, uploads a PDF, and generates a learning module that is saved persistently
+- [ ] Generated module and its question bank are stored in the database and reusable
+- [ ] User logs in, browses the module library, selects a module, and works through it
+- [ ] User can take a quiz at selectable difficulty and see their score
+- [ ] Score is persisted; results page shows cohort min/max/avg comparison
+- [ ] Full flow (Admin generates → User consumes) runs without errors
+
+### Phase 2 — Full Format Support (future)
+
+Adds PPTX and DOCX parsing, multi-provider LLM support, and extracted-image diagram rendering. Spec sections for these are already written below and serve as the future target.
 
 ---
 
@@ -15,27 +45,50 @@ Static documents (PDFs, PowerPoint slides, Word docs) lead to passive learning a
 
 AI Tutor is a web application that transforms uploaded documents into interactive learning modules. It decomposes content into sub-topics, generates diagrams, embeds inline questions, and provides end-of-module quizzes with difficulty selection, randomization, and performance analytics.
 
-### 1.3 Tech Stack
+The system operates with two distinct roles:
 
-| Layer              | Technology                                                  |
-| ------------------ | ----------------------------------------------------------- |
-| Frontend           | Streamlit (Python)                                          |
-| Backend            | Python modules called directly from Streamlit               |
-| LLM                | Configurable — abstraction layer supports any provider      |
-| Database           | SQLite (via `sqlite3` stdlib)                               |
-| Document parsing   | `PyMuPDF` (PDF), `python-pptx` (PPTX), `python-docx` (DOCX) |
-| Diagram generation | Mermaid (via LLM-generated code) + matplotlib               |
-| Package manager    | `uv`                                                        |
-| Python version     | 3.14+                                                       |
+| Role | Responsibilities |
+|------|-----------------|
+| **Admin** | Logs in with a password, uploads PDFs, triggers AI module generation, publishes modules to the library |
+| **User** | Logs in with a username, browses the module library, selects content to learn, takes quizzes, views their analytics |
 
-### 1.4 High-Level Data Flow
+Generated modules and their question banks are **persisted in the database** and reused for every subsequent learner — the LLM is only called once per document, at generation time by the admin.
+
+---
+
+### 1.3 User Flows
+
+**Admin flow:**
+```
+Admin Login → Upload PDF → Generate Module (LLM pipeline) → Module saved to DB → Module appears in library
+```
+
+**User flow:**
+```
+User Login → Module Library → Select Module → Learn (topics + inline Qs) → Take Quiz → Results & Analytics
+```
+
+### 1.4 Tech Stack
+
+| Layer              | Technology                                                         |
+| ------------------ | ------------------------------------------------------------------ |
+| Frontend           | Streamlit (Python)                                                 |
+| Backend            | Python modules called directly from Streamlit                      |
+| LLM                | Anthropic Claude (Phase 1); abstraction layer allows adding others |
+| Database           | SQLite (via `sqlite3` stdlib)                                      |
+| Document parsing   | `PyMuPDF` (PDF) — Phase 1 only; PPTX/DOCX added in Phase 2       |
+| Diagram generation | Mermaid (via LLM-generated code)                                   |
+| Package manager    | `uv`                                                               |
+| Python version     | 3.14+                                                              |
+
+### 1.5 High-Level Data Flow
 
 ```
 ┌─────────────┐     ┌──────────────────┐     ┌───────────────────┐
 │  User        │     │  Stream 1:       │     │  Stream 2:        │
 │  uploads     │────▶│  Document        │────▶│  Content          │
-│  PDF/PPTX/   │     │  Ingestion       │     │  Generation       │
-│  DOCX        │     │  Pipeline        │     │  Engine           │
+│  PDF         │     │  Ingestion       │     │  Generation       │
+│  (Phase 1)   │     │  Pipeline        │     │  Engine           │
 └─────────────┘     └──────────────────┘     └───────────────────┘
                                                       │
                                                       ▼
@@ -46,7 +99,7 @@ AI Tutor is a web application that transforms uploaded documents into interactiv
 └─────────────┘     └──────────────────┘     └───────────────────┘
 ```
 
-### 1.5 Project Directory Structure
+### 1.6 Project Directory Structure
 
 ```
 course_project/
@@ -88,10 +141,12 @@ course_project/
 │
 ├── frontend/                   # Work Stream 5
 │   ├── __init__.py
-│   ├── upload_page.py
-│   ├── module_viewer.py
-│   ├── quiz_page.py
-│   └── results_page.py
+│   ├── login_page.py           # Shared login: admin (password) or user (username)
+│   ├── admin_upload_page.py    # Admin: upload PDF + trigger generation
+│   ├── module_library_page.py  # User: browse and select published modules
+│   ├── module_viewer.py        # User: read topics + answer inline questions
+│   ├── quiz_page.py            # User: take quiz
+│   └── results_page.py        # User: view score + cohort analytics
 │
 ├── tests/                      # Mirrors the above structure
 │   ├── test_ingestion/
@@ -112,7 +167,9 @@ course_project/
 
 ### 2.1 Goal
 
-Parse uploaded PDF, PPTX, and DOCX files into a unified structured representation that downstream modules can consume without knowing the original file format.
+Parse uploaded documents into a unified structured representation that downstream modules can consume without knowing the original file format.
+
+**Phase 1 scope:** PDF only. The `Document` model and interface contract are defined for all formats so that adding PPTX/DOCX parsers in Phase 2 requires no changes downstream.
 
 ### 2.2 Subtasks
 
@@ -123,21 +180,21 @@ Parse uploaded PDF, PPTX, and DOCX files into a unified structured representatio
 - **Deliverable:** A function `parse_pdf(file_path: str) -> Document` that returns the unified model.
 - **Notes:** Handle multi-column layouts on a best-effort basis. Extract images at their original resolution.
 
-#### 2.2.2 PPTX Parser (`ingestion/pptx_parser.py`)
+#### 2.2.2 PPTX Parser (`ingestion/pptx_parser.py`) — **Phase 2**
 
 - **Scope:** Extract text from each slide (title + body), speaker notes, and embedded images/shapes.
 - **Library:** `python-pptx`
 - **Deliverable:** A function `parse_pptx(file_path: str) -> Document`.
 - **Notes:** Each slide maps to one `Section` in the unified model. Speaker notes are included as metadata.
 
-#### 2.2.3 DOCX Parser (`ingestion/docx_parser.py`)
+#### 2.2.3 DOCX Parser (`ingestion/docx_parser.py`) — **Phase 2**
 
 - **Scope:** Extract text with heading hierarchy, paragraphs, lists, tables (as text), and embedded images.
 - **Library:** `python-docx`
 - **Deliverable:** A function `parse_docx(file_path: str) -> Document`.
 - **Notes:** Use heading levels (H1-H6) to determine section boundaries.
 
-#### 2.2.4 Image/Diagram Extractor (`ingestion/image_extractor.py`)
+#### 2.2.4 Image/Diagram Extractor (`ingestion/image_extractor.py`) — **Phase 2**
 
 - **Scope:** Shared utility used by all three parsers to extract embedded images, save them to disk, and return file paths.
 - **Deliverable:** A function `extract_images(source, output_dir: str) -> list[ExtractedImage]`.
@@ -205,11 +262,15 @@ class Document:
 
 ### 2.6 Acceptance Criteria
 
-- [ ] `parse_pdf` correctly extracts text and images from a 10+ page PDF with mixed content.
+**Phase 1 (PDF only):**
+- [ ] `parse_pdf` correctly extracts text and section structure from a 10-50 page PDF.
+- [ ] `parse_pdf` produces a valid `Document` object consumable by Stream 2.
+- [ ] Unit tests exist using a sample PDF fixture in `tests/fixtures/`.
+
+**Phase 2 (deferred):**
 - [ ] `parse_pptx` correctly extracts slide titles, body text, speaker notes, and images.
 - [ ] `parse_docx` correctly extracts heading hierarchy and embedded images.
 - [ ] All three parsers produce identical `Document` structure — downstream code cannot distinguish the source format.
-- [ ] Unit tests exist using sample fixtures in `tests/fixtures/`.
 
 ### 2.7 Dependencies
 
@@ -229,7 +290,7 @@ Transform a parsed `Document` into an interactive learning module: decompose int
 
 - **Scope:** Provide a provider-agnostic interface for sending prompts and receiving structured responses from any LLM.
 - **Deliverable:** A class `LLMClient` with method `generate(prompt: str, system: str | None, response_schema: dict | None) -> str | dict`.
-- **Supported providers (MVP):** At least one of: OpenAI, Google Gemini, or Anthropic. Others can be added later.
+- **Phase 1 provider:** Anthropic Claude (`anthropic` SDK). The abstraction layer is designed so additional providers (OpenAI, Gemini) can be added in Phase 2 without changing call sites.
 - **Configuration:** Provider and API key read from environment variables (`AI_TUTOR_LLM_PROVIDER`, `AI_TUTOR_LLM_API_KEY`, `AI_TUTOR_LLM_MODEL`).
 - **Notes:** All other subtasks in this stream (and Stream 3) call this client. They never import a provider SDK directly.
 
@@ -461,13 +522,26 @@ Persist quiz results in a SQLite database and compute performance analytics (use
 CREATE TABLE IF NOT EXISTS users (
     user_id    TEXT PRIMARY KEY,
     username   TEXT NOT NULL UNIQUE,
+    role       TEXT NOT NULL DEFAULT 'user',   -- 'admin' or 'user'
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Stores the full LearningModule JSON so it can be reloaded without re-running the LLM.
+-- Also stores the QuestionBank JSON for quiz reuse.
+CREATE TABLE IF NOT EXISTS modules (
+    module_id          TEXT PRIMARY KEY,
+    title              TEXT NOT NULL,
+    source_filename    TEXT NOT NULL,
+    module_json        TEXT NOT NULL,   -- JSON-serialised LearningModule
+    question_bank_json TEXT NOT NULL,   -- JSON-serialised QuestionBank
+    created_by         TEXT NOT NULL REFERENCES users(user_id),
+    created_at         TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS quiz_attempts (
     attempt_id   TEXT PRIMARY KEY,
     quiz_id      TEXT NOT NULL,
-    module_id    TEXT NOT NULL,
+    module_id    TEXT NOT NULL REFERENCES modules(module_id),
     user_id      TEXT NOT NULL REFERENCES users(user_id),
     difficulty   TEXT NOT NULL,
     score        INTEGER NOT NULL,
@@ -475,13 +549,6 @@ CREATE TABLE IF NOT EXISTS quiz_attempts (
     percentage   REAL NOT NULL,
     completed_at TEXT NOT NULL,
     answers_json TEXT NOT NULL   -- JSON blob of list[AnswerResult]
-);
-
-CREATE TABLE IF NOT EXISTS modules (
-    module_id       TEXT PRIMARY KEY,
-    title           TEXT NOT NULL,
-    source_filename TEXT NOT NULL,
-    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
 ```
 
@@ -545,81 +612,115 @@ class ModuleStats:
 
 ### 6.1 Goal
 
-Build the user-facing Streamlit application that ties all backend streams together into a cohesive learning experience.
+Build a role-aware Streamlit application. Admins generate and publish learning modules; users browse the module library, learn, and take quizzes. The LLM pipeline runs only once per document (at admin generation time); all subsequent learner sessions load from the database.
 
-### 6.2 Subtasks
+### 6.2 Authentication Model (Phase 1)
 
-#### 6.2.1 File Upload Page (`frontend/upload_page.py`)
+- **Admin:** Single admin account. Credentials stored in environment variables (`AI_TUTOR_ADMIN_USERNAME`, `AI_TUTOR_ADMIN_PASSWORD`). On successful login, `st.session_state["role"] = "admin"`.
+- **User:** Any other username. No password required for Phase 1. On login, `st.session_state["role"] = "user"`.
+- Session state keys: `role`, `user_id`, `username`.
 
-- **Scope:** Let the user upload a PDF, PPTX, or DOCX file. Show a progress indicator while the document is being processed. On completion, navigate to the module viewer.
-- **Deliverable:** A Streamlit page function `render_upload_page()`.
+### 6.3 Page Inventory
+
+| Page | File | Who sees it | Purpose |
+|------|------|-------------|---------|
+| Login | `frontend/login_page.py` | Everyone | Enter username; admins also enter password |
+| Admin Upload | `frontend/admin_upload_page.py` | Admin only | Upload PDF, run generation pipeline, save module |
+| Module Library | `frontend/module_library_page.py` | Admin + User | Browse all published modules; select one to learn |
+| Module Viewer | `frontend/module_viewer.py` | User | Read topics, inline questions |
+| Quiz | `frontend/quiz_page.py` | User | Take end-of-module quiz |
+| Results | `frontend/results_page.py` | User | Score + cohort analytics |
+
+### 6.4 Subtasks
+
+#### 6.4.1 Login Page (`frontend/login_page.py`)
+
+- **Deliverable:** `render_login_page()`
 - **UI elements:**
-  - File uploader (accept `.pdf`, `.pptx`, `.docx`)
-  - Simple username input (for analytics tracking — no auth for MVP)
-  - "Generate Module" button
-  - Progress bar / spinner during ingestion + content generation
+  - Username text input
+  - Password text input (shown only when username matches `AI_TUTOR_ADMIN_USERNAME`, or always shown with a "Login as admin" toggle)
+  - "Enter" button
+- **Behaviour:**
+  - If username == `AI_TUTOR_ADMIN_USERNAME` and password matches `AI_TUTOR_ADMIN_PASSWORD` → set `role=admin`, navigate to `admin_upload`
+  - Otherwise → set `role=user`, navigate to `module_library`
 
-#### 6.2.2 Learning Module Viewer (`frontend/module_viewer.py`)
+#### 6.4.2 Admin Upload Page (`frontend/admin_upload_page.py`)
 
-- **Scope:** Display the generated learning module as a scrollable, interactive page. Each sub-topic is a collapsible section with enriched content, diagrams, and inline questions.
-- **Deliverable:** A function `render_module_viewer(module: LearningModule)`.
+- **Deliverable:** `render_admin_upload_page()`
 - **UI elements:**
-  - Sidebar table of contents (topic list)
-  - Per-topic: enriched content (Markdown), diagrams (rendered Mermaid or images), key takeaways
-  - Per-topic: inline questions with immediate feedback (correct/incorrect + explanation)
-  - "Take Quiz" button at the bottom
+  - PDF file uploader
+  - "Generate Learning Module" button (disabled until file selected)
+  - Live `st.status()` log showing all 6 pipeline steps
+- **Behaviour:**
+  - Runs the full pipeline: parse → decompose → enrich → diagrams → inline questions → question bank
+  - Saves full `LearningModule` JSON and `QuestionBank` JSON to `modules` table
+  - On success: shows confirmation with module title and link to module library
 
-#### 6.2.3 Quiz Page (`frontend/quiz_page.py`)
+#### 6.4.3 Module Library Page (`frontend/module_library_page.py`)
 
-- **Scope:** Present the quiz to the user. Let them select difficulty, answer questions, and submit.
-- **Deliverable:** A function `render_quiz_page(bank: QuestionBank)`.
+- **Deliverable:** `render_module_library_page()`
 - **UI elements:**
-  - Difficulty selector (radio: Easy / Medium / Hard)
-  - Numbered questions with radio buttons (single-choice) or checkboxes (multiple-choice)
-  - "Submit Quiz" button
-  - No back-navigation during quiz (prevent answer-changing after seeing results)
+  - Searchable list / table of all saved modules (title, source file, date created)
+  - "Learn" button per module → navigates to module viewer
+  - Admin additionally sees a "Delete" button per module
+- **Behaviour:**
+  - Loads module list from `modules` table (title + created_at; no LLM call)
+  - On "Learn": loads full `LearningModule` from `module_json` column, sets `st.session_state["module"]` and `st.session_state["bank"]`, navigates to `learn`
 
-#### 6.2.4 Results & Analytics Dashboard (`frontend/results_page.py`)
+#### 6.4.4 Module Viewer (`frontend/module_viewer.py`) — unchanged from Phase 1
 
-- **Scope:** Show the user's score and compare against cohort performance.
-- **Deliverable:** A function `render_results_page(result: QuizResult, stats: ModuleStats)`.
-- **UI elements:**
-  - Score display: "You scored X / Y (Z%)"
-  - Per-question breakdown (correct/incorrect, explanation)
-  - Cohort comparison chart (bar chart showing user's score vs. min/max/avg)
-  - Percentile rank
-  - "Retake Quiz" button (new random questions)
-  - "Upload New Document" button
+- **Deliverable:** `render_module_viewer(module: LearningModule)`
+- Sidebar TOC, per-topic collapsible sections, Mermaid diagrams, inline questions with immediate feedback, "Take Quiz" button.
 
-### 6.3 Inputs
+#### 6.4.5 Quiz Page (`frontend/quiz_page.py`) — unchanged from Phase 1
+
+- **Deliverable:** `render_quiz_page(bank: QuestionBank)`
+- Difficulty selector, question form, submit → evaluate → navigate to results.
+
+#### 6.4.6 Results Page (`frontend/results_page.py`) — unchanged from Phase 1
+
+- **Deliverable:** `render_results_page(result: QuizResult)`
+- Score display, cohort bar chart, per-question breakdown, "Retake" and "Back to Library" buttons.
+
+### 6.5 Navigation State Machine
+
+```
+[login]
+   │
+   ├─ role=admin ──▶ [admin_upload] ──▶ [module_library]
+   │
+   └─ role=user  ──▶ [module_library]
+                          │
+                          ▼
+                      [learn]  ──▶  [quiz]  ──▶  [results]
+                          ▲                          │
+                          └──── "Back to Library" ───┘
+```
+
+### 6.6 Inputs
 
 | Input                | Type            | Source     |
 | -------------------- | --------------- | ---------- |
-| Uploaded file        | `UploadedFile`  | Streamlit  |
-| `LearningModule`     | dataclass       | Stream 2   |
-| `QuestionBank`       | dataclass       | Stream 3   |
-| `QuizResult`         | dataclass       | Stream 3   |
-| `ModuleStats`        | dataclass       | Stream 4   |
+| Credentials          | `str`           | Login form |
+| Uploaded PDF         | `UploadedFile`  | Admin upload page |
+| `LearningModule`     | dataclass       | Loaded from DB `module_json` |
+| `QuestionBank`       | dataclass       | Loaded from DB `question_bank_json` |
+| `QuizResult`         | dataclass       | Stream 3 evaluator |
 
-### 6.4 Outputs / Deliverables
+### 6.7 Acceptance Criteria
 
-A running Streamlit application (`app.py`) with multi-page navigation:
-1. Upload → 2. Learn → 3. Quiz → 4. Results
-
-### 6.5 Acceptance Criteria
-
-- [ ] User can upload a file and see a loading state.
-- [ ] Module viewer renders all topics with content, diagrams, and inline questions.
-- [ ] Inline questions give immediate feedback.
-- [ ] Quiz page presents questions and collects answers.
-- [ ] Results page shows score, per-question breakdown, and cohort comparison chart.
-- [ ] Navigation flow works: Upload → Learn → Quiz → Results → (Retake or New Upload).
+- [ ] Admin can log in with correct password; rejected on wrong password.
+- [ ] Non-admin users reach the module library directly after entering a username.
+- [ ] Admin generates a module; it immediately appears in the module library.
+- [ ] User selects a module from the library and loads it without any LLM call.
+- [ ] Full user flow works: Library → Learn → Quiz → Results → Back to Library.
+- [ ] "Retake Quiz" produces a different question order.
 - [ ] Application runs with `streamlit run app.py`.
 
-### 6.6 Dependencies
+### 6.8 Dependencies
 
 - **All streams:** The frontend integrates outputs from Streams 1-4.
-- **For testing independently:** Use hardcoded/mock `LearningModule`, `QuestionBank`, `QuizResult`, and `ModuleStats` objects. The frontend developer does not need working LLM or parsers to build the UI.
+- **Stream 4 (persistence):** `save_module` must store `module_json`; `load_module` must deserialise it back to a `LearningModule` dataclass.
 
 ---
 
@@ -759,29 +860,38 @@ Streams can be developed in parallel. Integration follows data flow order:
 - LLM failures: show "Content generation failed, please try again" with a retry button.
 - Database errors: log and show a generic error.
 
-### 9.5 Security (MVP scope)
+### 9.5 Security (Phase 1 scope)
 
-- No authentication (username-only for analytics tracking).
-- Uploaded files stored locally — not accessible to other users (single-user deployment for MVP).
+- **Admin authentication:** Single admin account. Username and password stored in environment variables (`AI_TUTOR_ADMIN_USERNAME`, `AI_TUTOR_ADMIN_PASSWORD`). No multi-admin support in Phase 1.
+- **User authentication:** Username-only (no password). Sufficient for analytics tracking in a controlled deployment.
+- Uploaded files stored locally — not accessible to other users.
 - No LLM API keys in source code — read from environment variables.
+- Phase 2 may add proper multi-user auth (e.g., OAuth or a hashed-password users table).
+
+### Appendix B: New Environment Variables (v0.3)
+
+| Variable                    | Purpose                        | Default       |
+| --------------------------- | ------------------------------ | ------------- |
+| `AI_TUTOR_ADMIN_USERNAME`   | Admin login username           | `admin`       |
+| `AI_TUTOR_ADMIN_PASSWORD`   | Admin login password           | (required)    |
 
 ---
 
 ## 10. Open Questions
 
-- [ ] Should the question bank be persisted (so retakes don't need new LLM calls), or regenerated each time?
-- [ ] Should the module viewer support Mermaid rendering natively, or convert to PNG server-side?
-- [ ] Should there be a "module library" page listing all previously generated modules, or start fresh each session?
+- [x] **Question bank persistence** — **Resolved (v0.3):** Question bank is persisted in `modules.question_bank_json`. Retakes reuse the stored bank; no LLM re-call required.
+- [x] **Mermaid rendering** — **Resolved (v0.1):** Client-side via `streamlit-mermaid` component. Falls back to `st.code()` if the component is unavailable.
+- [x] **Module library** — **Resolved (v0.3):** A persistent module library page (`frontend/module_library_page.py`) lists all admin-published modules. Users select from the library; they do not upload documents themselves.
 
 ---
 
 ## Appendix A: Environment Variables
 
-| Variable                | Purpose                          | Default          |
-| ----------------------- | -------------------------------- | ---------------- |
-| `AI_TUTOR_LLM_PROVIDER` | LLM provider name               | `openai`         |
-| `AI_TUTOR_LLM_API_KEY`  | API key for LLM provider        | (required)       |
-| `AI_TUTOR_LLM_MODEL`    | Model name                      | `gpt-4o`         |
-| `AI_TUTOR_DB_PATH`      | SQLite database file path       | `data/ai_tutor.db` |
-| `AI_TUTOR_UPLOAD_DIR`   | Upload directory                | `data/uploads`   |
-| `AI_TUTOR_MAX_FILE_MB`  | Max upload size in MB           | `50`             |
+| Variable                | Purpose                          | Default (Phase 1)      |
+| ----------------------- | -------------------------------- | ---------------------- |
+| `AI_TUTOR_LLM_PROVIDER` | LLM provider name               | `anthropic`            |
+| `AI_TUTOR_LLM_API_KEY`  | API key for LLM provider        | (required)             |
+| `AI_TUTOR_LLM_MODEL`    | Model name                      | `claude-sonnet-4-6`    |
+| `AI_TUTOR_DB_PATH`      | SQLite database file path       | `data/ai_tutor.db`     |
+| `AI_TUTOR_UPLOAD_DIR`   | Upload directory                | `data/uploads`         |
+| `AI_TUTOR_MAX_FILE_MB`  | Max upload size in MB           | `50`                   |
