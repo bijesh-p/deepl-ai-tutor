@@ -128,3 +128,39 @@ After committing a phase:
 
 ---
 
+## Diagrams
+
+Use Mermaid diagrams whenever a visual would aid understanding. This applies to:
+
+- **Architecture / data flow** — system overviews, how modules connect
+- **Sequence diagrams** — multi-step processes (e.g., upload → parse → generate → quiz flow)
+- **Flowcharts** — decision trees, branching logic, error handling paths
+- **Entity relationships** — database schemas, data model relationships
+- **Class diagrams** — when documenting class hierarchies or interface contracts
+
+### Rules
+
+1. Prefer a Mermaid diagram over a plain-text ASCII diagram whenever the content is non-trivial.
+2. Use the simplest diagram type that conveys the information — flowchart for flow, sequenceDiagram for interactions, erDiagram for schemas.
+3. Always give diagrams a descriptive title using the `---\ntitle: ...\n---` frontmatter block.
+4. Keep diagrams focused — one concept per diagram. Split complex diagrams into two smaller ones rather than producing an unreadable one.
+5. In Markdown documents (README, SPEC, plan), embed diagrams in fenced code blocks with the `mermaid` language tag.
+
+### Example
+
+````markdown
+```mermaid
+---
+title: AI Tutor Data Flow
+---
+flowchart LR
+    Upload([User uploads PDF]) --> Ingest[Document Ingestion]
+    Ingest --> Content[Content Generation]
+    Content --> Quiz[Quiz Engine]
+    Quiz --> Analytics[Analytics Layer]
+    Analytics --> UI[Streamlit UI]
+```
+````
+
+---
+
