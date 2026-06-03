@@ -1,0 +1,10 @@
+{
+  "module_id": "mod-001",
+  "total_attempts": 12,
+  "min_score": 33.33,
+  "max_score": 100.0,
+  "avg_score": 68.75,
+  "user_score": 66.67,
+  "user_percentile": 41.67,
+  "user_attempts": 1
+}

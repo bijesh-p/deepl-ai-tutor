@@ -8,3 +8,12 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Environment variables
+.env
+
+# Runtime data
+data/uploads/*
+data/generated/*
+!data/uploads/.gitkeep
+!data/generated/.gitkeep

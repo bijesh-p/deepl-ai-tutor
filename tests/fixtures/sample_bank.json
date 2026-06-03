@@ -1,0 +1,95 @@
+{
+  "module_id": "mod-001",
+  "questions": [
+    {
+      "question_id": "qb-001",
+      "question_text": "What is a neural network primarily inspired by?",
+      "question_type": "single_choice",
+      "options": [
+        "Electrical circuits",
+        "The human brain",
+        "Decision trees",
+        "Statistical regression"
+      ],
+      "correct_answers": [1],
+      "explanation": "Neural networks are computational models loosely inspired by the structure and function of the human brain, specifically by the way biological neurons communicate.",
+      "difficulty": "easy",
+      "topic_id": "top-001"
+    },
+    {
+      "question_id": "qb-002",
+      "question_text": "What does the loss function measure?",
+      "question_type": "single_choice",
+      "options": [
+        "The number of neurons in the network",
+        "How wrong the network's prediction is",
+        "The learning rate of the optimizer",
+        "The size of the training dataset"
+      ],
+      "correct_answers": [1],
+      "explanation": "The loss function quantifies the difference between the network's prediction and the true label. Minimising it is the goal of training.",
+      "difficulty": "easy",
+      "topic_id": "top-001"
+    },
+    {
+      "question_id": "qb-003",
+      "question_text": "Which mathematical principle does backpropagation rely on to compute gradients?",
+      "question_type": "single_choice",
+      "options": [
+        "The product rule only",
+        "Fourier transforms",
+        "The chain rule of calculus",
+        "Taylor series approximation"
+      ],
+      "correct_answers": [2],
+      "explanation": "Backpropagation applies the chain rule of calculus to efficiently compute the gradient of the loss with respect to each weight layer by layer.",
+      "difficulty": "medium",
+      "topic_id": "top-001"
+    },
+    {
+      "question_id": "qb-004",
+      "question_text": "Why is ReLU preferred over Sigmoid in deep networks?",
+      "question_type": "single_choice",
+      "options": [
+        "ReLU outputs values between 0 and 1, making it easier to interpret",
+        "ReLU avoids the vanishing gradient problem",
+        "ReLU requires fewer parameters than Sigmoid",
+        "ReLU is differentiable at all points"
+      ],
+      "correct_answers": [1],
+      "explanation": "Sigmoid outputs saturate near 0 or 1, causing gradients to become near-zero during backpropagation (vanishing gradient). ReLU does not saturate for positive inputs, keeping gradients healthy in deep networks.",
+      "difficulty": "medium",
+      "topic_id": "top-002"
+    },
+    {
+      "question_id": "qb-005",
+      "question_text": "A model achieves 98% accuracy on training data but only 55% on a held-out test set. Which of the following best describes this situation and its likely remedies? (Select all that apply)",
+      "question_type": "multiple_choice",
+      "options": [
+        "The model is overfitting",
+        "Applying dropout could help",
+        "The model needs more layers to improve",
+        "L2 regularisation could help"
+      ],
+      "correct_answers": [0, 1, 3],
+      "explanation": "A large gap between training and test accuracy is the hallmark of overfitting. Dropout and L2 regularisation are standard remedies. Adding more layers would increase model capacity and likely worsen overfitting.",
+      "difficulty": "medium",
+      "topic_id": "top-002"
+    },
+    {
+      "question_id": "qb-006",
+      "question_text": "Explain why early stopping is an effective regularisation strategy even though it does not modify the network architecture or loss function.",
+      "question_type": "single_choice",
+      "options": [
+        "It reduces the learning rate exponentially, preventing large weight updates",
+        "It prevents the model from training long enough to memorise noise in the training data",
+        "It increases the size of the training set by generating synthetic examples",
+        "It removes neurons with the smallest weights to simplify the network"
+      ],
+      "correct_answers": [1],
+      "explanation": "Early stopping halts training when validation loss stops improving. In the early phases of training a model learns genuine patterns; later it begins memorising noise. Stopping before that point implicitly limits model complexity without changing the architecture.",
+      "difficulty": "hard",
+      "topic_id": "top-002"
+    }
+  ]
+}

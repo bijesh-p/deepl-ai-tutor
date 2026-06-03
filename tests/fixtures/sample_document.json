@@ -1,0 +1,55 @@
+{
+  "doc_id": "doc-001",
+  "title": "Introduction to Neural Networks",
+  "source_filename": "neural_networks.pdf",
+  "source_type": "pdf",
+  "total_pages": 12,
+  "sections": [
+    {
+      "section_id": "sec-001",
+      "title": "What is a Neural Network?",
+      "body": "A neural network is a computational model inspired by the human brain. It consists of layers of interconnected nodes (neurons) that process information. Each connection has a weight that is adjusted during training to improve the network's predictions.",
+      "level": 1,
+      "images": [
+        {
+          "image_id": "img-001",
+          "file_path": "data/uploads/doc-001/images/img_001.png",
+          "caption": "Figure 1: A simple feedforward neural network",
+          "source_location": "page 2"
+        }
+      ],
+      "metadata": {}
+    },
+    {
+      "section_id": "sec-002",
+      "title": "Activation Functions",
+      "body": "Activation functions introduce non-linearity into the network, allowing it to learn complex patterns. Common activation functions include ReLU (Rectified Linear Unit), Sigmoid, and Tanh. ReLU is the most widely used in modern networks because it avoids the vanishing gradient problem.",
+      "level": 1,
+      "images": [],
+      "metadata": {}
+    },
+    {
+      "section_id": "sec-003",
+      "title": "Backpropagation",
+      "body": "Backpropagation is the algorithm used to train neural networks. It computes the gradient of the loss function with respect to each weight by applying the chain rule of calculus. These gradients are then used by an optimizer (such as gradient descent) to update the weights and reduce the loss.",
+      "level": 1,
+      "images": [
+        {
+          "image_id": "img-002",
+          "file_path": "data/uploads/doc-001/images/img_002.png",
+          "caption": "Figure 2: Backpropagation through layers",
+          "source_location": "page 7"
+        }
+      ],
+      "metadata": {}
+    },
+    {
+      "section_id": "sec-004",
+      "title": "Overfitting and Regularisation",
+      "body": "Overfitting occurs when a model learns the training data too well, including noise, and performs poorly on unseen data. Regularisation techniques such as dropout, L2 regularisation (weight decay), and early stopping help prevent overfitting by constraining the model's complexity.",
+      "level": 1,
+      "images": [],
+      "metadata": {}
+    }
+  ]
+}

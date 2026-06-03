@@ -1,0 +1,53 @@
+{
+  "quiz_id": "quiz-001",
+  "module_id": "mod-001",
+  "user_id": "user-alice",
+  "score": 4,
+  "total": 6,
+  "percentage": 66.67,
+  "completed_at": "2026-06-03T10:45:00Z",
+  "answers": [
+    {
+      "question_id": "qb-001",
+      "selected": [1],
+      "correct": [1],
+      "is_correct": true,
+      "explanation": "Neural networks are computational models loosely inspired by the structure and function of the human brain, specifically by the way biological neurons communicate."
+    },
+    {
+      "question_id": "qb-002",
+      "selected": [1],
+      "correct": [1],
+      "is_correct": true,
+      "explanation": "The loss function quantifies the difference between the network's prediction and the true label. Minimising it is the goal of training."
+    },
+    {
+      "question_id": "qb-003",
+      "selected": [0],
+      "correct": [2],
+      "is_correct": false,
+      "explanation": "Backpropagation applies the chain rule of calculus to efficiently compute the gradient of the loss with respect to each weight layer by layer."
+    },
+    {
+      "question_id": "qb-004",
+      "selected": [1],
+      "correct": [1],
+      "is_correct": true,
+      "explanation": "Sigmoid outputs saturate near 0 or 1, causing gradients to become near-zero during backpropagation (vanishing gradient). ReLU does not saturate for positive inputs, keeping gradients healthy in deep networks."
+    },
+    {
+      "question_id": "qb-005",
+      "selected": [0, 1, 3],
+      "correct": [0, 1, 3],
+      "is_correct": true,
+      "explanation": "A large gap between training and test accuracy is the hallmark of overfitting. Dropout and L2 regularisation are standard remedies. Adding more layers would increase model capacity and likely worsen overfitting."
+    },
+    {
+      "question_id": "qb-006",
+      "selected": [2],
+      "correct": [1],
+      "is_correct": false,
+      "explanation": "Early stopping halts training when validation loss stops improving. In the early phases of training a model learns genuine patterns; later it begins memorising noise. Stopping before that point implicitly limits model complexity without changing the architecture."
+    }
+  ]
+}
