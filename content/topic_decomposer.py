@@ -1,66 +1,85 @@
 from __future__ import annotations
 
 import uuid
-
 from content.llm_client import LLMClient
 from content.models import Topic
 from ingestion.models import Document
 
-_SYSTEM = (
-    "You are an expert instructional designer. "
-    "Your job is to analyse educational content and organise it into clear, "
-    "focused learning topics suitable for self-study."
-)
-
-_SCHEMA = {
-    "type": "array",
-    "items": {
+_TOOL_SCHEMA = {
+    "name": "return_topics",
+    "description": "Return an ordered list of learning topics derived from the document.",
+    "input_schema": {
         "type": "object",
         "properties": {
-            "title": {"type": "string"},
-            "summary": {"type": "string"},
-            "source_section_ids": {"type": "array", "items": {"type": "string"}},
+            "topics": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string"},
+                        "summary": {"type": "string"},
+                        "source_section_titles": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                        },
+                    },
+                    "required": ["title", "summary", "source_section_titles"],
+                },
+            }
         },
-        "required": ["title", "summary", "source_section_ids"],
+        "required": ["topics"],
     },
 }
 
+_SYSTEM = (
+    "You are an expert instructional designer. "
+    "Given a document's sections, identify 3-8 coherent learning topics. "
+    "Each topic should cover one focused concept. "
+    "Return them in a logical learning sequence."
+)
+
 
 def decompose(doc: Document, llm: LLMClient) -> list[Topic]:
-    """Break a Document into an ordered list of learning Topics using the LLM.
-
-    Each Topic groups one or more related sections into a single focused concept.
-    The LLM receives all section titles and bodies and returns a structured JSON
-    list that is mapped onto Topic dataclasses.
-    """
-    sections_text = "\n\n".join(
-        f"[section_id: {s.section_id}]\nTitle: {s.title}\n{s.body}"
-        for s in doc.sections
-    )
+    """Break a Document into an ordered list of learning Topics."""
+    section_text = _format_sections(doc)
+    cached_blocks = llm.make_cached_document_blocks(section_text)
 
     prompt = (
-        f"The following document is titled '{doc.title}'. "
-        "It has been split into sections listed below.\n\n"
-        f"{sections_text}\n\n"
-        "Group these sections into 3-8 focused learning topics. "
-        "Each topic should cover one clear concept. "
-        "A topic may reference multiple section_ids if they belong together. "
-        "Return a JSON array where each element has: "
-        "'title' (string), 'summary' (one sentence), "
-        "'source_section_ids' (array of section_id strings from above)."
+        "Above is the document content. "
+        "Identify the key learning topics and return them using the provided tool."
     )
 
-    raw: list[dict] = llm.generate(prompt, system=_SYSTEM, response_schema=_SCHEMA)
+    result = llm.generate(
+        prompt=prompt,
+        system=_SYSTEM,
+        tool_schema=_TOOL_SCHEMA,
+        cached_blocks=cached_blocks,
+    )
+
+    section_id_map = {s.title: s.section_id for s in doc.sections}
 
     topics: list[Topic] = []
-    for order, item in enumerate(raw, start=1):
+    for i, item in enumerate(result["topics"]):
+        source_ids = [
+            section_id_map[t]
+            for t in item["source_section_titles"]
+            if t in section_id_map
+        ]
         topics.append(
             Topic(
                 topic_id=str(uuid.uuid4()),
                 title=item["title"],
                 summary=item["summary"],
-                source_section_ids=item["source_section_ids"],
-                order=order,
+                source_section_ids=source_ids,
+                order=i,
             )
         )
+
     return topics
+
+
+def _format_sections(doc: Document) -> str:
+    parts = [f"Document: {doc.title}\n"]
+    for s in doc.sections:
+        parts.append(f"## {s.title}\n{s.body}")
+    return "\n\n".join(parts)

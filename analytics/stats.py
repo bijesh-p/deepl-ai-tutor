@@ -1,48 +1,23 @@
 from __future__ import annotations
 
+import sqlite3
 from analytics.db import get_db
 from analytics.models import ModuleStats
 
 
-def get_module_stats(
-    module_id: str,
-    user_id: str,
-    db_path: str | None = None,
-) -> ModuleStats:
-    """Compute cohort statistics for a module and this user's standing.
+def get_module_stats(module_id: str, user_id: str, db: sqlite3.Connection | None = None) -> ModuleStats:
+    """Compute aggregate quiz statistics for a module."""
+    conn = db or get_db()
 
-    Percentile = (number of attempts with percentage <= user's latest score)
-                 / total attempts × 100.
-    Edge case: if the user has no prior attempts, returns a ModuleStats with
-    zero totals and 0.0 percentile. If the user is the only attempt,
-    percentile = 100.0.
-    """
-    conn = get_db(db_path)
-
-    # All attempts for the module
     all_rows = conn.execute(
         "SELECT percentage FROM quiz_attempts WHERE module_id = ?",
         (module_id,),
     ).fetchall()
 
-    # User's latest attempt
-    user_row = conn.execute(
-        """SELECT percentage FROM quiz_attempts
-           WHERE module_id = ? AND user_id = ?
-           ORDER BY completed_at DESC LIMIT 1""",
-        (module_id, user_id),
-    ).fetchone()
+    percentages = [r["percentage"] for r in all_rows]
+    total_attempts = len(percentages)
 
-    # User attempt count
-    user_attempts = conn.execute(
-        "SELECT COUNT(*) FROM quiz_attempts WHERE module_id = ? AND user_id = ?",
-        (module_id, user_id),
-    ).fetchone()[0]
-
-    conn.close()
-
-    total = len(all_rows)
-    if total == 0 or user_row is None:
+    if not percentages:
         return ModuleStats(
             module_id=module_id,
             total_attempts=0,
@@ -54,19 +29,31 @@ def get_module_stats(
             user_attempts=0,
         )
 
-    scores = [r["percentage"] for r in all_rows]
-    user_score = user_row["percentage"]
+    user_rows = conn.execute(
+        """
+        SELECT percentage FROM quiz_attempts
+        WHERE module_id = ? AND user_id = ?
+        ORDER BY completed_at DESC LIMIT 1
+        """,
+        (module_id, user_id),
+    ).fetchone()
+    user_score = user_rows["percentage"] if user_rows else 0.0
 
-    at_or_below = sum(1 for s in scores if s <= user_score)
-    percentile = round((at_or_below / total) * 100, 2)
+    user_attempt_count = conn.execute(
+        "SELECT COUNT(*) as c FROM quiz_attempts WHERE module_id = ? AND user_id = ?",
+        (module_id, user_id),
+    ).fetchone()["c"]
+
+    below = sum(1 for p in percentages if p < user_score)
+    user_percentile = round(below / total_attempts * 100, 1)
 
     return ModuleStats(
         module_id=module_id,
-        total_attempts=total,
-        min_score=round(min(scores), 2),
-        max_score=round(max(scores), 2),
-        avg_score=round(sum(scores) / total, 2),
-        user_score=user_score,
-        user_percentile=percentile,
-        user_attempts=user_attempts,
+        total_attempts=total_attempts,
+        min_score=round(min(percentages), 1),
+        max_score=round(max(percentages), 1),
+        avg_score=round(sum(percentages) / total_attempts, 1),
+        user_score=round(user_score, 1),
+        user_percentile=user_percentile,
+        user_attempts=user_attempt_count,
     )

@@ -1,74 +1,65 @@
 from __future__ import annotations
 
 import uuid
-
 from content.llm_client import LLMClient
 from content.models import Diagram, EnrichedTopic
-from ingestion.models import ExtractedImage
+
+_TOOL_SCHEMA = {
+    "name": "return_diagram",
+    "description": "Return a Mermaid diagram for the topic, or indicate none is needed.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "needs_diagram": {
+                "type": "boolean",
+                "description": "True if a diagram would meaningfully aid understanding.",
+            },
+            "mermaid_code": {
+                "type": "string",
+                "description": "Valid Mermaid diagram code (empty string if needs_diagram is false).",
+            },
+            "caption": {
+                "type": "string",
+                "description": "Short caption describing the diagram.",
+            },
+        },
+        "required": ["needs_diagram", "mermaid_code", "caption"],
+    },
+}
 
 _SYSTEM = (
-    "You are an expert at creating clear educational diagrams using Mermaid syntax. "
-    "Only suggest a diagram when it genuinely adds understanding beyond the text. "
-    "Always produce valid Mermaid syntax with a descriptive title in frontmatter."
+    "You are an expert at creating clear educational diagrams. "
+    "Decide if a Mermaid diagram (flowchart, sequence, class, etc.) would meaningfully "
+    "aid understanding of the topic. If yes, generate valid Mermaid syntax. "
+    "If a diagram would not add value, set needs_diagram to false."
 )
-
-_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "needs_diagram": {"type": "boolean"},
-        "mermaid_code": {"type": "string"},
-        "caption": {"type": "string"},
-    },
-    "required": ["needs_diagram"],
-}
 
 
 def generate_diagrams(
-    topic: EnrichedTopic,
+    enriched: EnrichedTopic,
     llm: LLMClient,
-    extracted_images: list[ExtractedImage] | None = None,
 ) -> list[Diagram]:
-    """Generate Mermaid diagrams for a topic and include any extracted images.
-
-    The LLM decides whether a diagram adds value. If yes, it returns Mermaid
-    code which is stored as a Diagram with diagram_type='mermaid'.
-    Extracted images from the original document are appended as
-    diagram_type='extracted_image'.
-    """
-    diagrams: list[Diagram] = []
-
+    """Generate a Mermaid diagram for a topic if one adds value."""
     prompt = (
-        f"Topic: '{topic.topic.title}'\n\n"
-        f"Content:\n{topic.content_md[:1500]}\n\n"
-        "Decide if a Mermaid diagram would meaningfully help a student understand "
-        "this topic (e.g. a flowchart for a process, sequence diagram for an "
-        "interaction, or concept map for relationships). "
-        "If yes, set needs_diagram=true and provide valid Mermaid code in "
-        "mermaid_code (include a '---\\ntitle: ...\\n---' frontmatter block) "
-        "and a short caption. "
-        "If no diagram is needed, set needs_diagram=false."
+        f"Topic: {enriched.topic.title}\n\n"
+        f"{enriched.content_md}\n\n"
+        "Should a diagram be generated for this topic? If yes, produce Mermaid code."
     )
 
-    result: dict = llm.generate(prompt, system=_SYSTEM, response_schema=_SCHEMA)
+    result = llm.generate(
+        prompt=prompt,
+        system=_SYSTEM,
+        tool_schema=_TOOL_SCHEMA,
+    )
 
-    if result.get("needs_diagram") and result.get("mermaid_code"):
-        diagrams.append(
-            Diagram(
-                diagram_id=str(uuid.uuid4()),
-                diagram_type="mermaid",
-                content=result["mermaid_code"],
-                caption=result.get("caption", ""),
-            )
+    if not result.get("needs_diagram") or not result.get("mermaid_code", "").strip():
+        return []
+
+    return [
+        Diagram(
+            diagram_id=str(uuid.uuid4()),
+            diagram_type="mermaid",
+            content=result["mermaid_code"],
+            caption=result.get("caption", ""),
         )
-
-    for img in (extracted_images or []):
-        diagrams.append(
-            Diagram(
-                diagram_id=str(uuid.uuid4()),
-                diagram_type="extracted_image",
-                content=img.file_path,
-                caption=img.caption or f"Image from {img.source_location}",
-            )
-        )
-
-    return diagrams
+    ]
