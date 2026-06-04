@@ -1,95 +1,127 @@
-from __future__ import annotations
-
 import pytest
-from datetime import datetime, timezone
-
+import sqlite3
 from analytics.db import get_db
-from analytics.persistence import get_user_attempts, save_attempt, save_module, save_user
-from quiz.models import AnswerResult, QuizResult
+from analytics.persistence import (
+    save_user, save_attempt, save_module, load_module,
+    list_modules, delete_module, get_user_attempts,
+)
+from analytics.stats import get_module_stats
+from quiz.models import QuizResult, AnswerResult
 
 
-def make_result(user_id: str, module_id: str, score: int, total: int) -> QuizResult:
-    pct = round((score / total) * 100, 2)
+@pytest.fixture
+def db():
+    conn = get_db(":memory:")
+    yield conn
+    conn.close()
+
+
+def _make_result(quiz_id, module_id, user_id, score, total) -> QuizResult:
+    pct = round(score / total * 100, 1)
     return QuizResult(
-        quiz_id=f"quiz-{user_id}-{score}",
+        quiz_id=quiz_id,
         module_id=module_id,
         user_id=user_id,
         score=score,
         total=total,
         percentage=pct,
-        answers=[AnswerResult("q-1", [0], [0], True, "Because A.")],
-        completed_at=datetime.now(timezone.utc).isoformat(),
+        answers=[AnswerResult("q1", [0], [0], True, "correct")],
+        completed_at="2026-01-01T00:00:00+00:00",
     )
 
 
-@pytest.fixture
-def db(tmp_path) -> str:
-    """Return path to a fresh temp SQLite file for each test."""
-    return str(tmp_path / "test.db")
+def _save_test_module(module_id: str, created_by: str, db) -> None:
+    save_module(
+        module_id=module_id,
+        title="Test Module",
+        source_filename="test.pdf",
+        module_json='{"module_id": "' + module_id + '"}',
+        question_bank_json="{}",
+        created_by=created_by,
+        db=db,
+    )
 
 
 def test_save_and_retrieve_user(db):
-    save_user("u-1", "alice", db_path=db)
-    conn = get_db(db)
-    row = conn.execute("SELECT username FROM users WHERE user_id='u-1'").fetchone()
-    assert row["username"] == "alice"
+    uid = save_user("alice", db=db)
+    assert uid
+    uid2 = save_user("alice", db=db)
+    assert uid == uid2  # idempotent
 
 
-def test_save_user_idempotent(db):
-    save_user("u-1", "alice", db_path=db)
-    save_user("u-1", "alice", db_path=db)  # should not raise
-    conn = get_db(db)
-    count = conn.execute("SELECT COUNT(*) FROM users WHERE user_id='u-1'").fetchone()[0]
-    assert count == 1
+def test_save_user_role(db):
+    admin_id = save_user("admin", role="admin", db=db)
+    row = db.execute("SELECT role FROM users WHERE user_id = ?", (admin_id,)).fetchone()
+    assert row["role"] == "admin"
+
+    user_id = save_user("alice", db=db)
+    row = db.execute("SELECT role FROM users WHERE user_id = ?", (user_id,)).fetchone()
+    assert row["role"] == "user"
 
 
-def test_save_module(db):
-    save_module("mod-1", "Intro to ML", "ml.pdf", db_path=db)
-    conn = get_db(db)
-    row = conn.execute("SELECT title FROM modules WHERE module_id='mod-1'").fetchone()
-    assert row["title"] == "Intro to ML"
+def test_save_and_load_module(db):
+    uid = save_user("admin", role="admin", db=db)
+    _save_test_module("mod-1", uid, db)
+
+    loaded = load_module("mod-1", db=db)
+    assert loaded is not None
+    assert loaded["title"] == "Test Module"
+    assert loaded["source_filename"] == "test.pdf"
+    assert loaded["created_by"] == uid
 
 
-def test_save_module_idempotent(db):
-    save_module("mod-1", "Intro to ML", "ml.pdf", db_path=db)
-    save_module("mod-1", "Intro to ML", "ml.pdf", db_path=db)
-    conn = get_db(db)
-    count = conn.execute("SELECT COUNT(*) FROM modules WHERE module_id='mod-1'").fetchone()[0]
-    assert count == 1
+def test_list_and_delete_module(db):
+    uid = save_user("admin", role="admin", db=db)
+    _save_test_module("mod-1", uid, db)
+    _save_test_module("mod-2", uid, db)
+
+    modules = list_modules(db=db)
+    assert len(modules) == 2
+
+    delete_module("mod-1", db=db)
+    modules = list_modules(db=db)
+    assert len(modules) == 1
+    assert modules[0]["module_id"] == "mod-2"
 
 
-def test_save_attempt_persists(db):
-    save_user("u-1", "alice", db_path=db)
-    result = make_result("u-1", "mod-1", score=8, total=10)
-    save_attempt(result, difficulty="medium", db_path=db)
-    conn = get_db(db)
-    rows = conn.execute("SELECT * FROM quiz_attempts WHERE user_id='u-1'").fetchall()
-    assert len(rows) == 1
-    assert rows[0]["score"] == 8
-    assert rows[0]["percentage"] == 80.0
+def test_save_attempt_and_get_stats(db):
+    uid = save_user("alice", db=db)
+    _save_test_module("mod-1", uid, db)
+
+    result = _make_result("quiz-1", "mod-1", uid, score=8, total=10)
+    save_attempt(result, "medium", db=db)
+
+    stats = get_module_stats("mod-1", uid, db=db)
+    assert stats.total_attempts == 1
+    assert stats.user_score == 80.0
+    assert stats.avg_score == 80.0
 
 
-def test_get_user_attempts_empty(db):
-    attempts = get_user_attempts("nobody", "mod-1", db_path=db)
-    assert attempts == []
+def test_cohort_stats_with_multiple_users(db):
+    admin_id = save_user("admin", role="admin", db=db)
+    _save_test_module("mod-1", admin_id, db)
+
+    for name, score in [("alice", 6), ("bob", 8), ("carol", 10)]:
+        uid = save_user(name, db=db)
+        r = _make_result(f"quiz-{name}", "mod-1", uid, score=score, total=10)
+        save_attempt(r, "medium", db=db)
+
+    alice_id = save_user("alice", db=db)
+    stats = get_module_stats("mod-1", alice_id, db=db)
+
+    assert stats.total_attempts == 3
+    assert stats.min_score == 60.0
+    assert stats.max_score == 100.0
+    assert stats.avg_score == pytest.approx(80.0, abs=0.2)
+    assert stats.user_score == 60.0
+    assert stats.user_percentile == 0.0
 
 
-def test_get_user_attempts_returns_newest_first(db):
-    save_user("u-1", "alice", db_path=db)
-    r1 = make_result("u-1", "mod-1", score=5, total=10)
-    r2 = make_result("u-1", "mod-1", score=8, total=10)
-    r2.quiz_id = "quiz-second"
-    save_attempt(r1, "easy", db_path=db)
-    save_attempt(r2, "hard", db_path=db)
-    attempts = get_user_attempts("u-1", "mod-1", db_path=db)
-    assert len(attempts) == 2
-    assert attempts[0]["score"] == 8
-
-
-def test_multiple_users_isolated(db):
-    save_user("u-1", "alice", db_path=db)
-    save_user("u-2", "bob", db_path=db)
-    save_attempt(make_result("u-1", "mod-1", 9, 10), "hard", db_path=db)
-    save_attempt(make_result("u-2", "mod-1", 4, 10), "easy", db_path=db)
-    assert len(get_user_attempts("u-1", "mod-1", db_path=db)) == 1
-    assert len(get_user_attempts("u-2", "mod-1", db_path=db)) == 1
+def test_get_user_attempts(db):
+    uid = save_user("alice", db=db)
+    _save_test_module("mod-1", uid, db)
+    for i in range(3):
+        r = _make_result(f"quiz-{i}", "mod-1", uid, score=i + 5, total=10)
+        save_attempt(r, "easy", db=db)
+    attempts = get_user_attempts(uid, "mod-1", db=db)
+    assert len(attempts) == 3

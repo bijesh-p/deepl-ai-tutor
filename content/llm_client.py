@@ -1,138 +1,111 @@
 from __future__ import annotations
 
-import json
 import os
-from enum import Enum
-
-
-class Provider(Enum):
-    ANTHROPIC = "anthropic"
-    PORTKEY = "portkey"
+import json
+from typing import Any
 
 
 class LLMClient:
-    """Provider-agnostic LLM client supporting Claude via Anthropic or Portkey.
-
-    All content and quiz modules call this class exclusively — no provider SDK
-    is imported anywhere else in the codebase.
-
-    Configuration via environment variables (see .env.example):
-        AI_TUTOR_LLM_PROVIDER   — "anthropic" or "portkey"
-        AI_TUTOR_LLM_API_KEY    — Anthropic API key (anthropic mode)
-        AI_TUTOR_LLM_MODEL      — Claude model name
-        AI_TUTOR_PORTKEY_API_KEY       — Portkey API key (portkey mode)
-        AI_TUTOR_PORTKEY_VIRTUAL_KEY   — Portkey virtual key (portkey mode)
-    """
+    """Provider-agnostic LLM interface. Phase 1 implements Anthropic only."""
 
     def __init__(
         self,
-        provider: Provider,
-        api_key: str,
-        model: str,
-        portkey_virtual_key: str | None = None,
-    ) -> None:
-        self.provider = provider
-        self.model = model
-        self._client = self._build_client(provider, api_key, portkey_virtual_key)
+        provider: str | None = None,
+        api_key: str | None = None,
+        model: str | None = None,
+    ):
+        self.provider = provider or os.environ.get("AI_TUTOR_LLM_PROVIDER", "anthropic")
+        self.api_key = api_key or os.environ.get("AI_TUTOR_LLM_API_KEY", "")
+        self.model = model or os.environ.get("AI_TUTOR_LLM_MODEL", "claude-sonnet-4-6")
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
+        if self.provider == "anthropic":
+            self._client = self._make_anthropic_client()
+        else:
+            raise ValueError(f"Unsupported LLM provider: {self.provider!r}. Phase 1 supports 'anthropic' only.")
+
+    def _make_anthropic_client(self):
+        import anthropic
+        return anthropic.Anthropic(api_key=self.api_key)
 
     def generate(
         self,
         prompt: str,
         system: str | None = None,
-        response_schema: dict | None = None,
+        tool_schema: dict | None = None,
+        cached_blocks: list[dict] | None = None,
     ) -> str | dict:
-        """Send a prompt and return the response.
+        """Send a prompt and return a plain string or parsed dict (when tool_schema given).
 
-        If response_schema is provided the response is parsed as JSON and
-        returned as a dict; otherwise the raw text string is returned.
-        The system prompt instructs the model to return valid JSON when a
-        schema is supplied.
+        Args:
+            prompt: User-turn content.
+            system: System prompt text.
+            tool_schema: If provided, the LLM is asked to call this tool and
+                         the parsed arguments dict is returned.
+            cached_blocks: Pre-built content blocks with cache_control already
+                           set. When provided, they are prepended to the user
+                           turn so long context is cached across calls.
         """
-        system_prompt = self._build_system(system, response_schema)
-        messages = [{"role": "user", "content": prompt}]
+        if self.provider == "anthropic":
+            return self._generate_anthropic(prompt, system, tool_schema, cached_blocks)
+        raise NotImplementedError(self.provider)
 
-        response = self._client.messages.create(
-            model=self.model,
-            max_tokens=4096,
-            system=system_prompt,
-            messages=messages,
-        )
-        text = response.content[0].text.strip()
-
-        if response_schema is not None:
-            return self._parse_json(text)
-        return text
-
-    # ------------------------------------------------------------------
-    # Factory
-    # ------------------------------------------------------------------
-
-    @classmethod
-    def from_env(cls) -> LLMClient:
-        """Instantiate using environment variables."""
-        provider_str = os.environ.get("AI_TUTOR_LLM_PROVIDER", "anthropic").lower()
-        model = os.environ.get("AI_TUTOR_LLM_MODEL", "claude-opus-4-8")
-
-        if provider_str == "portkey":
-            return cls(
-                provider=Provider.PORTKEY,
-                api_key=os.environ["AI_TUTOR_PORTKEY_API_KEY"],
-                model=model,
-                portkey_virtual_key=os.environ["AI_TUTOR_PORTKEY_VIRTUAL_KEY"],
-            )
-        return cls(
-            provider=Provider.ANTHROPIC,
-            api_key=os.environ["AI_TUTOR_LLM_API_KEY"],
-            model=model,
-        )
-
-    # ------------------------------------------------------------------
-    # Internals
-    # ------------------------------------------------------------------
-
-    def _build_client(
+    def _generate_anthropic(
         self,
-        provider: Provider,
-        api_key: str,
-        portkey_virtual_key: str | None,
-    ):
-        if provider == Provider.ANTHROPIC:
-            import anthropic
-            return anthropic.Anthropic(api_key=api_key)
+        prompt: str,
+        system: str | None,
+        tool_schema: dict | None,
+        cached_blocks: list[dict] | None,
+    ) -> str | dict:
+        import anthropic
 
-        if provider == Provider.PORTKEY:
-            import portkey_ai
-            if not portkey_virtual_key:
-                raise ValueError("portkey_virtual_key is required for Portkey provider")
-            return portkey_ai.Portkey(
-                api_key=api_key,
-                virtual_key=portkey_virtual_key,
-            )
+        # Build user message — prepend cached blocks if supplied
+        user_content: list[dict] | str
+        if cached_blocks:
+            user_content = cached_blocks + [{"type": "text", "text": prompt}]
+        else:
+            user_content = prompt
 
-        raise ValueError(f"Unknown provider: {provider}")
+        kwargs: dict[str, Any] = {
+            "model": self.model,
+            "max_tokens": 8192,
+            "messages": [{"role": "user", "content": user_content}],
+        }
 
-    @staticmethod
-    def _build_system(system: str | None, schema: dict | None) -> str:
-        parts = []
         if system:
-            parts.append(system)
-        if schema is not None:
-            parts.append(
-                "You must respond with valid JSON only — no markdown fences, "
-                "no explanation text, just the raw JSON object or array. "
-                f"The response must conform to this schema:\n{json.dumps(schema, indent=2)}"
-            )
-        return "\n\n".join(parts) if parts else "You are a helpful assistant."
+            kwargs["system"] = [
+                {
+                    "type": "text",
+                    "text": system,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ]
 
-    @staticmethod
-    def _parse_json(text: str) -> dict | list:
-        # Strip markdown fences if the model added them despite instructions
-        cleaned = text.strip()
-        if cleaned.startswith("```"):
-            lines = cleaned.splitlines()
-            cleaned = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-        return json.loads(cleaned)
+        if tool_schema:
+            kwargs["tools"] = [tool_schema]
+            kwargs["tool_choice"] = {"type": "tool", "name": tool_schema["name"]}
+
+        response = self._client.messages.create(**kwargs)
+
+        if response.stop_reason == "max_tokens":
+            raise RuntimeError(
+                f"LLM response was truncated (hit max_tokens={kwargs['max_tokens']}). "
+                "The prompt or expected output may be too large."
+            )
+
+        if tool_schema:
+            for block in response.content:
+                if block.type == "tool_use":
+                    return block.input
+            raise RuntimeError("LLM did not return a tool_use block as expected.")
+
+        return response.content[0].text
+
+    def make_cached_document_blocks(self, text: str) -> list[dict]:
+        """Wrap document text in a cache-control block for reuse across calls."""
+        return [
+            {
+                "type": "text",
+                "text": text,
+                "cache_control": {"type": "ephemeral"},
+            }
+        ]

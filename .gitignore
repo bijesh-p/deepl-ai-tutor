@@ -9,11 +9,13 @@ wheels/
 # Virtual environments
 .venv
 
-# Environment variables
-.env
 
-# Runtime data
+# Runtime data (keep .gitkeep placeholders)
 data/uploads/*
 data/generated/*
+data/ai_tutor.db
 !data/uploads/.gitkeep
 !data/generated/.gitkeep
+
+# Test cache
+.pytest_cache/

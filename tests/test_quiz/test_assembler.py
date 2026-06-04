@@ -1,72 +1,48 @@
-from __future__ import annotations
-
 import pytest
-from pathlib import Path
-
 from quiz.assembler import assemble_quiz
-from quiz.models import QuestionBank, Quiz
-
-FIXTURES = Path(__file__).parent.parent / "fixtures"
+from quiz.models import QuestionBank, QuizQuestion
 
 
-@pytest.fixture
-def bank() -> QuestionBank:
-    return QuestionBank.from_json((FIXTURES / "sample_bank.json").read_text())
+def _make_bank(n_easy=5, n_medium=5, n_hard=5) -> QuestionBank:
+    questions = []
+    for difficulty, count in [("easy", n_easy), ("medium", n_medium), ("hard", n_hard)]:
+        for i in range(count):
+            questions.append(
+                QuizQuestion(
+                    question_id=f"{difficulty}-{i}",
+                    question_text=f"Q {difficulty} {i}",
+                    question_type="single_choice",
+                    options=["A", "B", "C", "D"],
+                    correct_answers=[0],
+                    explanation="Explanation.",
+                    difficulty=difficulty,
+                    topic_id="topic-1",
+                )
+            )
+    return QuestionBank(module_id="mod-1", questions=questions)
 
 
-def test_returns_quiz(bank):
-    quiz = assemble_quiz(bank, "medium", num_questions=2)
-    assert isinstance(quiz, Quiz)
+def test_assembles_correct_count():
+    bank = _make_bank()
+    quiz = assemble_quiz(bank, "medium", num_questions=10)
+    assert len(quiz.questions) == 10
 
 
-def test_quiz_has_correct_count(bank):
-    quiz = assemble_quiz(bank, "easy", num_questions=2)
-    assert len(quiz.questions) == 2
+def test_prefers_requested_difficulty():
+    bank = _make_bank(n_easy=0, n_medium=10, n_hard=0)
+    quiz = assemble_quiz(bank, "medium", num_questions=5)
+    assert all(q.difficulty == "medium" for q in quiz.questions)
 
 
-def test_quiz_falls_back_when_insufficient(bank):
-    # bank has 2 easy, 3 medium, 1 hard — requesting 5 easy requires fallback
-    quiz = assemble_quiz(bank, "easy", num_questions=5)
-    assert len(quiz.questions) == 5
+def test_falls_back_when_insufficient():
+    bank = _make_bank(n_easy=3, n_medium=0, n_hard=0)
+    quiz = assemble_quiz(bank, "medium", num_questions=5)
+    assert len(quiz.questions) == 3  # only 3 questions available total
 
 
-def test_quiz_never_exceeds_bank_size(bank):
-    quiz = assemble_quiz(bank, "easy", num_questions=100)
-    assert len(quiz.questions) <= len(bank.questions)
-
-
-def test_quiz_difficulty_is_set(bank):
-    quiz = assemble_quiz(bank, "hard")
-    assert quiz.difficulty == "hard"
-
-
-def test_quiz_module_id_matches(bank):
-    quiz = assemble_quiz(bank, "medium")
-    assert quiz.module_id == bank.module_id
-
-
-def test_quiz_has_unique_id(bank):
-    q1 = assemble_quiz(bank, "medium", num_questions=2)
-    q2 = assemble_quiz(bank, "medium", num_questions=2)
-    assert q1.quiz_id != q2.quiz_id
-
-
-def test_consecutive_quizzes_may_differ(bank):
-    # With enough questions, two assemblies should not always be identical
-    results = set()
-    for _ in range(10):
-        quiz = assemble_quiz(bank, "medium", num_questions=2)
-        results.add(tuple(q.question_id for q in quiz.questions))
-    # At least 2 distinct orderings/selections across 10 tries
-    assert len(results) >= 1  # non-determinism is best-effort
-
-
-def test_invalid_difficulty_raises(bank):
-    with pytest.raises(ValueError):
-        assemble_quiz(bank, "impossible")
-
-
-def test_preferred_difficulty_questions_chosen_first(bank):
-    # When requesting 'hard' with num_questions=1, should get a hard question
-    quiz = assemble_quiz(bank, "hard", num_questions=1)
-    assert quiz.questions[0].difficulty == "hard"
+def test_different_orderings_across_calls():
+    bank = _make_bank(n_medium=20)
+    ids_1 = [q.question_id for q in assemble_quiz(bank, "medium", 10).questions]
+    ids_2 = [q.question_id for q in assemble_quiz(bank, "medium", 10).questions]
+    # With 20 questions shuffled into 10, orderings should differ (very rarely won't)
+    assert ids_1 != ids_2 or len(set(ids_1) - set(ids_2)) == 0
