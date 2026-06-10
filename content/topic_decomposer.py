@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from content.llm_client import LLMClient
+from content.llm_client import LLMClient, coerce_tool_array, coerce_tool_item
 from content.models import Topic
 from ingestion.models import Document
 
@@ -59,7 +59,8 @@ def decompose(doc: Document, llm: LLMClient) -> list[Topic]:
     section_id_map = {s.title: s.section_id for s in doc.sections}
 
     topics: list[Topic] = []
-    for i, item in enumerate(result["topics"]):
+    for i, item in enumerate(coerce_tool_array(result["topics"])):
+        item = coerce_tool_item(item)
         source_ids = [
             section_id_map[t]
             for t in item["source_section_titles"]
