@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from content.llm_client import LLMClient
+from content.llm_client import LLMClient, coerce_tool_array, coerce_tool_item
 from content.models import LearningModule
 from quiz.models import QuestionBank, QuizQuestion
 
@@ -83,7 +83,8 @@ def generate_question_bank(module: LearningModule, llm: LLMClient) -> QuestionBa
     topic_id_map = {et.topic.title: et.topic.topic_id for et in module.topics}
 
     questions: list[QuizQuestion] = []
-    for q in result["questions"]:
+    for q in coerce_tool_array(result["questions"]):
+        q = coerce_tool_item(q)
         questions.append(
             QuizQuestion(
                 question_id=str(uuid.uuid4()),
