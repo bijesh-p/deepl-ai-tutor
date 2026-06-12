@@ -35,6 +35,17 @@ CREATE TABLE IF NOT EXISTS quiz_attempts (
     completed_at TEXT NOT NULL,
     answers_json TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS topic_mastery (
+    user_id      TEXT NOT NULL REFERENCES users(user_id),
+    module_id    TEXT NOT NULL,
+    topic_id     TEXT NOT NULL,
+    mastered     INTEGER NOT NULL DEFAULT 0,
+    difficulty   TEXT NOT NULL DEFAULT 'medium',
+    attempts     INTEGER NOT NULL DEFAULT 0,
+    last_updated TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, module_id, topic_id)
+);
 """
 
 _MIGRATIONS = [

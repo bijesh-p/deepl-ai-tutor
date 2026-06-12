@@ -57,6 +57,10 @@ def main() -> None:
         from frontend.results_page import render_results_page
         render_results_page(result)
 
+    elif page == "tutor_room":
+        from frontend.tutor_room import render_tutor_room
+        render_tutor_room()
+
     else:
         st.session_state["page"] = "upload"
         st.rerun()

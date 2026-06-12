@@ -43,9 +43,15 @@ def render_module_viewer(module: LearningModule) -> None:
                 _render_inline_questions(et.topic.topic_id, et.inline_questions)
 
     st.markdown("---")
-    if st.button("Take the Quiz", type="primary"):
-        st.session_state["page"] = "quiz"
-        st.rerun()
+    col_quiz, col_tutor = st.columns(2)
+    with col_quiz:
+        if st.button("Take the Quiz", type="primary"):
+            st.session_state["page"] = "quiz"
+            st.rerun()
+    with col_tutor:
+        if st.button("Start Adaptive Tutor"):
+            st.session_state["page"] = "tutor_room"
+            st.rerun()
 
 
 def _render_inline_questions(topic_id: str, questions: list[Question]) -> None:
