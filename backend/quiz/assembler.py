@@ -4,7 +4,7 @@ import random
 import uuid
 from datetime import datetime, timezone
 
-from quiz.models import Quiz, QuestionBank, QuizQuestion
+from backend.quiz.models import Quiz, QuestionBank, QuizQuestion
 
 _DIFFICULTY_ORDER = ["easy", "medium", "hard"]
 

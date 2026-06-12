@@ -1,6 +1,6 @@
 import pytest
-from quiz.assembler import assemble_quiz
-from quiz.models import QuestionBank, QuizQuestion
+from backend.quiz.assembler import assemble_quiz
+from backend.quiz.models import QuestionBank, QuizQuestion
 
 
 def _make_bank(n_easy=5, n_medium=5, n_hard=5) -> QuestionBank:

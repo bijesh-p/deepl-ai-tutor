@@ -1,4 +1,4 @@
-from content.models import (
+from backend.content.models import (
     Topic, Diagram, Question, EnrichedTopic, LearningModule
 )
 

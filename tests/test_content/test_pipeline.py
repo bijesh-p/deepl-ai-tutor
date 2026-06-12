@@ -1,8 +1,8 @@
 import uuid
 import pytest
-from ingestion.models import Document, Section, SourceType
-from content.pipeline import run_pipeline
-from content.models import LearningModule
+from backend.ingestion.models import Document, Section, SourceType
+from backend.content.pipeline import run_pipeline
+from backend.content.models import LearningModule
 
 
 class MockLLMClient:

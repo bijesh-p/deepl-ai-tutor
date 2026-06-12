@@ -1,4 +1,4 @@
-from quiz.models import (
+from backend.quiz.models import (
     QuizQuestion, QuestionBank, Quiz, AnswerResult, QuizResult
 )
 

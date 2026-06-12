@@ -15,33 +15,19 @@ st.set_page_config(
     layout="wide",
 )
 
-_AUTHENTICATED_PAGES = {"admin_upload", "module_library", "learn", "quiz", "results"}
-
 
 def main() -> None:
     if "page" not in st.session_state:
-        st.session_state["page"] = "login"
+        st.session_state["page"] = "upload"
 
     page = st.session_state["page"]
 
-    # Redirect unauthenticated access to login
-    if page in _AUTHENTICATED_PAGES and "user_id" not in st.session_state:
-        st.session_state["page"] = "login"
-        st.rerun()
-
-    page = st.session_state["page"]
-
-    if page == "login":
-        from frontend.login_page import render_login_page
-        render_login_page()
-
-    elif page == "admin_upload":
-        from frontend.admin_upload_page import render_admin_upload_page
-        render_admin_upload_page()
+    if page == "upload":
+        from frontend.upload_page import render_upload_page
+        render_upload_page()
 
     elif page == "module_library":
         if st.session_state.get("module") is None:
-            # Clear any stale learn/quiz state when returning to library
             for key in ("module", "bank", "quiz", "quiz_answers", "quiz_result", "quiz_difficulty"):
                 st.session_state.pop(key, None)
         from frontend.module_library_page import render_module_library_page
@@ -72,7 +58,7 @@ def main() -> None:
         render_results_page(result)
 
     else:
-        st.session_state["page"] = "login"
+        st.session_state["page"] = "upload"
         st.rerun()
 
 

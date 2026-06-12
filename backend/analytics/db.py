@@ -10,7 +10,6 @@ _SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
     user_id    TEXT PRIMARY KEY,
     username   TEXT NOT NULL UNIQUE,
-    role       TEXT NOT NULL DEFAULT 'user',
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -38,10 +37,7 @@ CREATE TABLE IF NOT EXISTS quiz_attempts (
 );
 """
 
-# Forward-compatible migrations — each runs once; SQLite raises OperationalError
-# if the column already exists, which we catch and ignore.
 _MIGRATIONS = [
-    "ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'",
     "ALTER TABLE modules ADD COLUMN module_json TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE modules ADD COLUMN created_by TEXT NOT NULL DEFAULT ''",
 ]

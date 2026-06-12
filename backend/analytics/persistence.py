@@ -5,13 +5,12 @@ import sqlite3
 import uuid
 from dataclasses import asdict
 
-from analytics.db import get_db
-from quiz.models import QuizResult
+from backend.analytics.db import get_db
+from backend.quiz.models import QuizResult
 
 
 def save_user(
     username: str,
-    role: str = "user",
     db: sqlite3.Connection | None = None,
 ) -> str:
     """Upsert a user by username and return their user_id."""
@@ -23,8 +22,8 @@ def save_user(
         return row["user_id"]
     user_id = str(uuid.uuid4())
     conn.execute(
-        "INSERT INTO users (user_id, username, role) VALUES (?, ?, ?)",
-        (user_id, username, role),
+        "INSERT INTO users (user_id, username) VALUES (?, ?)",
+        (user_id, username),
     )
     conn.commit()
     return user_id

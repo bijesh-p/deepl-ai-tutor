@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from content.llm_client import LLMClient
-from content.models import EnrichedTopic, Topic
-from ingestion.models import Document
+from backend.content.llm_client import LLMClient
+from backend.content.models import EnrichedTopic, Topic
+from backend.ingestion.models import Document
 
 _TOOL_SCHEMA = {
     "name": "return_enriched_topic",

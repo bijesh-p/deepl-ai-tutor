@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import streamlit as st
-from analytics.models import ModuleStats
-from analytics.stats import get_module_stats
-from analytics.db import get_db
-from quiz.models import QuizResult
+from backend.analytics.models import ModuleStats
+from backend.analytics.stats import get_module_stats
+from backend.analytics.db import get_db
+from backend.quiz.models import QuizResult
 
 
 def render_results_page(result: QuizResult) -> None:

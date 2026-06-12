@@ -9,16 +9,16 @@ from datetime import datetime, timezone
 
 import streamlit as st
 
-from analytics.db import get_db
-from analytics.persistence import save_module, save_user
-from content.content_enricher import enrich
-from content.diagram_generator import generate_diagrams
-from content.inline_question_gen import generate_inline_questions
-from content.llm_client import LLMClient
-from content.models import LearningModule
-from content.topic_decomposer import decompose, _format_sections
-from ingestion.pdf_parser import parse_pdf
-from quiz.question_bank import generate_question_bank
+from backend.analytics.db import get_db
+from backend.analytics.persistence import save_module, save_user
+from backend.content.content_enricher import enrich
+from backend.content.diagram_generator import generate_diagrams
+from backend.content.inline_question_gen import generate_inline_questions
+from backend.content.llm_client import LLMClient
+from backend.content.models import LearningModule
+from backend.content.topic_decomposer import decompose, _format_sections
+from backend.ingestion.pdf_parser import parse_pdf
+from backend.quiz.question_bank import generate_question_bank
 
 
 def render_upload_page() -> None:
@@ -114,7 +114,15 @@ def render_upload_page() -> None:
             st.write("💾 Step 6 / 6 — Saving to database…")
             db = get_db()
             user_id = save_user(username.strip(), db=db)
-            save_module(module, question_bank_json=json.dumps(_bank_to_dict(bank)), db=db)
+            save_module(
+                module_id=module.module_id,
+                title=module.title,
+                source_filename=doc.source_filename,
+                module_json=module.to_json(),
+                question_bank_json=json.dumps(_bank_to_dict(bank)),
+                created_by=user_id,
+                db=db,
+            )
             st.write("✅ Saved!")
 
             status.update(label="✅ Module ready! Loading learning view…", state="complete")

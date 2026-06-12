@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import uuid
-from content.llm_client import LLMClient
-from content.models import Diagram, EnrichedTopic
+from backend.content.llm_client import LLMClient
+from backend.content.models import Diagram, EnrichedTopic
 
 _TOOL_SCHEMA = {
     "name": "return_diagram",

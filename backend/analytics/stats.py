@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import sqlite3
-from analytics.db import get_db
-from analytics.models import ModuleStats
+from backend.analytics.db import get_db
+from backend.analytics.models import ModuleStats
 
 
 def get_module_stats(module_id: str, user_id: str, db: sqlite3.Connection | None = None) -> ModuleStats:

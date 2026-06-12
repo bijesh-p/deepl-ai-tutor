@@ -5,9 +5,9 @@ from pathlib import Path
 
 import streamlit as st
 
-from content.models import LearningModule
-from quiz.models import QuestionBank, QuizResult, AnswerResult
-from analytics.models import ModuleStats
+from backend.content.models import LearningModule
+from backend.quiz.models import QuestionBank, QuizResult, AnswerResult
+from backend.analytics.models import ModuleStats
 
 FIXTURES = Path(__file__).parent.parent / "tests" / "fixtures"
 

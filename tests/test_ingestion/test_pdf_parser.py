@@ -1,7 +1,7 @@
 from pathlib import Path
 import pytest
-from ingestion.pdf_parser import parse_pdf
-from ingestion.models import SourceType
+from backend.ingestion.pdf_parser import parse_pdf
+from backend.ingestion.models import SourceType
 
 FIXTURE = Path(__file__).parent.parent / "fixtures" / "sample.pdf"
 
@@ -30,7 +30,7 @@ def test_section_body_non_empty():
 
 
 def test_roundtrip_json():
-    from ingestion.models import Document
+    from backend.ingestion.models import Document
     doc = parse_pdf(str(FIXTURE))
     restored = Document.from_json(doc.to_json())
     assert restored.doc_id == doc.doc_id

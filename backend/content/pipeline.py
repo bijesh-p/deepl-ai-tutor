@@ -3,13 +3,13 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from content.content_enricher import enrich
-from content.diagram_generator import generate_diagrams
-from content.inline_question_gen import generate_inline_questions
-from content.llm_client import LLMClient
-from content.models import LearningModule
-from content.topic_decomposer import decompose, _format_sections
-from ingestion.models import Document
+from backend.content.content_enricher import enrich
+from backend.content.diagram_generator import generate_diagrams
+from backend.content.inline_question_gen import generate_inline_questions
+from backend.content.llm_client import LLMClient
+from backend.content.models import LearningModule
+from backend.content.topic_decomposer import decompose, _format_sections
+from backend.ingestion.models import Document
 
 
 def run_pipeline(doc: Document, llm: LLMClient) -> LearningModule:

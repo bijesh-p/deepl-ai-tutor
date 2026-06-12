@@ -1,7 +1,7 @@
 import uuid
 import pytest
-from ingestion.models import Document, Section, SourceType
-from content.topic_decomposer import decompose
+from backend.ingestion.models import Document, Section, SourceType
+from backend.content.topic_decomposer import decompose
 
 
 class MockLLMClient:

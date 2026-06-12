@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import uuid
-from content.llm_client import LLMClient
-from content.models import Topic
-from ingestion.models import Document
+from backend.content.llm_client import LLMClient
+from backend.content.models import Topic
+from backend.ingestion.models import Document
 
 _TOOL_SCHEMA = {
     "name": "return_topics",

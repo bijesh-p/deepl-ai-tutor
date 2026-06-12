@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import streamlit as st
-from content.models import LearningModule, Question
+from backend.content.models import LearningModule, Question
 
 try:
     from streamlit_mermaid import st_mermaid

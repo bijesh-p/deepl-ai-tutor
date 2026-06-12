@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import uuid
-from content.llm_client import LLMClient
-from content.models import LearningModule
-from quiz.models import QuestionBank, QuizQuestion
+from backend.content.llm_client import LLMClient
+from backend.content.models import LearningModule
+from backend.quiz.models import QuestionBank, QuizQuestion
 
 _TOOL_SCHEMA = {
     "name": "return_question_bank",

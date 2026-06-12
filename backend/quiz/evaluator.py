@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from quiz.models import AnswerResult, Quiz, QuizResult
+from backend.quiz.models import AnswerResult, Quiz, QuizResult
 
 
 def evaluate(quiz: Quiz, user_answers: dict[str, list[int]], user_id: str) -> QuizResult:

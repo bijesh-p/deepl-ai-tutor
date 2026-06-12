@@ -5,7 +5,7 @@ from pathlib import Path
 
 import fitz  # PyMuPDF
 
-from ingestion.models import Document, Section, SourceType
+from backend.ingestion.models import Document, Section, SourceType
 
 _DEFAULT_MAX_PAGES = 4
 

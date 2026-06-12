@@ -5,7 +5,7 @@ from pathlib import Path
 
 import fitz  # PyMuPDF
 
-from ingestion.models import ExtractedImage
+from backend.ingestion.models import ExtractedImage
 
 
 def extract_images(
