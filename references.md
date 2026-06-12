@@ -2,31 +2,56 @@
 
 ## Document Parsing
 
-- [PyMuPDF Documentation](https://pymupdf.readthedocs.io/) — Python bindings for MuPDF; used for PDF text extraction and TOC parsing in `ingestion/pdf_parser.py`.
+- [PyMuPDF Documentation](https://pymupdf.readthedocs.io/) — Python bindings for MuPDF; used for PDF text extraction and TOC parsing in `backend/ingestion/pdf_parser.py`.
 - [PyMuPDF GitHub](https://github.com/pymupdf/PyMuPDF) — Source and issue tracker.
 
 ## LLM Integration
 
-- [Anthropic Python SDK](https://github.com/anthropic/anthropic-sdk-python) — Official SDK used in `content/llm_client.py`.
+- [Anthropic Python SDK](https://github.com/anthropic/anthropic-sdk-python) — Official SDK used in `backend/core/llm_client/adapters/anthropic_adapter.py`.
 - [Anthropic API Docs — Tool Use](https://docs.anthropic.com/en/docs/tool-use) — Structured output via tool-use; used for all LLM calls to get typed JSON responses.
-- [Anthropic API Docs — Prompt Caching](https://docs.anthropic.com/en/docs/prompt-caching) — Cache control on system prompt and document blocks to reduce token costs on repeated enrichment calls.
-- [Claude Model Overview](https://docs.anthropic.com/en/docs/models-overview) — Model IDs and capabilities; Phase 1 uses `claude-sonnet-4-6`.
+- [Anthropic API Docs — Prompt Caching](https://docs.anthropic.com/en/docs/prompt-caching) — Cache control on system prompt and document blocks to reduce token costs.
+- [Portkey AI](https://docs.portkey.ai/) — AI gateway for LLM routing; used in `backend/core/llm_client/adapters/portkey_adapter.py`.
+- [Ollama](https://ollama.com/) — Local LLM runner with OpenAI-compatible endpoint; used in `backend/core/llm_client/adapters/ollama_adapter.py`.
+- [OpenAI Python SDK](https://github.com/openai/openai-python) — Used for Ollama's OpenAI-compatible function calling interface.
+
+## Multi-Agent Orchestration
+
+- [CrewAI Documentation](https://docs.crewai.com/) — Multi-agent orchestration framework; powers the 3-agent sequential content pipeline in `backend/content_factory/`.
+- [CrewAI GitHub](https://github.com/crewAIInc/crewAI) — Source and issue tracker.
+- [CrewAI Tools](https://docs.crewai.com/concepts/tools) — Tool integration for CrewAI agents, including MCP server tool access.
+
+## Adaptive Tutoring
+
+- [LangGraph Documentation](https://langchain-ai.github.io/langgraph/) — State machine framework for building agent workflows; powers the 5-node interactive tutor in `backend/interactive_tutor/`.
+- [LangGraph GitHub](https://github.com/langchain-ai/langgraph) — Source and issue tracker.
+- [LangGraph Checkpoint SQLite](https://langchain-ai.github.io/langgraph/reference/checkpoints/) — SqliteSaver for persisting tutor session state.
+
+## Model Context Protocol (MCP)
+
+- [MCP Specification](https://modelcontextprotocol.io/) — Protocol for LLM tool access; three MCP servers in `mcp_servers/`.
+- [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk) — Python SDK for building MCP servers and clients.
+
+## Vector Store & Embeddings
+
+- [ChromaDB Documentation](https://docs.trychroma.com/) — Embedding database for semantic search over document chunks in `mcp_servers/storage_server/`.
+- [ChromaDB GitHub](https://github.com/chroma-core/chroma) — Source and issue tracker.
+- [Sentence Transformers](https://www.sbert.net/) — Framework for sentence embeddings; uses `all-MiniLM-L6-v2` model.
+- [all-MiniLM-L6-v2 on HuggingFace](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) — Lightweight embedding model (384 dimensions, 22M params).
 
 ## Frontend
 
 - [Streamlit Documentation](https://docs.streamlit.io/) — Python web framework powering all UI pages.
-- [streamlit-mermaid](https://github.com/jhavens1566/streamlit-mermaid) — Streamlit component for rendering Mermaid diagrams client-side in `frontend/module_viewer.py`.
-- [Mermaid Diagram Syntax](https://mermaid.js.org/intro/) — Diagram-as-code DSL; diagrams are generated as Mermaid code strings by the LLM.
+- [streamlit-mermaid](https://github.com/jhavens1566/streamlit-mermaid) — Streamlit component for rendering Mermaid diagrams.
+- [Mermaid Diagram Syntax](https://mermaid.js.org/intro/) — Diagram-as-code DSL; diagrams generated as Mermaid code by the LLM.
 
 ## Data & Storage
 
-- [Python sqlite3 stdlib](https://docs.python.org/3/library/sqlite3.html) — Standard library SQLite interface used in `analytics/db.py`.
-- [Python dataclasses](https://docs.python.org/3/library/dataclasses.html) — Used for all data models across all five work streams.
+- [Python sqlite3 stdlib](https://docs.python.org/3/library/sqlite3.html) — Standard library SQLite interface used in `backend/analytics/db.py`.
+- [Python dataclasses](https://docs.python.org/3/library/dataclasses.html) — Used for all data models.
 
 ## Package Management
 
 - [uv Documentation](https://docs.astral.sh/uv/) — Fast Python package and project manager; replaces pip + venv.
-- [uv GitHub](https://github.com/astral-sh/uv) — Source and issue tracker.
 
 ## Testing
 
