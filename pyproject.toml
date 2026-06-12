@@ -7,6 +7,8 @@ requires-python = ">=3.14"
 dependencies = [
     "anthropic>=0.105.2",
     "chromadb>=1.5.9",
+    "crewai>=0.118.0",
+    "crewai-tools>=0.76.0",
     "mcp[cli]>=1.27.2",
     "openai>=2.41.1",
     "portkey-ai>=2.3.1",
