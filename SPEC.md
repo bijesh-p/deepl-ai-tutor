@@ -1,37 +1,69 @@
 # SPEC.md — AI Tutor System Specification
 
-> **Version:** 0.3 (Role-based access + persistent module library)
-> **Last updated:** 2026-06-03
+> **Version:** 0.4 (Multi-LLM + MCP Servers + CrewAI Content Factory + LangGraph Adaptive Tutor)
+> **Last updated:** 2026-06-09
 
 ---
 
 ## 0. Release Phases
 
-The project is delivered in two phases to de-risk the LLM integration and end-to-end pipeline before broadening format support.
+| Phase | Name | Status | Key additions |
+|-------|------|--------|---------------|
+| 1 | PDF POC | ✅ Complete | Single-provider LLM, persistent module library |
+| 2 | Platform Upgrade | 🔲 Next | Multi-LLM factory, MCP servers, CrewAI content generation, ChromaDB |
+| 3 | Adaptive Tutor | 🔲 Future | LangGraph interactive tutor, adaptive difficulty, hints, mastery tracking |
 
-### Phase 1 — PDF POC (current)
+---
 
-**Goal:** A fully working, end-to-end application using **PDF as the only input format**. All five work streams must be functional and integrated. This phase proves the pipeline works and introduces role-based access with a persistent module library.
+### Phase 1 — PDF POC ✅ COMPLETE
 
-**Scope constraints:**
-- Input: `.pdf` files only (PPTX and DOCX parsers are deferred to Phase 2)
-- LLM provider: Anthropic Claude (via `anthropic` SDK) — single provider for POC
-- Diagram type: Mermaid only (no extracted-image diagrams)
-- Deployment: local Streamlit run (`streamlit run app.py`)
-- **Two roles: Admin and User** (simple password for admin, username-only for users)
-- PDF content capped at first 4 pages for POC to keep LLM calls fast
+Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit frontend.
 
-**Definition of done for Phase 1:**
-- [ ] Admin logs in, uploads a PDF, and generates a learning module that is saved persistently
-- [ ] Generated module and its question bank are stored in the database and reusable
-- [ ] User logs in, browses the module library, selects a module, and works through it
-- [ ] User can take a quiz at selectable difficulty and see their score
-- [ ] Score is persisted; results page shows cohort min/max/avg comparison
-- [ ] Full flow (Admin generates → User consumes) runs without errors
+**Definition of done:** ✅ All items delivered.
 
-### Phase 2 — Full Format Support (future)
+---
 
-Adds PPTX and DOCX parsing, multi-provider LLM support, and extracted-image diagram rendering. Spec sections for these are already written below and serve as the future target.
+### Phase 2 — Platform Upgrade (next)
+
+**Goal:** Refactor the backend into a clean layered architecture — MCP tool servers, a multi-provider LLM factory, and a CrewAI-powered content generation crew. Adds ChromaDB for semantic retrieval and Portkey/Ollama as switchable LLM backends. Frontend retains all existing pages and styles.
+
+**Scope:**
+- Directory restructure: `backend/` + `mcp_servers/` as top-level packages
+- LLM abstraction: strategy + factory pattern (`base.py`, `factory.py`, `adapters/`)
+- MCP servers: `document_server`, `assessment_server`, `storage_server`
+- Content generation replaced by CrewAI crew (`backend/content_factory/`) — 3 agents, sequential
+- ChromaDB vector store for document chunks (`all-MiniLM-L6-v2`)
+- Frontend: no admin/user separation; any user can upload and generate
+
+**Definition of done for Phase 2:**
+- [ ] `LLMFactory.create("portkey" | "ollama" | "anthropic")` returns a working client
+- [ ] Three MCP servers each expose their tools and can be called via `mcp_client.py`
+- [ ] CrewAI crew (3 agents) produces a `LearningModule` equivalent to Phase 1 output
+- [ ] ChromaDB stores and retrieves document chunks by semantic similarity
+- [ ] Upload page works end-to-end with the new CrewAI backend
+- [ ] All existing Streamlit pages (module library, learn, quiz, results) work unchanged
+
+---
+
+### Phase 3 — Adaptive Tutor (future)
+
+**Goal:** Replace the static learn → quiz → results flow with a LangGraph-powered conversational tutor that adapts in real time — adjusting difficulty, offering hints, and tracking topic mastery.
+
+**Scope:**
+- `backend/interactive_tutor/` — LangGraph state machine (5 nodes, conditional router)
+- New frontend page: `tutor_room.py` (chat-style UI driven by `GraphState`)
+- Mastery tracking persisted to SQLite via `SqliteSaver` checkpointer
+- Targeted hint generation when student struggles (LLM-generated, tailored to specific error)
+- Foundation simplification when student is stuck after max attempts
+
+**Definition of done for Phase 3:**
+- [ ] LangGraph graph compiles and executes the full `present_concept → ask_question → evaluate_response → (hint | simplify | next)` loop
+- [ ] `GraphState` correctly tracks `attempts`, `concept_mastered`, and `mastered_concepts` per user
+- [ ] Tutor Room page shows chat-style interaction and mastery progress
+- [ ] `evaluate_response` identifies specific misconceptions, not just binary right/wrong
+- [ ] `provide_hint` generates hints tailored to the student's specific error
+- [ ] `simplify_foundations` breaks concept into building blocks after 3 failed attempts
+- [ ] All mastery state is persisted so sessions can resume
 
 ---
 
@@ -39,859 +71,701 @@ Adds PPTX and DOCX parsing, multi-provider LLM support, and extracted-image diag
 
 ### 1.1 Problem
 
-Static documents (PDFs, PowerPoint slides, Word docs) lead to passive learning and poor knowledge retention. Manually creating interactive learning content is expensive and hard to scale.
+Static documents (PDFs, PowerPoint slides, Word docs) lead to passive learning and poor retention. Manually creating adaptive, interactive learning content is expensive, slow to update, and impossible to personalise at scale.
 
 ### 1.2 Solution
 
-AI Tutor is a web application that transforms uploaded documents into interactive learning modules. It decomposes content into sub-topics, generates diagrams, embeds inline questions, and provides end-of-module quizzes with difficulty selection, randomization, and performance analytics.
+AI Tutor is a web platform that transforms uploaded documents into interactive, adaptive learning experiences:
 
-The system operates with two distinct roles:
+1. **Any user** uploads a PDF → CrewAI multi-agent crew (3 agents, sequential) generates a structured learning module and stores it persistently.
+2. **Users** browse the module library → work through enriched content and take quizzes.
+3. **Adaptive Tutor** (Phase 3) watches user responses and adjusts difficulty, provides targeted hints, simplifies foundations when students are stuck, and tracks topic mastery via a LangGraph state machine (5 nodes, conditional routing).
 
-| Role | Responsibilities |
-|------|-----------------|
-| **Admin** | Logs in with a password, uploads PDFs, triggers AI module generation, publishes modules to the library |
-| **User** | Logs in with a username, browses the module library, selects content to learn, takes quizzes, views their analytics |
+### 1.3 High-Level Architecture
 
-Generated modules and their question banks are **persisted in the database** and reused for every subsequent learner — the LLM is only called once per document, at generation time by the admin.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed diagrams. Summary:
+
+```
+Streamlit Frontend
+    ├── Upload & Generate ──→ CrewAI Crew (3 agents) ──→ SQLite + ChromaDB
+    ├── Module Library / Viewer / Quiz / Results ──→ SQLite
+    └── Tutor Room (Phase 3) ──→ LangGraph Graph (5 nodes) ──→ SQLite + ChromaDB
+                                                     ↕
+                                              MCP Tool Servers
+                                              (document, assessment, storage)
+                                                     ↕
+                                               LLMFactory
+                                         (anthropic | portkey | ollama)
+```
+
+### 1.5 Tech Stack
+
+| Layer | Technology | Phase |
+|---|---|---|
+| Frontend | Streamlit (multi-page) | 1+ |
+| Content generation | CrewAI | 2 |
+| Adaptive tutor | LangGraph | 3 |
+| LLM providers | Anthropic SDK, Portkey, Ollama (OpenAI-compat) | 1 / 2 / 2 |
+| Tool protocol | MCP (Model Context Protocol) | 2 |
+| Vector store | ChromaDB + `sentence-transformers` (`all-MiniLM-L6-v2`) | 2 |
+| Relational DB | SQLite (`sqlite3` stdlib) | 1+ |
+| Document parsing | PyMuPDF (PDF only in Phase 2) | 1+ |
+| Diagrams | Mermaid (LLM-generated) | 1+ |
+| Package manager | `uv` | 1+ |
+| Python | 3.14+ | 1+ |
 
 ---
 
-### 1.3 User Flows
-
-**Admin flow:**
-```
-Admin Login → Upload PDF → Generate Module (LLM pipeline) → Module saved to DB → Module appears in library
-```
-
-**User flow:**
-```
-User Login → Module Library → Select Module → Learn (topics + inline Qs) → Take Quiz → Results & Analytics
-```
-
-### 1.4 Tech Stack
-
-| Layer              | Technology                                                         |
-| ------------------ | ------------------------------------------------------------------ |
-| Frontend           | Streamlit (Python)                                                 |
-| Backend            | Python modules called directly from Streamlit                      |
-| LLM                | Anthropic Claude (Phase 1); abstraction layer allows adding others |
-| Database           | SQLite (via `sqlite3` stdlib)                                      |
-| Document parsing   | `PyMuPDF` (PDF) — Phase 1 only; PPTX/DOCX added in Phase 2       |
-| Diagram generation | Mermaid (via LLM-generated code)                                   |
-| Package manager    | `uv`                                                               |
-| Python version     | 3.14+                                                              |
-
-### 1.5 High-Level Data Flow
+## 2. Directory Structure
 
 ```
-┌─────────────┐     ┌──────────────────┐     ┌───────────────────┐
-│  User        │     │  Stream 1:       │     │  Stream 2:        │
-│  uploads     │────▶│  Document        │────▶│  Content          │
-│  PDF         │     │  Ingestion       │     │  Generation       │
-│  (Phase 1)   │     │  Pipeline        │     │  Engine           │
-└─────────────┘     └──────────────────┘     └───────────────────┘
-                                                      │
-                                                      ▼
-┌─────────────┐     ┌──────────────────┐     ┌───────────────────┐
-│  Stream 5:   │◀───│  Stream 4:       │◀───│  Stream 3:        │
-│  Frontend    │     │  Data &          │     │  Quiz             │
-│  (Streamlit) │     │  Analytics       │     │  Engine           │
-└─────────────┘     └──────────────────┘     └───────────────────┘
-```
-
-### 1.6 Project Directory Structure
-
-```
-course_project/
-├── app.py                      # Streamlit entry point
+ai-tutor-platform/
+│
+├── .env.example                        # All env var templates
+├── README.md                           # Setup, architecture, quickstart
+├── pyproject.toml                      # Unified dependencies (uv)
 ├── SPEC.md
 ├── CLAUDE.md
-├── pyproject.toml
-├── README.md
-├── references.md
 │
-├── ingestion/                  # Work Stream 1
-│   ├── __init__.py
-│   ├── pdf_parser.py
-│   ├── pptx_parser.py
-│   ├── docx_parser.py
-│   ├── image_extractor.py
-│   └── models.py               # Unified Document Model (dataclasses)
+├── mcp_servers/                        # TOOL LAYER — MCP microservices
+│   ├── README.md                       # How to run each server standalone
+│   ├── document_server.py              # Tools: extract_text_from_pdf, parse_images
+│   ├── assessment_server.py            # Tools: validate_json_schema, evaluate_taxonomy
+│   └── storage_server.py              # Tools: upsert_to_vector_db, save_module_to_db
 │
-├── content/                    # Work Stream 2
-│   ├── __init__.py
-│   ├── llm_client.py           # LLM abstraction layer
-│   ├── topic_decomposer.py
-│   ├── content_enricher.py
-│   ├── diagram_generator.py
-│   └── inline_question_gen.py
+├── backend/                            # CORE LOGIC LAYER
+│   ├── core/
+│   │   ├── __init__.py
+│   │   ├── mcp_client.py              # Helper to discover and call MCP tools
+│   │   └── llm_client/               # Provider factory + adapters
+│   │       ├── __init__.py
+│   │       ├── base.py               # Abstract BaseLLMClient
+│   │       ├── factory.py            # LLMFactory.create(provider) -> BaseLLMClient
+│   │       └── adapters/
+│   │           ├── __init__.py
+│   │           ├── anthropic_adapter.py
+│   │           ├── portkey_adapter.py
+│   │           └── ollama_adapter.py
+│   │
+│   ├── ingestion/                     # Document parsers (moved from top-level)
+│   │   ├── __init__.py
+│   │   ├── models.py                  # Document, Section, ExtractedImage dataclasses
+│   │   ├── pdf_parser.py
+│   │   ├── pptx_parser.py             # Phase 2
+│   │   ├── docx_parser.py             # Phase 2
+│   │   └── image_extractor.py
+│   │
+│   ├── content/                       # Content models + legacy pipeline (Phase 1 compat)
+│   │   ├── __init__.py
+│   │   └── models.py                  # LearningModule, EnrichedTopic, Topic, Diagram, Question
+│   │
+│   ├── content_factory/               # CONTENT GENERATION — CrewAI crew
+│   │   ├── __init__.py
+│   │   ├── agents.py                  # Agent definitions (roles, goals, backstories)
+│   │   ├── tasks.py                   # Task sequences: Ingest → Outline → Enrich → Quiz
+│   │   ├── crew.py                    # Assembles and runs the crew
+│   │   └── pipeline.py                # Public entry point: run_pipeline(file_path) -> LearningModule
+│   │
+│   ├── interactive_tutor/             # ADAPTIVE TUTOR — LangGraph
+│   │   ├── __init__.py
+│   │   ├── state.py                   # GraphState TypedDict
+│   │   ├── nodes.py                   # 5 nodes: present_concept, ask_question, evaluate_response, provide_hint, simplify_foundations
+│   │   └── graph.py                   # Compile graph with conditional router
+│   │
+│   ├── quiz/                          # Quiz engine (unchanged from Phase 1)
+│   │   ├── __init__.py
+│   │   ├── models.py
+│   │   ├── question_bank.py
+│   │   ├── difficulty.py
+│   │   ├── assembler.py
+│   │   └── evaluator.py
+│   │
+│   └── analytics/                     # Persistence + stats (unchanged from Phase 1)
+│       ├── __init__.py
+│       ├── db.py
+│       ├── models.py
+│       ├── persistence.py
+│       └── stats.py
 │
-├── quiz/                       # Work Stream 3
-│   ├── __init__.py
-│   ├── question_bank.py
-│   ├── difficulty.py
-│   ├── assembler.py
-│   └── evaluator.py
+├── frontend/                          # PRESENTATION LAYER
+│   ├── app.py                         # Entry point, session init, router
+│   ├── upload_page.py                 # Upload PDF + trigger CrewAI generation
+│   ├── module_library_page.py
+│   ├── module_viewer.py
+│   ├── quiz_page.py
+│   ├── results_page.py
+│   ├── demo_mode.py
+│   ├── tutor_room.py                  # Adaptive tutor chat UI (Phase 3)
+│   └── utils/
+│       └── session_manager.py         # Bridges GraphState ↔ st.session_state
 │
-├── analytics/                  # Work Stream 4
-│   ├── __init__.py
-│   ├── db.py                   # Schema + connection management
-│   ├── persistence.py          # Save/load quiz results
-│   └── stats.py                # Compute min/max/avg
-│
-├── frontend/                   # Work Stream 5
-│   ├── __init__.py
-│   ├── login_page.py           # Shared login: admin (password) or user (username)
-│   ├── admin_upload_page.py    # Admin: upload PDF + trigger generation
-│   ├── module_library_page.py  # User: browse and select published modules
-│   ├── module_viewer.py        # User: read topics + answer inline questions
-│   ├── quiz_page.py            # User: take quiz
-│   └── results_page.py        # User: view score + cohort analytics
-│
-├── tests/                      # Mirrors the above structure
+├── tests/
 │   ├── test_ingestion/
 │   ├── test_content/
 │   ├── test_quiz/
 │   ├── test_analytics/
-│   └── fixtures/               # Sample PDF, PPTX, DOCX for testing
+│   ├── test_llm_client/
+│   ├── test_mcp/
+│   └── fixtures/
+│       ├── sample.pdf
+│       ├── sample_document.json
+│       ├── sample_module.json
+│       ├── sample_bank.json
+│       ├── sample_result.json
+│       └── sample_stats.json
 │
-└── data/                       # Runtime data (gitignored)
-    ├── uploads/                # Uploaded files
-    ├── generated/              # Generated module JSON
-    └── ai_tutor.db             # SQLite database
+└── data/                              # Runtime data (gitignored)
+    ├── uploads/
+    ├── generated/
+    ├── ai_tutor.db
+    └── chroma/                        # ChromaDB persistent store
 ```
 
 ---
 
-## 2. Work Stream 1: Document Ingestion Pipeline
+## 3. MCP Tool Servers
 
-### 2.1 Goal
+MCP servers are standalone processes that expose tools over the Model Context Protocol. Agents (CrewAI, LangGraph) discover and call these tools through `backend/core/mcp_client.py`. This decouples tool logic from the orchestration layer — a tool can be called by a CrewAI agent, a LangGraph node, or a plain Python function without changing its implementation.
 
-Parse uploaded documents into a unified structured representation that downstream modules can consume without knowing the original file format.
+### 3.1 document_server (`mcp_servers/document_server.py`)
 
-**Phase 1 scope:** PDF only. The `Document` model and interface contract are defined for all formats so that adding PPTX/DOCX parsers in Phase 2 requires no changes downstream.
+**Purpose:** All document I/O operations. Called by the Information Architect agent.
 
-### 2.2 Subtasks
+| Tool | Signature | Description |
+|---|---|---|
+| `extract_text_from_pdf` | `(file_path: str, max_pages: int) -> list[SectionDict]` | Parse PDF, return sections with title + body |
+| `parse_images` | `(file_path: str, output_dir: str) -> list[ImageDict]` | Extract embedded images, save as PNG |
 
-#### 2.2.1 PDF Parser (`ingestion/pdf_parser.py`)
+### 3.2 assessment_server (`mcp_servers/assessment_server.py`)
 
-- **Scope:** Extract text (preserving heading/paragraph structure), embedded images, and page boundaries from PDF files.
-- **Library:** `PyMuPDF` (`fitz`)
-- **Deliverable:** A function `parse_pdf(file_path: str) -> Document` that returns the unified model.
-- **Notes:** Handle multi-column layouts on a best-effort basis. Extract images at their original resolution.
+**Purpose:** Validate and evaluate generated content. Called by the Assessment Designer agent and the LangGraph `evaluate_response` node.
 
-#### 2.2.2 PPTX Parser (`ingestion/pptx_parser.py`) — **Phase 2**
+| Tool | Signature | Description |
+|---|---|---|
+| `validate_json_schema` | `(data: dict, schema_name: str) -> ValidationResult` | Assert output matches expected schema (LearningModule, QuestionBank, etc.) |
+| `evaluate_taxonomy` | `(question: dict) -> TaxonomyTag` | Tag a question with Bloom's taxonomy level (recall/understand/apply/analyse) |
 
-- **Scope:** Extract text from each slide (title + body), speaker notes, and embedded images/shapes.
-- **Library:** `python-pptx`
-- **Deliverable:** A function `parse_pptx(file_path: str) -> Document`.
-- **Notes:** Each slide maps to one `Section` in the unified model. Speaker notes are included as metadata.
+### 3.3 storage_server (`mcp_servers/storage_server.py`)
 
-#### 2.2.3 DOCX Parser (`ingestion/docx_parser.py`) — **Phase 2**
+**Purpose:** Persist data to SQLite and ChromaDB. Called by the Formatting Specialist agent.
 
-- **Scope:** Extract text with heading hierarchy, paragraphs, lists, tables (as text), and embedded images.
-- **Library:** `python-docx`
-- **Deliverable:** A function `parse_docx(file_path: str) -> Document`.
-- **Notes:** Use heading levels (H1-H6) to determine section boundaries.
+| Tool | Signature | Description |
+|---|---|---|
+| `upsert_to_vector_db` | `(texts: list[str], metadata: list[dict], collection: str) -> None` | Embed and store chunks in ChromaDB |
+| `save_module_to_db` | `(module_json: str, bank_json: str, created_by: str) -> str` | Persist module + bank to SQLite, return `module_id` |
+| `query_vector_db` | `(query: str, collection: str, n_results: int) -> list[dict]` | Semantic search over stored chunks |
 
-#### 2.2.4 Image/Diagram Extractor (`ingestion/image_extractor.py`) — **Phase 2**
+### 3.4 MCP Client (`backend/core/mcp_client.py`)
 
-- **Scope:** Shared utility used by all three parsers to extract embedded images, save them to disk, and return file paths.
-- **Deliverable:** A function `extract_images(source, output_dir: str) -> list[ExtractedImage]`.
-- **Notes:** Images are saved as PNG. Each `ExtractedImage` has `path`, `caption` (if available), and `source_location` (page/slide number).
-
-#### 2.2.5 Unified Document Model (`ingestion/models.py`)
-
-- **Scope:** Define the common data structure that all parsers produce.
-- **Deliverable:** Python dataclasses (see Interface Contract below).
-
-### 2.3 Inputs
-
-| Input           | Type       | Source     |
-| --------------- | ---------- | ---------- |
-| Uploaded file   | `bytes`    | User upload via Streamlit |
-| File extension  | `str`      | Derived from filename     |
-
-### 2.4 Outputs / Deliverables
-
-A `Document` object (see §7.1 for full schema) containing:
-- Document metadata (title, source filename, page/slide count)
-- Ordered list of `Section` objects (heading + body text + images)
-- Extracted images saved to `data/uploads/<doc_id>/images/`
-
-### 2.5 Interface Contract
+Thin wrapper that starts/connects to MCP servers and dispatches tool calls:
 
 ```python
-# ingestion/models.py
-
-from dataclasses import dataclass, field
-from enum import Enum
-
-class SourceType(Enum):
-    PDF = "pdf"
-    PPTX = "pptx"
-    DOCX = "docx"
-
-@dataclass
-class ExtractedImage:
-    image_id: str              # UUID
-    file_path: str             # Path on disk (e.g., "data/uploads/<doc_id>/images/img_001.png")
-    caption: str | None        # Extracted caption if available
-    source_location: str       # "page 3" or "slide 5"
-
-@dataclass
-class Section:
-    section_id: str            # UUID
-    title: str                 # Heading text (or "Slide N" for PPTX without titles)
-    body: str                  # Plain text content of the section
-    level: int                 # Heading depth (1 = top-level)
-    images: list[ExtractedImage] = field(default_factory=list)
-    metadata: dict = field(default_factory=dict)  # Speaker notes, table data, etc.
-
-@dataclass
-class Document:
-    doc_id: str                # UUID
-    title: str                 # Document title (from metadata or first heading)
-    source_filename: str       # Original uploaded filename
-    source_type: SourceType
-    sections: list[Section]
-    total_pages: int           # Page count (PDF) or slide count (PPTX) or section count (DOCX)
+class MCPClient:
+    def call(self, server: str, tool: str, **kwargs) -> dict: ...
+    def list_tools(self, server: str) -> list[str]: ...
 ```
-
-**Serialization:** The `Document` object can be serialized to/from JSON via `dataclasses.asdict()` + a custom deserializer. A `to_json()` / `from_json()` pair must be provided in `models.py`.
-
-### 2.6 Acceptance Criteria
-
-**Phase 1 (PDF only):**
-- [ ] `parse_pdf` correctly extracts text and section structure from a 10-50 page PDF.
-- [ ] `parse_pdf` produces a valid `Document` object consumable by Stream 2.
-- [ ] Unit tests exist using a sample PDF fixture in `tests/fixtures/`.
-
-**Phase 2 (deferred):**
-- [ ] `parse_pptx` correctly extracts slide titles, body text, speaker notes, and images.
-- [ ] `parse_docx` correctly extracts heading hierarchy and embedded images.
-- [ ] All three parsers produce identical `Document` structure — downstream code cannot distinguish the source format.
-
-### 2.7 Dependencies
-
-None — this is a leaf work stream.
 
 ---
 
-## 3. Work Stream 2: Content Generation Engine
+## 4. LLM Client — Factory + Adapter Pattern
 
-### 3.1 Goal
+### 4.1 Design
 
-Transform a parsed `Document` into an interactive learning module: decompose into sub-topics, enrich content for clarity, generate explanatory diagrams, and embed inline questions.
+```mermaid
+---
+title: LLM Client Class Hierarchy
+---
+classDiagram
+    class BaseLLMClient {
+        <<abstract>>
+        +generate(prompt, system, tool_schema, context_blocks) str|dict
+        +make_context_blocks(text) list
+    }
+    class AnthropicAdapter {
+        -_client: anthropic.Anthropic
+        +generate(...)
+        +make_context_blocks(text) cached_blocks
+    }
+    class PortkeyAdapter {
+        -_client: portkey_ai.Portkey
+        +generate(...)
+        +make_context_blocks(text) cached_blocks
+    }
+    class OllamaAdapter {
+        -_client: openai.OpenAI
+        +generate(...)
+        +make_context_blocks(text) plain_prefix
+    }
+    class LLMFactory {
+        +create(provider, **kwargs) BaseLLMClient
+    }
+    BaseLLMClient <|-- AnthropicAdapter
+    BaseLLMClient <|-- PortkeyAdapter
+    BaseLLMClient <|-- OllamaAdapter
+    LLMFactory --> BaseLLMClient
+```
 
-### 3.2 Subtasks
-
-#### 3.2.1 LLM Abstraction Layer (`content/llm_client.py`)
-
-- **Scope:** Provide a provider-agnostic interface for sending prompts and receiving structured responses from any LLM.
-- **Deliverable:** A class `LLMClient` with method `generate(prompt: str, system: str | None, response_schema: dict | None) -> str | dict`.
-- **Phase 1 provider:** Anthropic Claude (`anthropic` SDK). The abstraction layer is designed so additional providers (OpenAI, Gemini) can be added in Phase 2 without changing call sites.
-- **Configuration:** Provider and API key read from environment variables (`AI_TUTOR_LLM_PROVIDER`, `AI_TUTOR_LLM_API_KEY`, `AI_TUTOR_LLM_MODEL`).
-- **Notes:** All other subtasks in this stream (and Stream 3) call this client. They never import a provider SDK directly.
-
-#### 3.2.2 Sub-topic Decomposer (`content/topic_decomposer.py`)
-
-- **Scope:** Given a `Document`, use the LLM to break it into a logical sequence of learning sub-topics. Each sub-topic covers one focused concept.
-- **Deliverable:** A function `decompose(doc: Document, llm: LLMClient) -> list[Topic]`.
-- **Notes:** The LLM receives all section texts and returns a structured topic list. Each topic references which sections it draws from.
-
-#### 3.2.3 Content Enricher (`content/content_enricher.py`)
-
-- **Scope:** For each `Topic`, use the LLM to rewrite the content into clear, learner-friendly prose. Add analogies, key takeaways, and important definitions.
-- **Deliverable:** A function `enrich(topic: Topic, llm: LLMClient) -> EnrichedTopic`.
-- **Notes:** Preserve all factual content from the original document. The enrichment adds clarity, not new information.
-
-#### 3.2.4 Diagram Generator (`content/diagram_generator.py`)
-
-- **Scope:** For each topic, determine if a diagram would aid understanding. If so, generate Mermaid diagram code via the LLM. Also include any extracted images from the original document that are relevant to the topic.
-- **Deliverable:** A function `generate_diagrams(topic: EnrichedTopic, llm: LLMClient) -> list[Diagram]`.
-- **Notes:** Diagrams are stored as Mermaid code strings. The frontend renders them. Extracted images are referenced by path.
-
-#### 3.2.5 Inline Question Generator (`content/inline_question_gen.py`)
-
-- **Scope:** For each topic, generate 2-3 quick reinforcement questions (single-choice or multiple-choice) that test comprehension of that specific sub-topic.
-- **Deliverable:** A function `generate_inline_questions(topic: EnrichedTopic, llm: LLMClient) -> list[Question]`.
-- **Notes:** These are lightweight "check your understanding" questions, distinct from the comprehensive quiz in Stream 3.
-
-### 3.3 Inputs
-
-| Input       | Type       | Source        |
-| ----------- | ---------- | ------------- |
-| `Document`  | dataclass  | Stream 1 output |
-
-### 3.4 Outputs / Deliverables
-
-A `LearningModule` object (see §7.2) containing:
-- Ordered list of `EnrichedTopic` objects
-- Each topic has: enriched content, diagrams, inline questions
-- Module metadata (title, source doc reference, topic count)
-
-### 3.5 Interface Contract
+### 4.2 Abstract Interface (`backend/core/llm_client/base.py`)
 
 ```python
-# content/models.py (or extend ingestion/models.py — team's choice)
+from abc import ABC, abstractmethod
 
-@dataclass
-class Topic:
-    topic_id: str                    # UUID
-    title: str
-    summary: str                     # One-sentence summary
-    source_section_ids: list[str]    # References to Section.section_id
-    order: int                       # Position in the learning sequence
+class BaseLLMClient(ABC):
+    @abstractmethod
+    def generate(
+        self,
+        prompt: str,
+        system: str | None = None,
+        tool_schema: dict | None = None,   # Anthropic tool format; adapters translate internally
+        context_blocks: list | None = None, # Pre-built context; degraded gracefully for Ollama
+    ) -> str | dict: ...
 
-@dataclass
-class Diagram:
-    diagram_id: str
-    diagram_type: str                # "mermaid" or "extracted_image"
-    content: str                     # Mermaid code string, or file path for extracted images
-    caption: str
-
-@dataclass
-class Question:
-    question_id: str
-    question_text: str
-    question_type: str               # "single_choice" or "multiple_choice"
-    options: list[str]               # 4 options
-    correct_answers: list[int]       # Indices of correct option(s)
-    explanation: str                 # Shown after answering
-
-@dataclass
-class EnrichedTopic:
-    topic: Topic
-    content_html: str                # Enriched content (Markdown or HTML)
-    key_takeaways: list[str]
-    diagrams: list[Diagram]
-    inline_questions: list[Question]
-
-@dataclass
-class LearningModule:
-    module_id: str                   # UUID
-    title: str
-    source_doc_id: str               # References Document.doc_id
-    topics: list[EnrichedTopic]
-    created_at: str                  # ISO 8601 timestamp
+    def make_context_blocks(self, text: str) -> list:
+        """Return provider-appropriate context structure (cached blocks or plain list)."""
+        ...
 ```
 
-### 3.6 Acceptance Criteria
-
-- [ ] `LLMClient` can be instantiated with at least one provider and returns structured responses.
-- [ ] `decompose` breaks a 20-section document into 5-10 coherent topics.
-- [ ] `enrich` produces readable prose that preserves original facts.
-- [ ] `generate_diagrams` produces valid Mermaid syntax for at least 50% of topics.
-- [ ] `generate_inline_questions` produces 2-3 questions per topic with correct answers.
-- [ ] The full pipeline (`Document` → `LearningModule`) runs end-to-end with mock LLM responses in tests.
-
-### 3.7 Dependencies
-
-- **Stream 1:** Consumes the `Document` model.
-- **For testing independently:** Use a `MockLLMClient` and hardcoded `Document` fixtures.
-
----
-
-## 4. Work Stream 3: Quiz Engine
-
-### 4.1 Goal
-
-Generate comprehensive end-of-module quizzes with selectable difficulty, randomized question order, and automated scoring.
-
-### 4.2 Subtasks
-
-#### 4.2.1 Question Bank Generator (`quiz/question_bank.py`)
-
-- **Scope:** Given a `LearningModule`, use the LLM to generate a large pool of questions (20-50) covering all topics. These are separate from the inline questions in Stream 2.
-- **Deliverable:** A function `generate_question_bank(module: LearningModule, llm: LLMClient) -> QuestionBank`.
-- **Notes:** Questions should cover different cognitive levels (recall, understanding, application).
-
-#### 4.2.2 Difficulty Classifier (`quiz/difficulty.py`)
-
-- **Scope:** Tag each question in the bank with a difficulty level: `easy`, `medium`, or `hard`. Can be done by the LLM during generation or as a post-processing step.
-- **Deliverable:** A function `classify_difficulty(bank: QuestionBank, llm: LLMClient) -> QuestionBank` (mutates difficulty field).
-- **Notes:** Alternatively, difficulty can be assigned during generation (in 4.2.1). The team should choose one approach.
-
-#### 4.2.3 Quiz Assembler (`quiz/assembler.py`)
-
-- **Scope:** Given a `QuestionBank` and a requested difficulty, select and randomize a fixed number of questions (e.g., 10) for a quiz session.
-- **Deliverable:** A function `assemble_quiz(bank: QuestionBank, difficulty: str, num_questions: int = 10) -> Quiz`.
-- **Notes:** No LLM needed — pure logic. Ensures no duplicate questions across consecutive attempts (best-effort).
-
-#### 4.2.4 Quiz Evaluator (`quiz/evaluator.py`)
-
-- **Scope:** Score user answers against correct answers. Compute per-question and total scores.
-- **Deliverable:** A function `evaluate(quiz: Quiz, user_answers: dict[str, list[int]]) -> QuizResult`.
-- **Notes:** `user_answers` maps `question_id` → list of selected option indices.
-
-### 4.3 Inputs
-
-| Input             | Type            | Source           |
-| ----------------- | --------------- | ---------------- |
-| `LearningModule`  | dataclass       | Stream 2 output  |
-| `LLMClient`       | object          | Stream 2 (shared)|
-| User's difficulty | `str`           | Frontend         |
-| User's answers    | `dict`          | Frontend         |
-
-### 4.4 Outputs / Deliverables
-
-- `QuestionBank` — full pool of tagged questions
-- `Quiz` — a single quiz session (subset of bank)
-- `QuizResult` — scored result with per-question breakdown
-
-### 4.5 Interface Contract
+### 4.3 Factory (`backend/core/llm_client/factory.py`)
 
 ```python
-# quiz/models.py
-
-@dataclass
-class QuizQuestion:
-    question_id: str
-    question_text: str
-    question_type: str                # "single_choice" or "multiple_choice"
-    options: list[str]
-    correct_answers: list[int]
-    explanation: str
-    difficulty: str                   # "easy", "medium", "hard"
-    topic_id: str                     # Which topic this tests
-
-@dataclass
-class QuestionBank:
-    module_id: str
-    questions: list[QuizQuestion]
-
-@dataclass
-class Quiz:
-    quiz_id: str                      # UUID
-    module_id: str
-    difficulty: str
-    questions: list[QuizQuestion]     # Ordered subset from bank
-    created_at: str
-
-@dataclass
-class AnswerResult:
-    question_id: str
-    selected: list[int]
-    correct: list[int]
-    is_correct: bool
-    explanation: str
-
-@dataclass
-class QuizResult:
-    quiz_id: str
-    module_id: str
-    user_id: str
-    score: int                        # Number correct
-    total: int                        # Total questions
-    percentage: float
-    answers: list[AnswerResult]
-    completed_at: str                 # ISO 8601
+class LLMFactory:
+    @staticmethod
+    def create(
+        provider: str | None = None,   # reads AI_TUTOR_LLM_PROVIDER if None
+        **kwargs,                       # api_key, model, portkey_virtual_key, ollama_base_url
+    ) -> BaseLLMClient: ...
 ```
 
-### 4.6 Acceptance Criteria
+### 4.4 Adapters
 
-- [ ] `generate_question_bank` produces 20+ questions spanning all topics in a module.
-- [ ] All questions have a valid difficulty tag.
-- [ ] `assemble_quiz` returns exactly `num_questions` questions of the requested difficulty (falling back to adjacent difficulties if insufficient).
-- [ ] `evaluate` correctly scores all question types.
-- [ ] Consecutive quiz assemblies for the same module produce different question orderings.
+| Adapter | SDK | Tool schema format | Caching |
+|---|---|---|---|
+| `AnthropicAdapter` | `anthropic` | Anthropic native (`input_schema`) | `cache_control` blocks |
+| `PortkeyAdapter` | `portkey_ai` | Anthropic native (Portkey mirrors SDK) | `cache_control` blocks |
+| `OllamaAdapter` | `openai` (compat) | OpenAI function format (translated internally) | No caching; context_blocks flattened to text prefix |
 
-### 4.7 Dependencies
-
-- **Stream 2:** Consumes `LearningModule` and `LLMClient`.
-- **For testing independently:** Use hardcoded `LearningModule` fixtures and `MockLLMClient`.
-
----
-
-## 5. Work Stream 4: Data & Analytics Layer
-
-### 5.1 Goal
-
-Persist quiz results in a SQLite database and compute performance analytics (user score vs. cohort min/max/average) across all participants.
-
-### 5.2 Subtasks
-
-#### 5.2.1 Database Schema (`analytics/db.py`)
-
-- **Scope:** Define and auto-create the SQLite schema. Provide connection management.
-- **Deliverable:** A function `get_db() -> sqlite3.Connection` that creates tables on first call.
-- **Schema:**
-
-```sql
-CREATE TABLE IF NOT EXISTS users (
-    user_id    TEXT PRIMARY KEY,
-    username   TEXT NOT NULL UNIQUE,
-    role       TEXT NOT NULL DEFAULT 'user',   -- 'admin' or 'user'
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
--- Stores the full LearningModule JSON so it can be reloaded without re-running the LLM.
--- Also stores the QuestionBank JSON for quiz reuse.
-CREATE TABLE IF NOT EXISTS modules (
-    module_id          TEXT PRIMARY KEY,
-    title              TEXT NOT NULL,
-    source_filename    TEXT NOT NULL,
-    module_json        TEXT NOT NULL,   -- JSON-serialised LearningModule
-    question_bank_json TEXT NOT NULL,   -- JSON-serialised QuestionBank
-    created_by         TEXT NOT NULL REFERENCES users(user_id),
-    created_at         TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS quiz_attempts (
-    attempt_id   TEXT PRIMARY KEY,
-    quiz_id      TEXT NOT NULL,
-    module_id    TEXT NOT NULL REFERENCES modules(module_id),
-    user_id      TEXT NOT NULL REFERENCES users(user_id),
-    difficulty   TEXT NOT NULL,
-    score        INTEGER NOT NULL,
-    total        INTEGER NOT NULL,
-    percentage   REAL NOT NULL,
-    completed_at TEXT NOT NULL,
-    answers_json TEXT NOT NULL   -- JSON blob of list[AnswerResult]
-);
-```
-
-#### 5.2.2 Score Persistence API (`analytics/persistence.py`)
-
-- **Scope:** Functions to save quiz results and user records to the database.
-- **Deliverable:**
-  - `save_user(user_id: str, username: str) -> None`
-  - `save_attempt(result: QuizResult) -> None`
-  - `get_user_attempts(user_id: str, module_id: str) -> list[dict]`
-  - `save_module(module: LearningModule) -> None`
-
-#### 5.2.3 Analytics Computer (`analytics/stats.py`)
-
-- **Scope:** Compute aggregate statistics for a module.
-- **Deliverable:**
-  - `get_module_stats(module_id: str) -> ModuleStats`
-  - Returns min, max, average scores, total attempts, and the requesting user's percentile.
-
-### 5.3 Inputs
-
-| Input          | Type          | Source          |
-| -------------- | ------------- | --------------- |
-| `QuizResult`   | dataclass     | Stream 3 output |
-| `user_id`      | `str`         | Frontend (session) |
-| `module_id`    | `str`         | From LearningModule |
-
-### 5.4 Outputs / Deliverables
+**Schema translation (Anthropic → OpenAI)** happens inside `OllamaAdapter` — callers always pass Anthropic-format tool schemas:
 
 ```python
-# analytics/models.py
+# Caller passes this (Anthropic format):
+{"name": "output", "description": "...", "input_schema": {"type": "object", "properties": {...}}}
 
-@dataclass
-class ModuleStats:
-    module_id: str
-    total_attempts: int
-    min_score: float          # Minimum percentage across all attempts
-    max_score: float          # Maximum percentage
-    avg_score: float          # Average percentage
-    user_score: float         # This user's latest percentage
-    user_percentile: float    # Percentile rank (0-100)
-    user_attempts: int        # How many times this user attempted
+# OllamaAdapter translates to:
+{"type": "function", "function": {"name": "output", "description": "...", "parameters": {...}}}
 ```
 
-### 5.5 Acceptance Criteria
+### 4.5 Environment Variables
 
-- [ ] Database tables auto-create on first run.
-- [ ] `save_attempt` persists a `QuizResult` and `get_module_stats` returns correct aggregates.
-- [ ] With 5+ attempts from different users, min/max/avg/percentile are computed correctly.
-- [ ] Database file lives at `data/ai_tutor.db` (configurable via env var).
-- [ ] Unit tests use an in-memory SQLite database.
-
-### 5.6 Dependencies
-
-- **Stream 3:** Consumes `QuizResult`.
-- **For testing independently:** Create `QuizResult` fixtures directly — no dependency on Streams 1-2.
+| Variable | Purpose | Default |
+|---|---|---|
+| `AI_TUTOR_LLM_PROVIDER` | `anthropic` \| `portkey` \| `ollama` | `anthropic` |
+| `AI_TUTOR_LLM_API_KEY` | Anthropic API key or Portkey API key | (required) |
+| `AI_TUTOR_LLM_MODEL` | Model string (provider-specific) | `claude-sonnet-4-6` |
+| `AI_TUTOR_PORTKEY_VIRTUAL_KEY` | Portkey virtual key (routes to backend model) | — |
+| `AI_TUTOR_OLLAMA_BASE_URL` | Ollama server URL | `http://localhost:11434` |
 
 ---
 
-## 6. Work Stream 5: Frontend (Streamlit UI)
+## 5. Work Stream 1: Document Ingestion
+
+*(Unchanged from v0.3 — moved to `backend/ingestion/`. See §7.1 for data contracts.)*
+
+**Phase 2 scope:** PDF only. PPTX and DOCX parsers (`pptx_parser.py`, `docx_parser.py`) are deferred to Phase 3.
+
+---
+
+## 6. Work Stream 2: Content Generation — CrewAI Factory
 
 ### 6.1 Goal
 
-Build a role-aware Streamlit application. Admins generate and publish learning modules; users browse the module library, learn, and take quizzes. The LLM pipeline runs only once per document (at admin generation time); all subsequent learner sessions load from the database.
+Replace the sequential single-LLM pipeline with a CrewAI multi-agent crew. Three specialised agents run in sequence (`Process.sequential`), each calling appropriate MCP tool servers. The crew produces the same `LearningModule` output as Phase 1, with higher quality from specialisation.
 
-### 6.2 Authentication Model (Phase 1)
+### 6.2 Agents (`backend/content_factory/agents.py`)
 
-- **Admin:** Single admin account. Credentials stored in environment variables (`AI_TUTOR_ADMIN_USERNAME`, `AI_TUTOR_ADMIN_PASSWORD`). On successful login, `st.session_state["role"] = "admin"`.
-- **User:** Any other username. No password required for Phase 1. On login, `st.session_state["role"] = "user"`.
-- Session state keys: `role`, `user_id`, `username`.
+| Agent | Role | Backstory | MCP tools used |
+|---|---|---|---|
+| **Information Architect** | Document analyst + curriculum designer | Expert at extracting structure from documents and decomposing them into a coherent learning sequence | `document_server`: `extract_text_from_pdf`, `parse_images` |
+| **Assessment Designer** | Question author + difficulty tagger | Experienced educator who writes questions at multiple cognitive levels (Bloom's taxonomy) | `assessment_server`: `evaluate_taxonomy` |
+| **Formatting Specialist** | Content writer + publisher | Turns raw outlines into polished learner-friendly Markdown with diagrams, validates schema, and persists the result | `storage_server`: `upsert_to_vector_db`, `save_module_to_db` |
 
-### 6.3 Page Inventory
-
-| Page | File | Who sees it | Purpose |
-|------|------|-------------|---------|
-| Login | `frontend/login_page.py` | Everyone | Enter username; admins also enter password |
-| Admin Upload | `frontend/admin_upload_page.py` | Admin only | Upload PDF, run generation pipeline, save module |
-| Module Library | `frontend/module_library_page.py` | Admin + User | Browse all published modules; select one to learn |
-| Module Viewer | `frontend/module_viewer.py` | User | Read topics, inline questions |
-| Quiz | `frontend/quiz_page.py` | User | Take end-of-module quiz |
-| Results | `frontend/results_page.py` | User | Score + cohort analytics |
-
-### 6.4 Subtasks
-
-#### 6.4.1 Login Page (`frontend/login_page.py`)
-
-- **Deliverable:** `render_login_page()`
-- **UI elements:**
-  - Username text input
-  - Password text input (shown only when username matches `AI_TUTOR_ADMIN_USERNAME`, or always shown with a "Login as admin" toggle)
-  - "Enter" button
-- **Behaviour:**
-  - If username == `AI_TUTOR_ADMIN_USERNAME` and password matches `AI_TUTOR_ADMIN_PASSWORD` → set `role=admin`, navigate to `admin_upload`
-  - Otherwise → set `role=user`, navigate to `module_library`
-
-#### 6.4.2 Admin Upload Page (`frontend/admin_upload_page.py`)
-
-- **Deliverable:** `render_admin_upload_page()`
-- **UI elements:**
-  - PDF file uploader
-  - "Generate Learning Module" button (disabled until file selected)
-  - Live `st.status()` log showing all 6 pipeline steps
-- **Behaviour:**
-  - Runs the full pipeline: parse → decompose → enrich → diagrams → inline questions → question bank
-  - Saves full `LearningModule` JSON and `QuestionBank` JSON to `modules` table
-  - On success: shows confirmation with module title and link to module library
-
-#### 6.4.3 Module Library Page (`frontend/module_library_page.py`)
-
-- **Deliverable:** `render_module_library_page()`
-- **UI elements:**
-  - Searchable list / table of all saved modules (title, source file, date created)
-  - "Learn" button per module → navigates to module viewer
-  - Admin additionally sees a "Delete" button per module
-- **Behaviour:**
-  - Loads module list from `modules` table (title + created_at; no LLM call)
-  - On "Learn": loads full `LearningModule` from `module_json` column, sets `st.session_state["module"]` and `st.session_state["bank"]`, navigates to `learn`
-
-#### 6.4.4 Module Viewer (`frontend/module_viewer.py`) — unchanged from Phase 1
-
-- **Deliverable:** `render_module_viewer(module: LearningModule)`
-- Sidebar TOC, per-topic collapsible sections, Mermaid diagrams, inline questions with immediate feedback, "Take Quiz" button.
-
-#### 6.4.5 Quiz Page (`frontend/quiz_page.py`) — unchanged from Phase 1
-
-- **Deliverable:** `render_quiz_page(bank: QuestionBank)`
-- Difficulty selector, question form, submit → evaluate → navigate to results.
-
-#### 6.4.6 Results Page (`frontend/results_page.py`) — unchanged from Phase 1
-
-- **Deliverable:** `render_results_page(result: QuizResult)`
-- Score display, cohort bar chart, per-question breakdown, "Retake" and "Back to Library" buttons.
-
-### 6.5 Navigation State Machine
+### 6.3 Task Sequence (`backend/content_factory/tasks.py`)
 
 ```
-[login]
-   │
-   ├─ role=admin ──▶ [admin_upload] ──▶ [module_library]
-   │
-   └─ role=user  ──▶ [module_library]
-                          │
-                          ▼
-                      [learn]  ──▶  [quiz]  ──▶  [results]
-                          ▲                          │
-                          └──── "Back to Library" ───┘
+Information Architect
+    → Extract text + images from PDF via document_server
+    → Decompose into ordered learning topics with scope boundaries
+    → Output: list[Topic] with source section mapping
+
+Assessment Designer
+    → Generate 2-3 inline questions per topic (SCQ/MCQ)
+    → Build full quiz question bank (20-50 questions)
+    → Tag each question with difficulty + Bloom's level via assessment_server
+    → Output: list[EnrichedTopic] with inline_questions + QuestionBank
+
+Formatting Specialist
+    → Rewrite content into learner-friendly Markdown with analogies and key takeaways
+    → Generate Mermaid diagrams for topics that benefit from a visual
+    → Validate output against LearningModule schema
+    → Persist module JSON to SQLite and embed topic chunks in ChromaDB via storage_server
+    → Output: module_id
 ```
 
-### 6.6 Inputs
+### 6.4 Public Entry Point (`backend/content_factory/pipeline.py`)
 
-| Input                | Type            | Source     |
-| -------------------- | --------------- | ---------- |
-| Credentials          | `str`           | Login form |
-| Uploaded PDF         | `UploadedFile`  | Admin upload page |
-| `LearningModule`     | dataclass       | Loaded from DB `module_json` |
-| `QuestionBank`       | dataclass       | Loaded from DB `question_bank_json` |
-| `QuizResult`         | dataclass       | Stream 3 evaluator |
+```python
+def run_pipeline(file_path: str, user_id: str) -> str:
+    """Run the CrewAI crew and return the module_id of the saved module."""
+```
 
-### 6.7 Acceptance Criteria
+Called by `frontend/upload_page.py` — the frontend does not import any CrewAI types directly.
 
-- [ ] Admin can log in with correct password; rejected on wrong password.
-- [ ] Non-admin users reach the module library directly after entering a username.
-- [ ] Admin generates a module; it immediately appears in the module library.
-- [ ] User selects a module from the library and loads it without any LLM call.
-- [ ] Full user flow works: Library → Learn → Quiz → Results → Back to Library.
-- [ ] "Retake Quiz" produces a different question order.
-- [ ] Application runs with `streamlit run app.py`.
+### 6.5 ChromaDB Integration
 
-### 6.8 Dependencies
+After the crew completes, the Formatting Specialist calls `storage_server.upsert_to_vector_db` with:
+- **Collection:** `modules`
+- **Documents:** One chunk per `EnrichedTopic` (content + key takeaways concatenated)
+- **Metadata:** `{"module_id": ..., "topic_id": ..., "title": ...}`
+- **Embedding function:** `SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")` — runs locally, no API call
 
-- **All streams:** The frontend integrates outputs from Streams 1-4.
-- **Stream 4 (persistence):** `save_module` must store `module_json`; `load_module` must deserialise it back to a `LearningModule` dataclass.
+This enables semantic search in Phase 3 (LangGraph tutor retrieves relevant topic context dynamically).
 
 ---
 
-## 7. Interface Contracts Summary
+## 7. Work Stream 3: Adaptive Tutor — LangGraph
 
-This section collects all data models in one place for quick reference. The authoritative definitions live in the code modules listed in each work stream.
+### 7.1 Goal
 
-### 7.1 Document Model (Stream 1 → Stream 2)
+A conversational tutor that watches each student response, analyses their specific misconceptions (not just binary right/wrong), provides targeted hints, and falls back to foundational re-teaching when the student is stuck. Tracks topic mastery across a session. Complements (not replaces) the static quiz flow.
 
-```
-Document
-  ├── doc_id: str
-  ├── title: str
-  ├── source_filename: str
-  ├── source_type: SourceType (pdf | pptx | docx)
-  ├── total_pages: int
-  └── sections: list[Section]
-        ├── section_id: str
-        ├── title: str
-        ├── body: str
-        ├── level: int
-        ├── images: list[ExtractedImage]
-        │     ├── image_id: str
-        │     ├── file_path: str
-        │     ├── caption: str | None
-        │     └── source_location: str
-        └── metadata: dict
-```
+### 7.2 Graph State (`backend/interactive_tutor/state.py`)
 
-### 7.2 Learning Module (Stream 2 → Streams 3, 5)
+The single source of truth passed between every node:
 
-```
-LearningModule
-  ├── module_id: str
-  ├── title: str
-  ├── source_doc_id: str
-  ├── created_at: str
-  └── topics: list[EnrichedTopic]
-        ├── topic: Topic
-        │     ├── topic_id, title, summary, order
-        │     └── source_section_ids: list[str]
-        ├── content_html: str
-        ├── key_takeaways: list[str]
-        ├── diagrams: list[Diagram]
-        │     ├── diagram_id, diagram_type, content, caption
-        └── inline_questions: list[Question]
-              ├── question_id, question_text, question_type
-              ├── options: list[str]
-              ├── correct_answers: list[int]
-              └── explanation: str
+```python
+from typing import TypedDict, Annotated
+from langgraph.graph.message import add_messages
+
+class GraphState(TypedDict):
+    # Identity
+    user_id: str
+    module_id: str
+
+    # Current position
+    current_concept: str            # topic_id currently being taught
+    concept_content: str            # enriched content retrieved from ChromaDB
+    current_question: dict | None   # active question awaiting answer
+
+    # Tracking
+    attempts: int                   # attempts on current concept (reset per concept)
+    concept_mastered: bool          # set by evaluate_response
+    mastered_concepts: list[str]    # accumulates across session
+
+    # Conversation
+    chat_history: Annotated[list, add_messages]
 ```
 
-### 7.3 Quiz Model (Stream 3 → Streams 4, 5)
+### 7.3 Nodes (`backend/interactive_tutor/nodes.py`)
+
+Five node functions — each is a plain Python function that receives `GraphState` and returns a partial state update:
+
+| Node | What it does |
+|---|---|
+| `present_concept` | Loads concept content from ChromaDB via `storage_server.query_vector_db`. Delivers a clear explanation to the student. Resets `attempts=0` and `concept_mastered=False`. |
+| `ask_question` | Calls LLM to generate a targeted question assessing the current concept. Sets `current_question`. |
+| `evaluate_response` | Calls LLM to analyse the student's answer — checks for **specific misconceptions**, not just binary right/wrong. Increments `attempts`. Sets `concept_mastered=True` if the response demonstrates understanding. |
+| `provide_hint` | Called when the student struggles. Calls LLM to generate a hint **tailored to their specific error** (from the evaluation). Does not reveal the answer. |
+| `simplify_foundations` | Called when the student is stuck after max attempts. Breaks the concept into simpler building blocks and re-teaches from basics. Resets `attempts=0` for a fresh approach. |
+
+### 7.4 Conditional Router
+
+After `evaluate_response`, a router function inspects state and decides the next node:
 
 ```
-QuestionBank
-  ├── module_id: str
-  └── questions: list[QuizQuestion]
-        ├── question_id, question_text, question_type
-        ├── options, correct_answers, explanation
-        ├── difficulty: str (easy | medium | hard)
-        └── topic_id: str
-
-Quiz
-  ├── quiz_id, module_id, difficulty, created_at
-  └── questions: list[QuizQuestion]
-
-QuizResult
-  ├── quiz_id, module_id, user_id
-  ├── score, total, percentage, completed_at
-  └── answers: list[AnswerResult]
-        ├── question_id, selected, correct
-        ├── is_correct: bool
-        └── explanation: str
+if concept_mastered:
+    → are there more concepts?
+        yes → present_concept (next concept)
+        no  → END (session complete, persist mastery)
+elif attempts < 3:
+    → provide_hint → ask_question (retry with guidance)
+else:
+    → simplify_foundations → ask_question (fresh approach from basics)
 ```
 
-### 7.4 Analytics Model (Stream 4 → Stream 5)
+### 7.5 Graph Flow
+
+See [ARCHITECTURE.md §4](ARCHITECTURE.md) for the full state machine diagram. Summary:
 
 ```
-ModuleStats
-  ├── module_id: str
-  ├── total_attempts, min_score, max_score, avg_score
-  ├── user_score, user_percentile, user_attempts
+present_concept → ask_question → [wait for answer] → evaluate_response
+                                                            │
+                                        ┌───────────────────┼───────────────────┐
+                                        ▼                   ▼                   ▼
+                                   mastered             attempts < 3       attempts >= 3
+                                        │                   │                   │
+                                  next concept         provide_hint    simplify_foundations
+                                  (or END)                  │                   │
+                                                       ask_question        ask_question
+```
+
+### 7.6 Mastery Persistence
+
+A new `topic_mastery` table tracks per-user per-topic state across sessions:
+
+```sql
+CREATE TABLE IF NOT EXISTS topic_mastery (
+    user_id       TEXT NOT NULL REFERENCES users(user_id),
+    module_id     TEXT NOT NULL REFERENCES modules(module_id),
+    topic_id      TEXT NOT NULL,
+    mastered      INTEGER NOT NULL DEFAULT 0,   -- 0 or 1
+    difficulty    TEXT NOT NULL DEFAULT 'easy',
+    attempts      INTEGER NOT NULL DEFAULT 0,
+    last_updated  TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, module_id, topic_id)
+);
 ```
 
 ---
 
-## 8. Integration Plan
+## 8. Work Stream 4: Quiz Engine
 
-### 8.1 Integration Order
+*(Unchanged from v0.3 — moved to `backend/quiz/`. See §11.3 for data contracts.)*
 
-Streams can be developed in parallel. Integration follows data flow order:
-
-| Phase | What                                 | Prerequisite            |
-| ----- | ------------------------------------ | ----------------------- |
-| I-1   | Stream 1 + Stream 5 (upload page)    | Stream 1 done, upload page done |
-| I-2   | Stream 2 + Stream 5 (module viewer)  | I-1, Stream 2 done      |
-| I-3   | Stream 3 + Stream 5 (quiz page)      | I-2, Stream 3 done      |
-| I-4   | Stream 4 + Stream 5 (results page)   | I-3, Stream 4 done      |
-| I-5   | End-to-end smoke test                | I-4                     |
-
-### 8.2 Integration Smoke Tests
-
-1. **Upload → Parse:** Upload a sample PDF, verify `Document` is created with correct sections/images.
-2. **Parse → Learn:** Feed `Document` to content engine, verify `LearningModule` has topics with content and questions.
-3. **Learn → Quiz:** Generate `QuestionBank` from module, assemble a quiz, verify questions appear.
-4. **Quiz → Results:** Submit answers, verify `QuizResult` is scored correctly and saved to DB.
-5. **Results → Analytics:** After 3+ attempts, verify min/max/avg stats are correct.
-6. **Full flow:** Upload → Learn → Quiz → Results → Retake (verify different questions).
+The quiz engine continues to serve the static difficulty-select → quiz → results flow (frontend pages unchanged). In Phase 3, the LangGraph tutor generates questions dynamically and does not use the assembler; the question bank remains available for users who prefer the traditional quiz mode.
 
 ---
 
-## 9. Non-Functional Requirements
+## 9. Work Stream 5: Data & Analytics
 
-### 9.1 File Constraints
+*(Core schema unchanged — `backend/analytics/`. New additions below.)*
 
-- Maximum upload file size: **50 MB**
-- Supported formats: `.pdf`, `.pptx`, `.docx`
-- Reject unsupported formats with a clear error message.
+### 9.1 New: ChromaDB (`data/chroma/`)
 
-### 9.2 LLM Usage
+| Collection | Contents | Used by |
+|---|---|---|
+| `modules` | Topic content chunks, one per `EnrichedTopic` | LangGraph `ask_question` node (context retrieval) |
+| `sessions` | Per-session tutor messages (Phase 3) | LangGraph hint/escalation context |
 
-- All LLM calls go through `content/llm_client.py` — no direct SDK imports elsewhere.
-- Token budget per module generation: configurable, default **100,000 tokens** (input + output combined).
-- Timeout per LLM call: **60 seconds**.
-- On LLM failure: retry once, then surface error to user.
+ChromaDB is accessed through `storage_server` MCP tools — nothing in the frontend or CrewAI crew imports `chromadb` directly.
 
-### 9.3 Performance
+### 9.2 New: `topic_mastery` table
 
-- Document parsing: < 30 seconds for a 50-page PDF.
-- Module generation (LLM): may take 1-3 minutes — show progress to user.
-- Quiz assembly (no LLM): < 1 second.
+Described in §7.6.
 
-### 9.4 Error Handling
+### 9.3 Analytics additions (Phase 3)
 
-- Parse failures: show "Could not parse this file" with the specific error.
-- LLM failures: show "Content generation failed, please try again" with a retry button.
-- Database errors: log and show a generic error.
-
-### 9.5 Security (Phase 1 scope)
-
-- **Admin authentication:** Single admin account. Username and password stored in environment variables (`AI_TUTOR_ADMIN_USERNAME`, `AI_TUTOR_ADMIN_PASSWORD`). No multi-admin support in Phase 1.
-- **User authentication:** Username-only (no password). Sufficient for analytics tracking in a controlled deployment.
-- Uploaded files stored locally — not accessible to other users.
-- No LLM API keys in source code — read from environment variables.
-- Phase 2 may add proper multi-user auth (e.g., OAuth or a hashed-password users table).
-
-### Appendix B: New Environment Variables (v0.3)
-
-| Variable                    | Purpose                        | Default       |
-| --------------------------- | ------------------------------ | ------------- |
-| `AI_TUTOR_ADMIN_USERNAME`   | Admin login username           | `admin`       |
-| `AI_TUTOR_ADMIN_PASSWORD`   | Admin login password           | (required)    |
+New `analytics/stats.py` functions:
+- `get_mastery_report(user_id, module_id) -> MasteryReport` — per-topic mastery, attempts, final difficulty reached
+- `get_cohort_mastery(module_id) -> CohortMastery` — average mastery rate per topic across all users
 
 ---
 
-## 10. Open Questions
+## 10. Work Stream 6: Frontend (Streamlit)
 
-- [x] **Question bank persistence** — **Resolved (v0.3):** Question bank is persisted in `modules.question_bank_json`. Retakes reuse the stored bank; no LLM re-call required.
-- [x] **Mermaid rendering** — **Resolved (v0.1):** Client-side via `streamlit-mermaid` component. Falls back to `st.code()` if the component is unavailable.
-- [x] **Module library** — **Resolved (v0.3):** A persistent module library page (`frontend/module_library_page.py`) lists all admin-published modules. Users select from the library; they do not upload documents themselves.
+### 10.1 Design Principles (carried from Phase 1)
+
+- Sidebar TOC in module viewer
+- Collapsible `st.expander` per topic
+- Mermaid diagram rendering (via `streamlit-mermaid`, fallback to `st.code`)
+- Inline questions with immediate feedback (`st.radio`/`st.checkbox`)
+- Cohort analytics bar chart on results page
+- Demo mode toggle for exploring the GUI without LLM
+
+### 10.2 Page Inventory
+
+No admin/user role separation — any user can upload and generate modules.
+
+| Page | File | Purpose |
+|---|---|---|
+| Upload | `frontend/upload_page.py` | Enter username, upload PDF, trigger CrewAI pipeline via `run_pipeline()` |
+| Module Library | `frontend/module_library_page.py` | Browse all published modules, select one to learn or delete |
+| Module Viewer | `frontend/module_viewer.py` | Read topics, inline questions, Mermaid diagrams, "Take Quiz" button |
+| Quiz | `frontend/quiz_page.py` | Difficulty selector, question form, submit |
+| Results | `frontend/results_page.py` | Score, cohort bar chart, per-question breakdown, retake/back buttons |
+| Tutor Room | `frontend/tutor_room.py` | Chat-style adaptive tutor (Phase 3). LangGraph graph invoked per user turn; state checkpointed via `SqliteSaver` |
+| Demo Mode | `frontend/demo_mode.py` | Sidebar toggle — loads fixture JSON, bypasses pipeline |
+
+### 10.3 Navigation
+
+```
+[upload] ──→ [module_library]
+                  │
+           ┌──────┴──────┐
+           ▼              ▼
+        [learn]      [tutor_room]  ◀── Phase 3
+           │              │
+           ▼         (adaptive loop)
+        [quiz]
+           │
+           ▼
+        [results]
+           │
+           └──→ [module_library]
+```
+
+### 10.4 Tutor Room UI (Phase 3)
+
+- `frontend/utils/session_manager.py` — bridges `GraphState` to `st.session_state`; handles graph invocation and message streaming
+- LangGraph graph is invoked per user turn; full state is checkpointed via `SqliteSaver`
+- UI shows: current concept, mastery progress bar, chat-style conversation, answer input
+
+---
+
+## 11. Interface Contracts
+
+### 11.1 Document Model (`backend/ingestion/models.py`)
+
+```python
+@dataclass
+class ExtractedImage:
+    image_id: str; file_path: str; caption: str | None; source_location: str
+
+@dataclass
+class Section:
+    section_id: str; title: str; body: str; level: int
+    images: list[ExtractedImage] = field(default_factory=list)
+    metadata: dict = field(default_factory=dict)
+
+@dataclass
+class Document:
+    doc_id: str; title: str; source_filename: str
+    source_type: SourceType; sections: list[Section]; total_pages: int
+```
+
+### 11.2 Learning Module (`backend/content/models.py`)
+
+```python
+@dataclass
+class Topic:
+    topic_id: str; title: str; summary: str
+    source_section_ids: list[str]; order: int
+
+@dataclass
+class Diagram:
+    diagram_id: str; diagram_type: str  # "mermaid" | "extracted_image"
+    content: str; caption: str
+
+@dataclass
+class Question:
+    question_id: str; question_text: str
+    question_type: str  # "single_choice" | "multiple_choice"
+    options: list[str]; correct_answers: list[int]
+    explanation: str; difficulty: str  # "easy" | "medium" | "hard"
+
+@dataclass
+class EnrichedTopic:
+    topic: Topic; content_md: str; key_takeaways: list[str]
+    diagrams: list[Diagram]; inline_questions: list[Question]
+
+@dataclass
+class LearningModule:
+    module_id: str; title: str; source_doc_id: str
+    topics: list[EnrichedTopic]; created_at: str
+
+    def to_json(self) -> str: ...
+    @classmethod
+    def from_json(cls, data: str | dict) -> LearningModule: ...
+```
+
+### 11.3 Quiz Model (`backend/quiz/models.py`)
+
+```python
+@dataclass
+class QuizQuestion:
+    question_id: str; question_text: str; question_type: str
+    options: list[str]; correct_answers: list[int]
+    explanation: str; difficulty: str; topic_id: str
+
+@dataclass
+class QuestionBank:
+    module_id: str; questions: list[QuizQuestion]
+
+@dataclass
+class Quiz:
+    quiz_id: str; module_id: str; difficulty: str
+    questions: list[QuizQuestion]; created_at: str
+
+@dataclass
+class AnswerResult:
+    question_id: str; selected: list[int]; correct: list[int]
+    is_correct: bool; explanation: str
+
+@dataclass
+class QuizResult:
+    quiz_id: str; module_id: str; user_id: str
+    score: int; total: int; percentage: float
+    answers: list[AnswerResult]; completed_at: str
+```
+
+### 11.4 Analytics Model (`backend/analytics/models.py`)
+
+```python
+@dataclass
+class ModuleStats:
+    module_id: str; total_attempts: int
+    min_score: float; max_score: float; avg_score: float
+    user_score: float; user_percentile: float; user_attempts: int
+
+@dataclass
+class MasteryReport:          # Phase 3
+    user_id: str; module_id: str
+    topics: list[dict]         # [{topic_id, title, mastered, difficulty, attempts}]
+    overall_mastery_pct: float
+```
+
+---
+
+## 12. Non-Functional Requirements
+
+### 12.1 File Constraints
+- Max upload: 50 MB
+- Formats: `.pdf` (Phase 1 + Phase 2); `.pptx` `.docx` deferred to Phase 3
+
+### 12.2 LLM Usage
+- All LLM calls go through `BaseLLMClient` — no direct SDK imports outside `adapters/`
+- Token budget per module generation: 200,000 tokens (input + output, configurable)
+- Timeout per call: 60 seconds; retry once on transient failure
+
+### 12.3 Performance
+- PDF parsing: < 30 s for 50-page document
+- CrewAI generation: 2-5 minutes — progress shown via `st.status()`
+- Quiz assembly (no LLM): < 1 s
+- LangGraph node invocation: < 10 s per turn
+- ChromaDB query: < 500 ms
+
+### 12.4 Error Handling
+- Parse failures → surface file-specific error; allow re-upload
+- LLM failure → retry once; show user-facing error with retry button
+- CrewAI agent failure → log full traceback; surface which agent failed
+- LangGraph graph error → reset session; offer restart from last checkpoint
+
+### 12.5 Security
+- No passwords — username-only identification (sufficient for course project scope)
+- Uploaded files stored locally, scoped by `doc_id`; not publicly accessible
+- API keys read from env; never logged or committed to source
+
+---
+
+## 13. Open Questions
+
+- [x] **CrewAI process type** — **Resolved:** `Process.sequential`. Each task's output feeds the next; no parallel branches needed.
+- [x] **ChromaDB embedding model** — **Resolved:** Local `sentence-transformers` (`all-MiniLM-L6-v2`). Fully offline, no API cost, fast on CPU. Configured via `chromadb.utils.embedding_functions.SentenceTransformerEmbeddingFunction`. Add `sentence-transformers` to `pyproject.toml`.
+- [x] **LangGraph checkpointer** — **Resolved:** `SqliteSaver` (built-in, single file, zero extra infra).
+- [x] **PPTX/DOCX priority** — **Resolved:** PDF only for Phase 2. PPTX/DOCX deferred to Phase 3.
+- [x] **Hint generation strategy** — **Resolved:** LLM-generated at runtime inside `provide_hint` node. The LLM receives the question + topic context + evaluation of the student's specific error, and generates a targeted hint. No pre-stored hints.
 
 ---
 
 ## Appendix A: Environment Variables
 
-| Variable                | Purpose                          | Default (Phase 1)      |
-| ----------------------- | -------------------------------- | ---------------------- |
-| `AI_TUTOR_LLM_PROVIDER` | LLM provider name               | `anthropic`            |
-| `AI_TUTOR_LLM_API_KEY`  | API key for LLM provider        | (required)             |
-| `AI_TUTOR_LLM_MODEL`    | Model name                      | `claude-sonnet-4-6`    |
-| `AI_TUTOR_DB_PATH`      | SQLite database file path       | `data/ai_tutor.db`     |
-| `AI_TUTOR_UPLOAD_DIR`   | Upload directory                | `data/uploads`         |
-| `AI_TUTOR_MAX_FILE_MB`  | Max upload size in MB           | `50`                   |
+| Variable | Purpose | Default |
+|---|---|---|
+| `AI_TUTOR_LLM_PROVIDER` | `anthropic` \| `portkey` \| `ollama` | `anthropic` |
+| `AI_TUTOR_LLM_API_KEY` | Anthropic or Portkey API key | (required) |
+| `AI_TUTOR_LLM_MODEL` | Model name | `claude-sonnet-4-6` |
+| `AI_TUTOR_PORTKEY_VIRTUAL_KEY` | Portkey virtual key | — |
+| `AI_TUTOR_OLLAMA_BASE_URL` | Ollama server URL | `http://localhost:11434` |
+| `AI_TUTOR_DB_PATH` | SQLite file path | `data/ai_tutor.db` |
+| `AI_TUTOR_UPLOAD_DIR` | Upload directory | `data/uploads` |
+| `AI_TUTOR_MAX_FILE_MB` | Max upload size | `50` |
+| `AI_TUTOR_CHROMA_PATH` | ChromaDB persistence directory | `data/chroma` |
+| `AI_TUTOR_TOKEN_BUDGET` | Max tokens per generation run | `200000` |
