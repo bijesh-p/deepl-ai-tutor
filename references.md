@@ -14,12 +14,6 @@
 - [Ollama](https://ollama.com/) — Local LLM runner with OpenAI-compatible endpoint; used in `backend/core/llm_client/adapters/ollama_adapter.py`.
 - [OpenAI Python SDK](https://github.com/openai/openai-python) — Used for Ollama's OpenAI-compatible function calling interface.
 
-## Multi-Agent Orchestration
-
-- [CrewAI Documentation](https://docs.crewai.com/) — Multi-agent orchestration framework; powers the 3-agent sequential content pipeline in `backend/content_factory/`.
-- [CrewAI GitHub](https://github.com/crewAIInc/crewAI) — Source and issue tracker.
-- [CrewAI Tools](https://docs.crewai.com/concepts/tools) — Tool integration for CrewAI agents, including MCP server tool access.
-
 ## Adaptive Tutoring
 
 - [LangGraph Documentation](https://langchain-ai.github.io/langgraph/) — State machine framework for building agent workflows; powers the 5-node interactive tutor in `backend/interactive_tutor/`.

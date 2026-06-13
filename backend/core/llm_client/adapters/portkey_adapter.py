@@ -5,6 +5,8 @@ from typing import Any
 
 from backend.core.llm_client.base import BaseLLMClient
 
+PORTKEY_BASE_URL = "https://api.portkey.ai"
+
 
 class PortkeyAdapter(BaseLLMClient):
 
@@ -12,20 +14,24 @@ class PortkeyAdapter(BaseLLMClient):
         self,
         api_key: str | None = None,
         model: str | None = None,
-        virtual_key: str | None = None,
     ):
-        from portkey_ai import Portkey
+        import anthropic
 
         self.provider = "portkey"
-        self.model = model or os.environ.get("AI_TUTOR_LLM_MODEL", "claude-sonnet-4-6")
-        key = api_key or os.environ.get("AI_TUTOR_PORTKEY_API_KEY", "")
-        vk = virtual_key or os.environ.get("AI_TUTOR_PORTKEY_VIRTUAL_KEY", "")
-        if not vk:
+        self.model = model or os.environ.get(
+            "AI_TUTOR_LLM_MODEL",
+            "@vertexai-global/anthropic.claude-sonnet-4-6",
+        )
+        portkey_key = api_key or os.environ.get("PORTKEY_API_KEY", "")
+        if not portkey_key:
             raise ValueError(
-                "Portkey requires a virtual key. "
-                "Set AI_TUTOR_PORTKEY_VIRTUAL_KEY in .env or pass virtual_key=."
+                "Portkey requires PORTKEY_API_KEY. Set it in .env."
             )
-        self._client = Portkey(api_key=key, virtual_key=vk)
+        self._client = anthropic.Anthropic(
+            api_key="dummy",
+            base_url=PORTKEY_BASE_URL,
+            default_headers={"x-portkey-api-key": portkey_key},
+        )
 
     def generate(
         self,
@@ -59,7 +65,7 @@ class PortkeyAdapter(BaseLLMClient):
             kwargs["tools"] = [tool_schema]
             kwargs["tool_choice"] = {"type": "tool", "name": tool_schema["name"]}
 
-        response = self._client.chat.completions.create(**kwargs)
+        response = self._client.messages.create(**kwargs)
 
         if tool_schema:
             for block in response.content:

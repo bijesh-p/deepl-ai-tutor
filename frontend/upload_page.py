@@ -21,12 +21,6 @@ def render_upload_page() -> None:
     username = st.text_input("Your name (used for analytics)", placeholder="e.g. Alice")
     uploaded = st.file_uploader("Upload a PDF document", type=["pdf"])
 
-    pipeline_mode = st.radio(
-        "Generation pipeline",
-        ["Classic (direct LLM)", "CrewAI (multi-agent)"],
-        horizontal=True,
-    )
-
     missing = []
     if not username:
         missing.append("enter your name")
@@ -49,11 +43,7 @@ def render_upload_page() -> None:
     try:
         db = get_db()
         user_id = save_user(username.strip(), db=db)
-
-        if pipeline_mode == "CrewAI (multi-agent)":
-            _run_crewai_pipeline(tmp_path, user_id, username.strip())
-        else:
-            _run_classic_pipeline(tmp_path, user_id, username.strip(), db)
+        _run_pipeline(tmp_path, user_id, username.strip(), db)
     except Exception as exc:
         st.error(f"Error: {exc}")
         st.exception(exc)
@@ -62,23 +52,7 @@ def render_upload_page() -> None:
             os.unlink(tmp_path)
 
 
-def _run_crewai_pipeline(tmp_path: str, user_id: str, username: str) -> None:
-    with st.status("Running CrewAI content pipeline…", expanded=True) as status:
-        st.write("Running 3-agent CrewAI crew (Information Architect → Assessment Designer → Formatting Specialist)…")
-
-        from backend.content_factory import run_pipeline
-        module_id = run_pipeline(tmp_path, user_id)
-
-        st.write(f"Module generated: `{module_id}`")
-        status.update(label="Module ready! Go to Module Library to view.", state="complete")
-
-    st.session_state["user_id"] = user_id
-    st.session_state["username"] = username
-    st.session_state["page"] = "module_library"
-    st.rerun()
-
-
-def _run_classic_pipeline(tmp_path: str, user_id: str, username: str, db) -> None:
+def _run_pipeline(tmp_path: str, user_id: str, username: str, db) -> None:
     from backend.content.content_enricher import enrich
     from backend.content.diagram_generator import generate_diagrams
     from backend.content.inline_question_gen import generate_inline_questions

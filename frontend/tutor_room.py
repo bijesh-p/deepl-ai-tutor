@@ -21,8 +21,8 @@ def render_tutor_room() -> None:
     st.caption(f"Module: **{module.title}**")
 
     if "tutor_state" not in st.session_state:
-        concepts = [t.title for t in module.topics]
-        content_map = {t.title: t.content for t in module.topics}
+        concepts = [t.topic.title for t in module.topics]
+        content_map = {t.topic.title: t.content_md for t in module.topics}
 
         st.session_state["tutor_state"] = {
             "current_concept": concepts[0] if concepts else "",

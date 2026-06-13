@@ -24,7 +24,7 @@ flowchart TD
     end
 
     subgraph Orchestration["Backend Orchestration"]
-        CF["content_factory/\nCrewAI Crew\n(3 agents, sequential)"]
+        CF["content/\nDirect LLM Pipeline\n(decompose → enrich → diagrams → quiz)"]
         IT["interactive_tutor/\nLangGraph Graph\n(5 nodes, conditional routing)"]
     end
 
@@ -44,7 +44,7 @@ flowchart TD
         VDB[(ChromaDB\nall-MiniLM-L6-v2)]
     end
 
-    UP -->|"run_pipeline()"| CF
+    UP -->|"_run_pipeline()"| CF
     TUTOR -->|"graph.invoke()"| IT
     LIB & LEARN & QUIZ & RES --> DB
 
@@ -97,37 +97,42 @@ classDiagram
 
 ---
 
-## 3. CrewAI Content Factory
+## 3. Content Pipeline — Direct LLM Calls
 
-Three agents run sequentially. Each agent's output is the next agent's input. Agents call MCP tool servers for document extraction, assessment validation, and storage.
+A linear pipeline where each step makes a single LLM call with a typed tool schema, ensuring deterministic structured output. Total cost: **3N + 2 LLM calls** for N topics.
 
 ```mermaid
 ---
-title: CrewAI Content Factory — Agent Pipeline
+title: Content Pipeline — Direct LLM Calls
 ---
 flowchart LR
-    PDF([PDF\nupload]) --> IA
+    PDF([PDF\nupload]) --> PARSE
 
-    subgraph Crew["content_factory  —  Process.sequential"]
-        IA["Information Architect\n\nExtract text via document_server\nDecompose into learning topics\nStructure topic hierarchy"]
+    subgraph Pipeline["content/  —  Direct LLM Pipeline"]
+        PARSE["Parse PDF\n\npdf_parser.py\nExtract sections with\nheading-aware splitting"]
 
-        AD["Assessment Designer\n\nGenerate inline questions per topic\nBuild quiz question bank\nTag difficulty + Bloom's taxonomy\nvia assessment_server"]
+        DECOMPOSE["Decompose\n\ntopic_decomposer.py\n1 LLM call\nIdentify learning topics"]
 
-        FS["Formatting Specialist\n\nGenerate Mermaid diagrams\nFormat content as learner-friendly Markdown\nValidate output schema\nPersist via storage_server"]
+        ENRICH["Enrich Topics\n\ncontent_enricher.py\ndiagram_generator.py\ninline_question_gen.py\n3 LLM calls per topic"]
+
+        QUIZ["Quiz Bank\n\nquestion_bank.py\n1 LLM call\n20-50 questions"]
     end
 
-    IA --> AD --> FS
+    PARSE --> DECOMPOSE --> ENRICH --> QUIZ
 
-    FS --> OUT([LearningModule\nstored in SQLite + ChromaDB])
+    QUIZ --> OUT([LearningModule\nstored in SQLite])
 ```
 
-**MCP tool usage by agent:**
+**Pipeline step details:**
 
-| Agent | MCP server | Tools called |
-|---|---|---|
-| Information Architect | `document_server` | `extract_text_from_pdf`, `parse_images` |
-| Assessment Designer | `assessment_server` | `evaluate_taxonomy` |
-| Formatting Specialist | `storage_server` | `upsert_to_vector_db`, `save_module_to_db` |
+| Step | Module | LLM calls | Output |
+|---|---|---|---|
+| Parse | `pdf_parser.py` | 0 | `Document` with `list[Section]` |
+| Decompose | `topic_decomposer.py` | 1 | `list[Topic]` |
+| Enrich (per topic) | `content_enricher.py` | 1 | `EnrichedTopic` with Markdown content |
+| Diagrams (per topic) | `diagram_generator.py` | 1 | `list[Diagram]` (Mermaid) |
+| Inline questions (per topic) | `inline_question_gen.py` | 1 | `list[Question]` (SCQ/MCQ) |
+| Quiz bank | `question_bank.py` | 1 | `QuestionBank` |
 
 ---
 
@@ -209,7 +214,7 @@ after evaluate_response:
 
 ## 5. MCP Tool Servers
 
-Three standalone MCP servers. All backend orchestration (CrewAI agents, LangGraph nodes) accesses tools exclusively through `MCPClient` — no direct imports of `chromadb`, `fitz`, etc. outside the servers.
+Three standalone MCP servers. All backend orchestration (content pipeline, LangGraph nodes) accesses tools exclusively through `MCPClient` — no direct imports of `chromadb`, `fitz`, etc. outside the servers.
 
 ```mermaid
 ---
@@ -217,8 +222,8 @@ title: MCP Tool Servers and Dependencies
 ---
 flowchart LR
     subgraph Callers["Backend Orchestration"]
-        CF[content_factory\nagents]
-        IT[interactive_tutor\nnodes]
+        CF[content/\npipeline steps]
+        IT[interactive_tutor/\nnodes]
     end
 
     MC["MCPClient"]
@@ -335,7 +340,7 @@ erDiagram
 
 ## 8. Data Flow — End to End
 
-Two independent paths through the system: batch generation (CrewAI) and live tutoring (LangGraph).
+Two independent paths through the system: batch generation (direct LLM pipeline) and live tutoring (LangGraph).
 
 ```mermaid
 ---
@@ -344,10 +349,10 @@ title: Two Data Paths
 flowchart TD
     subgraph GenerationPath["Path 1: Module Generation (batch)"]
         direction LR
-        PDF([PDF]) --> IA2[Information\nArchitect]
-        IA2 --> AD2[Assessment\nDesigner]
-        AD2 --> FS2[Formatting\nSpecialist]
-        FS2 --> DB2[(SQLite +\nChromaDB)]
+        PDF([PDF]) --> PARSE2[Parse\nPDF]
+        PARSE2 --> DECOMP2[Decompose\nTopics]
+        DECOMP2 --> ENRICH2[Enrich +\nDiagrams +\nQuestions]
+        ENRICH2 --> DB2[(SQLite)]
     end
 
     subgraph TutoringPath["Path 2: Adaptive Tutoring (live)"]

@@ -61,9 +61,72 @@ class OllamaAdapter(BaseLLMClient):
 
         if tool_schema and choice.message.tool_calls:
             call = choice.message.tool_calls[0]
-            return json.loads(call.function.arguments)
+            parsed = json.loads(call.function.arguments)
+            if isinstance(parsed, dict):
+                self._fix_stringified_values(parsed)
+            return parsed
 
-        return choice.message.content or ""
+        content = choice.message.content or ""
+
+        if tool_schema and content:
+            parsed = self._extract_json(content)
+            if isinstance(parsed, dict):
+                if "parameters" in parsed:
+                    parsed = parsed["parameters"]
+                self._fix_stringified_values(parsed)
+                return parsed
+            raise RuntimeError(
+                f"Ollama model did not return valid JSON for tool '{tool_schema['name']}'. "
+                f"Raw response: {content[:500]}"
+            )
+
+        return content
+
+    @staticmethod
+    def _fix_stringified_values(obj: dict) -> None:
+        """Small models sometimes stringify nested JSON values. Parse them in-place."""
+        for key, value in obj.items():
+            if isinstance(value, str):
+                try:
+                    parsed = json.loads(value)
+                    if isinstance(parsed, (dict, list)):
+                        obj[key] = parsed
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+    @staticmethod
+    def _extract_json(text: str) -> dict | None:
+        """Try to extract a JSON object from model output."""
+        # Direct parse
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
+
+        # Strip markdown code fences
+        import re
+        match = re.search(r"```(?:json)?\s*\n?(.*?)\n?\s*```", text, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group(1))
+            except json.JSONDecodeError:
+                pass
+
+        # Find first { ... } block
+        start = text.find("{")
+        if start != -1:
+            depth = 0
+            for i in range(start, len(text)):
+                if text[i] == "{":
+                    depth += 1
+                elif text[i] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        try:
+                            return json.loads(text[start : i + 1])
+                        except json.JSONDecodeError:
+                            break
+        return None
 
     @staticmethod
     def _translate_tool_schema(anthropic_schema: dict) -> dict:

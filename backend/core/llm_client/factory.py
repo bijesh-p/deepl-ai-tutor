@@ -5,15 +5,36 @@ import os
 from backend.core.llm_client.base import BaseLLMClient
 
 
+def _get_session_state():
+    """Read provider/model from Streamlit session_state if available."""
+    try:
+        import streamlit as st
+        if hasattr(st, "session_state"):
+            return (
+                st.session_state.get("llm_provider"),
+                st.session_state.get("llm_model"),
+            )
+    except Exception:
+        pass
+    return None, None
+
+
 class LLMFactory:
 
     @staticmethod
     def create(provider: str | None = None, **kwargs) -> BaseLLMClient:
         """Create an LLM client for the given provider.
 
-        Falls back to AI_TUTOR_LLM_PROVIDER env var (default: anthropic).
+        Resolution order for provider/model:
+          1. Explicit arguments
+          2. Streamlit session_state (llm_provider / llm_model)
+          3. Environment variables
         """
-        prov = provider or os.environ.get("AI_TUTOR_LLM_PROVIDER", "anthropic")
+        ss_provider, ss_model = _get_session_state()
+        prov = provider or ss_provider or os.environ.get("AI_TUTOR_LLM_PROVIDER", "anthropic")
+
+        if "model" not in kwargs and ss_model:
+            kwargs["model"] = ss_model
 
         if prov == "anthropic":
             from backend.core.llm_client.adapters.anthropic_adapter import AnthropicAdapter

@@ -1,6 +1,6 @@
 # SPEC.md — AI Tutor System Specification
 
-> **Version:** 0.4 (Multi-LLM + MCP Servers + CrewAI Content Factory + LangGraph Adaptive Tutor)
+> **Version:** 0.5 (Multi-LLM + MCP Servers + Direct LLM Pipeline + LangGraph Adaptive Tutor)
 > **Last updated:** 2026-06-09
 
 ---
@@ -10,7 +10,7 @@
 | Phase | Name | Status | Key additions |
 |-------|------|--------|---------------|
 | 1 | PDF POC | ✅ Complete | Single-provider LLM, persistent module library |
-| 2 | Platform Upgrade | 🔲 Next | Multi-LLM factory, MCP servers, CrewAI content generation, ChromaDB |
+| 2 | Platform Upgrade | 🔲 Next | Multi-LLM factory, MCP servers, direct LLM content pipeline, ChromaDB |
 | 3 | Adaptive Tutor | 🔲 Future | LangGraph interactive tutor, adaptive difficulty, hints, mastery tracking |
 
 ---
@@ -25,22 +25,22 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
 
 ### Phase 2 — Platform Upgrade (next)
 
-**Goal:** Refactor the backend into a clean layered architecture — MCP tool servers, a multi-provider LLM factory, and a CrewAI-powered content generation crew. Adds ChromaDB for semantic retrieval and Portkey/Ollama as switchable LLM backends. Frontend retains all existing pages and styles.
+**Goal:** Refactor the backend into a clean layered architecture — MCP tool servers, a multi-provider LLM factory, and a direct LLM content pipeline. Adds ChromaDB for semantic retrieval and Portkey/Ollama as switchable LLM backends. Frontend retains all existing pages and styles.
 
 **Scope:**
 - Directory restructure: `backend/` + `mcp_servers/` as top-level packages
 - LLM abstraction: strategy + factory pattern (`base.py`, `factory.py`, `adapters/`)
 - MCP servers: `document_server`, `assessment_server`, `storage_server`
-- Content generation replaced by CrewAI crew (`backend/content_factory/`) — 3 agents, sequential
+- Content pipeline: direct LLM calls (decompose → enrich → diagrams → questions) via `backend/content/`
 - ChromaDB vector store for document chunks (`all-MiniLM-L6-v2`)
 - Frontend: no admin/user separation; any user can upload and generate
 
 **Definition of done for Phase 2:**
 - [ ] `LLMFactory.create("portkey" | "ollama" | "anthropic")` returns a working client
 - [ ] Three MCP servers each expose their tools and can be called via `mcp_client.py`
-- [ ] CrewAI crew (3 agents) produces a `LearningModule` equivalent to Phase 1 output
+- [ ] Direct LLM pipeline produces a `LearningModule` equivalent to Phase 1 output
 - [ ] ChromaDB stores and retrieves document chunks by semantic similarity
-- [ ] Upload page works end-to-end with the new CrewAI backend
+- [ ] Upload page works end-to-end with the direct LLM pipeline
 - [ ] All existing Streamlit pages (module library, learn, quiz, results) work unchanged
 
 ---
@@ -77,7 +77,7 @@ Static documents (PDFs, PowerPoint slides, Word docs) lead to passive learning a
 
 AI Tutor is a web platform that transforms uploaded documents into interactive, adaptive learning experiences:
 
-1. **Any user** uploads a PDF → CrewAI multi-agent crew (3 agents, sequential) generates a structured learning module and stores it persistently.
+1. **Any user** uploads a PDF → direct LLM pipeline (decompose → enrich → diagrams → questions) generates a structured learning module and stores it persistently.
 2. **Users** browse the module library → work through enriched content and take quizzes.
 3. **Adaptive Tutor** (Phase 3) watches user responses and adjusts difficulty, provides targeted hints, simplifies foundations when students are stuck, and tracks topic mastery via a LangGraph state machine (5 nodes, conditional routing).
 
@@ -87,7 +87,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed diagrams. Summary:
 
 ```
 Streamlit Frontend
-    ├── Upload & Generate ──→ CrewAI Crew (3 agents) ──→ SQLite + ChromaDB
+    ├── Upload & Generate ──→ Direct LLM Pipeline ──→ SQLite + ChromaDB
     ├── Module Library / Viewer / Quiz / Results ──→ SQLite
     └── Tutor Room (Phase 3) ──→ LangGraph Graph (5 nodes) ──→ SQLite + ChromaDB
                                                      ↕
@@ -103,7 +103,7 @@ Streamlit Frontend
 | Layer | Technology | Phase |
 |---|---|---|
 | Frontend | Streamlit (multi-page) | 1+ |
-| Content generation | CrewAI | 2 |
+| Content generation | Direct LLM pipeline | 2 |
 | Adaptive tutor | LangGraph | 3 |
 | LLM providers | Anthropic SDK, Portkey, Ollama (OpenAI-compat) | 1 / 2 / 2 |
 | Tool protocol | MCP (Model Context Protocol) | 2 |
@@ -159,13 +159,6 @@ ai-tutor-platform/
 │   │   ├── __init__.py
 │   │   └── models.py                  # LearningModule, EnrichedTopic, Topic, Diagram, Question
 │   │
-│   ├── content_factory/               # CONTENT GENERATION — CrewAI crew
-│   │   ├── __init__.py
-│   │   ├── agents.py                  # Agent definitions (roles, goals, backstories)
-│   │   ├── tasks.py                   # Task sequences: Ingest → Outline → Enrich → Quiz
-│   │   ├── crew.py                    # Assembles and runs the crew
-│   │   └── pipeline.py                # Public entry point: run_pipeline(file_path) -> LearningModule
-│   │
 │   ├── interactive_tutor/             # ADAPTIVE TUTOR — LangGraph
 │   │   ├── __init__.py
 │   │   ├── state.py                   # GraphState TypedDict
@@ -189,7 +182,7 @@ ai-tutor-platform/
 │
 ├── frontend/                          # PRESENTATION LAYER
 │   ├── app.py                         # Entry point, session init, router
-│   ├── upload_page.py                 # Upload PDF + trigger CrewAI generation
+│   ├── upload_page.py                 # Upload PDF + run direct LLM content pipeline
 │   ├── module_library_page.py
 │   ├── module_viewer.py
 │   ├── quiz_page.py
@@ -225,11 +218,11 @@ ai-tutor-platform/
 
 ## 3. MCP Tool Servers
 
-MCP servers are standalone processes that expose tools over the Model Context Protocol. Agents (CrewAI, LangGraph) discover and call these tools through `backend/core/mcp_client.py`. This decouples tool logic from the orchestration layer — a tool can be called by a CrewAI agent, a LangGraph node, or a plain Python function without changing its implementation.
+MCP servers are standalone processes that expose tools over the Model Context Protocol. The content pipeline and LangGraph tutor discover and call these tools through `backend/core/mcp_client.py`. This decouples tool logic from the orchestration layer — a tool can be called by a LangGraph node, a pipeline step, or a plain Python function without changing its implementation.
 
 ### 3.1 document_server (`mcp_servers/document_server.py`)
 
-**Purpose:** All document I/O operations. Called by the Information Architect agent.
+**Purpose:** All document I/O operations. Called by the content pipeline's decomposition step.
 
 | Tool | Signature | Description |
 |---|---|---|
@@ -238,7 +231,7 @@ MCP servers are standalone processes that expose tools over the Model Context Pr
 
 ### 3.2 assessment_server (`mcp_servers/assessment_server.py`)
 
-**Purpose:** Validate and evaluate generated content. Called by the Assessment Designer agent and the LangGraph `evaluate_response` node.
+**Purpose:** Validate and evaluate generated content. Called by the quiz generation step and the LangGraph `evaluate_response` node.
 
 | Tool | Signature | Description |
 |---|---|---|
@@ -247,7 +240,7 @@ MCP servers are standalone processes that expose tools over the Model Context Pr
 
 ### 3.3 storage_server (`mcp_servers/storage_server.py`)
 
-**Purpose:** Persist data to SQLite and ChromaDB. Called by the Formatting Specialist agent.
+**Purpose:** Persist data to SQLite and ChromaDB. Called by the content pipeline's save step.
 
 | Tool | Signature | Description |
 |---|---|---|
@@ -374,60 +367,57 @@ class LLMFactory:
 
 ---
 
-## 6. Work Stream 2: Content Generation — CrewAI Factory
+## 6. Work Stream 2: Content Generation — Direct LLM Pipeline
 
 ### 6.1 Goal
 
-Replace the sequential single-LLM pipeline with a CrewAI multi-agent crew. Three specialised agents run in sequence (`Process.sequential`), each calling appropriate MCP tool servers. The crew produces the same `LearningModule` output as Phase 1, with higher quality from specialisation.
+A direct LLM pipeline that transforms a parsed document into a structured `LearningModule`. Each step makes a single LLM call with a typed tool schema, ensuring deterministic structured output. Total cost: **3N + 2 LLM calls** for N topics.
 
-### 6.2 Agents (`backend/content_factory/agents.py`)
-
-| Agent | Role | Backstory | MCP tools used |
-|---|---|---|---|
-| **Information Architect** | Document analyst + curriculum designer | Expert at extracting structure from documents and decomposing them into a coherent learning sequence | `document_server`: `extract_text_from_pdf`, `parse_images` |
-| **Assessment Designer** | Question author + difficulty tagger | Experienced educator who writes questions at multiple cognitive levels (Bloom's taxonomy) | `assessment_server`: `evaluate_taxonomy` |
-| **Formatting Specialist** | Content writer + publisher | Turns raw outlines into polished learner-friendly Markdown with diagrams, validates schema, and persists the result | `storage_server`: `upsert_to_vector_db`, `save_module_to_db` |
-
-### 6.3 Task Sequence (`backend/content_factory/tasks.py`)
+### 6.2 Pipeline Steps (`backend/content/`)
 
 ```
-Information Architect
-    → Extract text + images from PDF via document_server
-    → Decompose into ordered learning topics with scope boundaries
+Step 1: Parse PDF (pdf_parser.py)
+    → Extract sections with heading-aware splitting
+    → Output: Document with list[Section]
+
+Step 2: Decompose (topic_decomposer.py)
+    → 1 LLM call with return_topics tool schema
+    → Decomposes document sections into ordered learning topics
     → Output: list[Topic] with source section mapping
 
-Assessment Designer
-    → Generate 2-3 inline questions per topic (SCQ/MCQ)
-    → Build full quiz question bank (20-50 questions)
-    → Tag each question with difficulty + Bloom's level via assessment_server
-    → Output: list[EnrichedTopic] with inline_questions + QuestionBank
+Step 3: Enrich each topic (content_enricher.py + diagram_generator.py + inline_question_gen.py)
+    → Per topic (3 LLM calls each):
+        - enrich(): rewrite into learner-friendly Markdown with key takeaways
+        - generate_diagrams(): generate Mermaid diagrams where visuals aid understanding
+        - generate_inline_questions(): create 2-3 reinforcement questions (SCQ/MCQ)
+    → Output: list[EnrichedTopic]
 
-Formatting Specialist
-    → Rewrite content into learner-friendly Markdown with analogies and key takeaways
-    → Generate Mermaid diagrams for topics that benefit from a visual
-    → Validate output against LearningModule schema
-    → Persist module JSON to SQLite and embed topic chunks in ChromaDB via storage_server
-    → Output: module_id
+Step 4: Generate quiz bank (question_bank.py)
+    → 1 LLM call to produce 20-50 quiz questions across all topics
+    → Output: QuestionBank
+
+Step 5: Save (persistence.py)
+    → Persist LearningModule + QuestionBank to SQLite
 ```
 
-### 6.4 Public Entry Point (`backend/content_factory/pipeline.py`)
+### 6.3 Entry Point (`frontend/upload_page.py`)
 
 ```python
-def run_pipeline(file_path: str, user_id: str) -> str:
-    """Run the CrewAI crew and return the module_id of the saved module."""
+def _run_pipeline(tmp_path, user_id, username, db):
+    """Parse PDF, run direct LLM pipeline, save module to database."""
 ```
 
-Called by `frontend/upload_page.py` — the frontend does not import any CrewAI types directly.
+The frontend calls each pipeline step directly — no intermediate orchestration layer.
 
-### 6.5 ChromaDB Integration
+### 6.4 ChromaDB Integration
 
-After the crew completes, the Formatting Specialist calls `storage_server.upsert_to_vector_db` with:
+After enrichment, topic content chunks are available for semantic search:
 - **Collection:** `modules`
 - **Documents:** One chunk per `EnrichedTopic` (content + key takeaways concatenated)
 - **Metadata:** `{"module_id": ..., "topic_id": ..., "title": ...}`
 - **Embedding function:** `SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")` — runs locally, no API call
 
-This enables semantic search in Phase 3 (LangGraph tutor retrieves relevant topic context dynamically).
+This enables semantic search in the LangGraph tutor (retrieves relevant topic context dynamically).
 
 ---
 
@@ -545,7 +535,7 @@ The quiz engine continues to serve the static difficulty-select → quiz → res
 | `modules` | Topic content chunks, one per `EnrichedTopic` | LangGraph `ask_question` node (context retrieval) |
 | `sessions` | Per-session tutor messages (Phase 3) | LangGraph hint/escalation context |
 
-ChromaDB is accessed through `storage_server` MCP tools — nothing in the frontend or CrewAI crew imports `chromadb` directly.
+ChromaDB is accessed through `storage_server` MCP tools — nothing in the frontend or content pipeline imports `chromadb` directly.
 
 ### 9.2 New: `topic_mastery` table
 
@@ -576,7 +566,7 @@ No admin/user role separation — any user can upload and generate modules.
 
 | Page | File | Purpose |
 |---|---|---|
-| Upload | `frontend/upload_page.py` | Enter username, upload PDF, trigger CrewAI pipeline via `run_pipeline()` |
+| Upload | `frontend/upload_page.py` | Enter username, upload PDF, run direct LLM content pipeline |
 | Module Library | `frontend/module_library_page.py` | Browse all published modules, select one to learn or delete |
 | Module Viewer | `frontend/module_viewer.py` | Read topics, inline questions, Mermaid diagrams, "Take Quiz" button |
 | Quiz | `frontend/quiz_page.py` | Difficulty selector, question form, submit |
@@ -727,7 +717,7 @@ class MasteryReport:          # Phase 3
 
 ### 12.3 Performance
 - PDF parsing: < 30 s for 50-page document
-- CrewAI generation: 2-5 minutes — progress shown via `st.status()`
+- Content pipeline: 1-3 minutes — progress shown via `st.status()`
 - Quiz assembly (no LLM): < 1 s
 - LangGraph node invocation: < 10 s per turn
 - ChromaDB query: < 500 ms
@@ -735,7 +725,7 @@ class MasteryReport:          # Phase 3
 ### 12.4 Error Handling
 - Parse failures → surface file-specific error; allow re-upload
 - LLM failure → retry once; show user-facing error with retry button
-- CrewAI agent failure → log full traceback; surface which agent failed
+- Pipeline step failure → log full traceback; surface which step failed
 - LangGraph graph error → reset session; offer restart from last checkpoint
 
 ### 12.5 Security
@@ -747,7 +737,7 @@ class MasteryReport:          # Phase 3
 
 ## 13. Open Questions
 
-- [x] **CrewAI process type** — **Resolved:** `Process.sequential`. Each task's output feeds the next; no parallel branches needed.
+- [x] **Content pipeline approach** — **Resolved:** Direct LLM calls with typed tool schemas. Each step produces structured JSON output via tool-use.
 - [x] **ChromaDB embedding model** — **Resolved:** Local `sentence-transformers` (`all-MiniLM-L6-v2`). Fully offline, no API cost, fast on CPU. Configured via `chromadb.utils.embedding_functions.SentenceTransformerEmbeddingFunction`. Add `sentence-transformers` to `pyproject.toml`.
 - [x] **LangGraph checkpointer** — **Resolved:** `SqliteSaver` (built-in, single file, zero extra infra).
 - [x] **PPTX/DOCX priority** — **Resolved:** PDF only for Phase 2. PPTX/DOCX deferred to Phase 3.
