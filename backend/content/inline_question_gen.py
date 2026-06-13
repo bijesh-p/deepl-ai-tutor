@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from backend.content.llm_client import LLMClient
+from backend.content.llm_client import LLMClient, coerce_tool_array, coerce_tool_item
 from backend.content.models import EnrichedTopic, Question
 
 _TOOL_SCHEMA = {
@@ -74,7 +74,8 @@ def generate_inline_questions(
     )
 
     questions: list[Question] = []
-    for q in result["questions"]:
+    for q in coerce_tool_array(result["questions"]):
+        q = coerce_tool_item(q)
         questions.append(
             Question(
                 question_id=str(uuid.uuid4()),

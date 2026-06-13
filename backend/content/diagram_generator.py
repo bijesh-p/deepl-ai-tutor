@@ -30,8 +30,14 @@ _TOOL_SCHEMA = {
 _SYSTEM = (
     "You are an expert at creating clear educational diagrams. "
     "Decide if a Mermaid diagram (flowchart, sequence, class, etc.) would meaningfully "
-    "aid understanding of the topic. If yes, generate valid Mermaid syntax. "
-    "If a diagram would not add value, set needs_diagram to false."
+    "aid understanding of the topic. If yes, generate valid Mermaid syntax for Mermaid v10. "
+    "If a diagram would not add value, set needs_diagram to false. "
+    "Mermaid syntax rules you must follow: "
+    "Never use a double-quote character or a backslash-escaped quote (\\\")"
+    " inside a label — Mermaid does not support escaped quotes, and it produces a syntax error. "
+    "If a label needs to show quoted text, use the HTML entity #quot; instead, or "
+    "rephrase without quotes. "
+    "Do not create an edge from a subgraph to itself."
 )
 
 
@@ -59,7 +65,12 @@ def generate_diagrams(
         Diagram(
             diagram_id=str(uuid.uuid4()),
             diagram_type="mermaid",
-            content=result["mermaid_code"],
+            content=_sanitize_mermaid(result["mermaid_code"]),
             caption=result.get("caption", ""),
         )
     ]
+
+
+def _sanitize_mermaid(code: str) -> str:
+    """Fix common LLM mistakes that produce Mermaid syntax errors."""
+    return code.replace('\\"', "#quot;")
