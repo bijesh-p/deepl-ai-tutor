@@ -83,10 +83,20 @@ def _get_ollama_default() -> str | None:
 
 
 def main() -> None:
+    import time as _time
+
     if "page" not in st.session_state:
         st.session_state["page"] = "upload"
 
     _render_sidebar()
+
+    progress = st.session_state.get("pipeline_progress")
+    if progress and progress["state"] == "running":
+        elapsed = int(_time.monotonic() - progress["started_at"])
+        st.info(
+            f"Generating module — Step {progress['step']}/6: "
+            f"{progress['step_label']} ({elapsed}s)"
+        )
 
     page = st.session_state["page"]
 
