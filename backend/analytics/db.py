@@ -13,6 +13,14 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS user_profiles (
+    user_id             TEXT PRIMARY KEY REFERENCES users(user_id),
+    overall_depth       TEXT NOT NULL DEFAULT 'intermediate',
+    topic_mastery_json  TEXT NOT NULL DEFAULT '{}',
+    module_visits_json  TEXT NOT NULL DEFAULT '{}',
+    last_seen           TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS modules (
     module_id          TEXT PRIMARY KEY,
     title              TEXT NOT NULL,
@@ -51,6 +59,7 @@ CREATE TABLE IF NOT EXISTS topic_mastery (
 _MIGRATIONS = [
     "ALTER TABLE modules ADD COLUMN module_json TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE modules ADD COLUMN created_by TEXT NOT NULL DEFAULT ''",
+    # user_profiles created via CREATE TABLE IF NOT EXISTS above — no ALTER needed
 ]
 
 

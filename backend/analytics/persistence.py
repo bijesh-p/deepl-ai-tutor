@@ -122,3 +122,56 @@ def get_user_attempts(
         (user_id, module_id),
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+def load_user_profile(user_id: str, db: sqlite3.Connection | None = None) -> dict:
+    """Return persisted profile for a user, or defaults if none exists."""
+    conn = db or get_db()
+    row = conn.execute(
+        "SELECT * FROM user_profiles WHERE user_id = ?", (user_id,)
+    ).fetchone()
+    if row:
+        d = dict(row)
+        d["topic_mastery"] = json.loads(d.pop("topic_mastery_json", "{}"))
+        d["module_visits"] = json.loads(d.pop("module_visits_json", "{}"))
+        return d
+    return {
+        "user_id": user_id,
+        "overall_depth": "intermediate",
+        "topic_mastery": {},
+        "module_visits": {},
+        "last_seen": "",
+    }
+
+
+def save_user_profile(
+    user_id: str,
+    overall_depth: str,
+    topic_mastery: dict,
+    module_id: str | None = None,
+    db: sqlite3.Connection | None = None,
+) -> None:
+    """Upsert the user profile, merging new mastery data with existing."""
+    conn = db or get_db()
+
+    # Load existing mastery so we merge, not overwrite
+    existing = load_user_profile(user_id, db=conn)
+    merged_mastery = {**existing["topic_mastery"], **topic_mastery}
+    merged_visits = existing["module_visits"]
+    if module_id:
+        from datetime import datetime, timezone
+        merged_visits[module_id] = datetime.now(timezone.utc).isoformat()
+
+    conn.execute(
+        """
+        INSERT INTO user_profiles (user_id, overall_depth, topic_mastery_json, module_visits_json, last_seen)
+        VALUES (?, ?, ?, ?, datetime('now'))
+        ON CONFLICT(user_id) DO UPDATE SET
+            overall_depth      = excluded.overall_depth,
+            topic_mastery_json = excluded.topic_mastery_json,
+            module_visits_json = excluded.module_visits_json,
+            last_seen          = excluded.last_seen
+        """,
+        (user_id, overall_depth, json.dumps(merged_mastery), json.dumps(merged_visits)),
+    )
+    conn.commit()

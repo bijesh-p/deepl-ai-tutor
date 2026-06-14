@@ -5,6 +5,8 @@ from dataclasses import asdict
 
 import streamlit as st
 
+from backend.analytics.db import get_db
+from backend.analytics.persistence import save_user_profile
 from backend.interactive_tutor import build_tutor_graph
 
 try:
@@ -45,8 +47,7 @@ def render_tutor_room() -> None:
         depth = state.get("presentation_depth", "—")
         st.caption(f"Level: **{depth}**")
         if st.button("End Session"):
-            _cleanup_tutor()
-            st.session_state["page"] = "module_library"
+            _end_session(state)
             st.rerun()
 
     with col_main:
@@ -117,8 +118,7 @@ def render_tutor_room() -> None:
             mastered = state.get("mastered_concepts", [])
             st.success(f"Session complete! You mastered **{len(mastered)}** concept(s).")
             if st.button("Back to Module Library"):
-                _cleanup_tutor()
-                st.session_state["page"] = "module_library"
+                _end_session(state)
                 st.rerun()
 
 
@@ -220,23 +220,31 @@ def _render_slide(state: dict, graph) -> None:
 # ---------------------------------------------------------------------------
 
 def _init_tutor_state(module) -> None:
-    from backend.interactive_tutor.graph import GraphState
-
     topics = module.topics
     concepts = [t.topic.title for t in topics]
     summary_map = {t.topic.title: t.topic.summary for t in topics}
     content_map = {t.topic.title: t.content_md for t in topics}
 
+    # Seed depth and mastery from persisted user profile
+    profile = st.session_state.get("user_profile", {})
+    prior_depth = profile.get("overall_depth", "intermediate")
+    prior_mastery: dict = profile.get("topic_mastery", {})
+
+    # Topics the user already mastered in any prior session go to front of mastered list
+    already_mastered = [c for c in concepts if prior_mastery.get(c)]
+    remaining = [c for c in concepts if c not in already_mastered]
+    first_concept = remaining[0] if remaining else (concepts[0] if concepts else "")
+
     st.session_state["tutor_state"] = {
-        "current_concept": concepts[0] if concepts else "",
-        "concept_content": content_map.get(concepts[0], "") if concepts else "",
-        "concept_summary": summary_map.get(concepts[0], "") if concepts else "",
+        "current_concept": first_concept,
+        "concept_content": content_map.get(first_concept, ""),
+        "concept_summary": summary_map.get(first_concept, ""),
         "current_question": None,
         "student_answer": "",
         "attempts": 0,
         "concept_mastered": False,
-        "mastered_concepts": [],
-        "remaining_concepts": concepts[1:] if len(concepts) > 1 else [],
+        "mastered_concepts": already_mastered,
+        "remaining_concepts": remaining[1:] if len(remaining) > 1 else [],
         "chat_history": [],
         "user_id": st.session_state.get("user_id", ""),
         "module_id": module.module_id,
@@ -244,7 +252,7 @@ def _init_tutor_state(module) -> None:
         "diagnostic_questions": [],
         "diagnostic_answers": [],
         "diagnostic_score": 0.0,
-        "presentation_depth": "intermediate",
+        "presentation_depth": prior_depth,
         "topic_diagram": "",
         "topic_audio_path": "",
         "topic_top_concepts": [],
@@ -335,6 +343,44 @@ def _render_chat_history(history: list[dict]) -> None:
             st.chat_message("user").markdown(content)
 
 
-def _cleanup_tutor() -> None:
+def _end_session(state: dict | None = None) -> None:
+    """Abort background pipeline, persist user profile, then clean up tutor state."""
+    # 1. Abort pipeline if still running
+    abort_event = st.session_state.get("pipeline_abort_event")
+    if abort_event:
+        abort_event.set()
+
+    # 2. Persist user profile
+    if state:
+        user_id = state.get("user_id") or st.session_state.get("user_id", "")
+        if user_id:
+            mastered = state.get("mastered_concepts", [])
+            # Include current concept if it was just mastered
+            if state.get("concept_mastered") and state.get("current_concept"):
+                mastered = list(mastered) + [state["current_concept"]]
+            topic_mastery = {c: True for c in mastered}
+            depth = state.get("presentation_depth", "intermediate")
+            module_id = state.get("module_id")
+            try:
+                db = get_db()
+                save_user_profile(
+                    user_id=user_id,
+                    overall_depth=depth,
+                    topic_mastery=topic_mastery,
+                    module_id=module_id,
+                    db=db,
+                )
+                db.close()
+                # Update in-session profile so it's fresh if user starts again
+                profile = st.session_state.get("user_profile", {})
+                profile["overall_depth"] = depth
+                profile["topic_mastery"] = {**profile.get("topic_mastery", {}), **topic_mastery}
+                st.session_state["user_profile"] = profile
+            except Exception:
+                pass  # profile save is best-effort
+
+    # 3. Clean up tutor session state
     for key in ("tutor_state", "tutor_phase", "tutor_graph", "tutor_content_map", "tutor_summary_map"):
         st.session_state.pop(key, None)
+
+    st.session_state["page"] = "module_library"

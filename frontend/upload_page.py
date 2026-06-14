@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 import streamlit as st
 
 from backend.analytics.db import get_db
-from backend.analytics.persistence import save_module, save_user
+from backend.analytics.persistence import load_user_profile, save_module, save_user
 from backend.core.llm_client import LLMFactory
 
 
@@ -49,8 +49,10 @@ def render_upload_page() -> None:
 
     db = get_db()
     user_id = save_user(username.strip(), db=db)
+    profile = load_user_profile(user_id, db=db)
     db.close()
 
+    st.session_state["user_profile"] = profile
     _start_pipeline(tmp_path, user_id, username.strip())
     st.rerun()
 
@@ -181,7 +183,13 @@ def _run_pipeline_bg(
 
             progress["detail"] = f"Generating audio for {topic.title}..."
             try:
-                enriched.audio_path = generate_audio(enriched.content_md, topic.topic_id)
+                diagram = enriched.diagrams[0] if enriched.diagrams else None
+                enriched.audio_path = generate_audio(
+                    enriched.content_md,
+                    topic.topic_id,
+                    diagram_caption=diagram.caption if diagram else "",
+                    diagram_mermaid=diagram.content if diagram else "",
+                )
             except Exception:
                 enriched.audio_path = ""
 

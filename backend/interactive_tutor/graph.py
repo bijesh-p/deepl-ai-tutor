@@ -230,6 +230,20 @@ def present_concept(state: GraphState) -> dict:
             )
             transcript = adapted if isinstance(adapted, str) else content_md
 
+            # Re-generate audio if not present, bridging diagram and transcript
+            if not audio_path:
+                try:
+                    from backend.content.audio_generator import generate_audio
+                    diagram_caption = enriched.get("diagrams", [{}])[0].get("caption", "") if enriched.get("diagrams") else ""
+                    audio_path = generate_audio(
+                        transcript,
+                        f"{concept}_tutor",
+                        diagram_caption=diagram_caption,
+                        diagram_mermaid=mermaid_code,
+                    )
+                except Exception:
+                    audio_path = ""
+
             slide_msg = {
                 "role": "slide",
                 "concept": concept,
@@ -269,13 +283,27 @@ def present_concept(state: GraphState) -> dict:
     from backend.content.diagram_generator import _sanitize_mermaid
     mermaid_code = _sanitize_mermaid(result.get("mermaid_code", ""))
 
+    transcript = result.get("transcript", "")
+
+    # Generate diagram-aware audio for the fallback slide
+    fallback_audio = ""
+    try:
+        from backend.content.audio_generator import generate_audio
+        fallback_audio = generate_audio(
+            transcript,
+            f"{concept}_tutor_fallback",
+            diagram_mermaid=mermaid_code,
+        )
+    except Exception:
+        fallback_audio = ""
+
     slide_msg = {
         "role": "slide",
         "concept": concept,
         "top_concepts": result.get("top_concepts", []),
-        "transcript": result.get("transcript", ""),
+        "transcript": transcript,
         "mermaid_code": mermaid_code,
-        "audio_path": "",
+        "audio_path": fallback_audio,
     }
 
     history = list(state.get("chat_history", []))
@@ -283,9 +311,9 @@ def present_concept(state: GraphState) -> dict:
 
     return {
         "topic_diagram": mermaid_code,
-        "topic_audio_path": "",
+        "topic_audio_path": fallback_audio,
         "topic_top_concepts": result.get("top_concepts", []),
-        "concept_content": result.get("transcript", ""),
+        "concept_content": transcript,
         "chat_history": history,
         "attempts": 0,
         "concept_mastered": False,
