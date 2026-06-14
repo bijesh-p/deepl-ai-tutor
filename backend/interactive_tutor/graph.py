@@ -1,22 +1,17 @@
-"""LangGraph interactive tutor — 5-node state machine with conditional router.
+"""LangGraph interactive tutor — state machine with diagnostic quiz and slide presentation.
 
-Nodes:
-  1. present_concept  — load concept content, deliver explanation
-  2. ask_question     — generate a targeted question
-  3. evaluate_response — LLM analyses answer, sets concept_mastered flag
-  4. provide_hint     — tailor hint to student's specific error
-  5. simplify_foundations — break concept into simpler building blocks
-
-Router (after evaluate_response):
-  - concept_mastered → next concept (or session_complete)
-  - attempts < 3     → provide_hint → ask_question
-  - attempts >= 3    → simplify_foundations → ask_question
+Flow:
+  generate_diagnostic  → [UI: student answers MCQ] → evaluate_diagnostic
+  → present_concept (slide: diagram + audio + transcript)
+  → ask_question → evaluate_response → router:
+      concept_mastered  → advance_concept → present_concept (next topic)
+      attempts < 3      → provide_hint → ask_question
+      attempts >= 3     → simplify_foundations → ask_question
 """
 from __future__ import annotations
 
 import json
-import operator
-from typing import Annotated, TypedDict
+from typing import TypedDict
 
 from langgraph.graph import StateGraph, END
 
@@ -24,15 +19,35 @@ from backend.core.llm_client import LLMFactory
 
 
 class GraphState(TypedDict):
+    # Current position
     current_concept: str
-    concept_content: str
+    concept_content: str           # enriched Markdown (from pipeline or generated)
+    concept_summary: str           # topic summary (always available from decomposer)
     current_question: dict | None
     student_answer: str
+
+    # Diagnostic
+    diagnostic_questions: list[dict]  # MCQ questions before presentation
+    diagnostic_answers: list[int]     # student's chosen option indices
+    diagnostic_score: float           # 0.0–1.0
+    presentation_depth: str           # "beginner" | "intermediate" | "advanced"
+
+    # Slide content
+    topic_diagram: str             # Mermaid code for current concept
+    topic_audio_path: str          # path to mp3 narration (empty if not ready)
+    topic_top_concepts: list[str]  # 2-3 key concept labels
+    enriched_topic: dict | None    # EnrichedTopic asdict — injected by UI if pipeline ready
+
+    # Tracking
     attempts: int
     concept_mastered: bool
     mastered_concepts: list[str]
     remaining_concepts: list[str]
+
+    # Conversation (slides + Q&A interleaved)
     chat_history: list[dict]
+
+    # Identity
     user_id: str
     module_id: str
     feedback: str
@@ -42,26 +57,235 @@ def _get_llm():
     return LLMFactory.create()
 
 
-def present_concept(state: GraphState) -> dict:
-    """Load concept content and deliver explanation to student."""
+# ---------------------------------------------------------------------------
+# Diagnostic nodes
+# ---------------------------------------------------------------------------
+
+_DIAGNOSTIC_SCHEMA = {
+    "name": "return_diagnostic_questions",
+    "description": "Return 3-5 MCQ diagnostic questions on the topic.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "questions": {
+                "type": "array",
+                "minItems": 3,
+                "maxItems": 5,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "question_text": {"type": "string"},
+                        "options": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "minItems": 4,
+                            "maxItems": 4,
+                        },
+                        "correct_index": {"type": "integer"},
+                    },
+                    "required": ["question_text", "options", "correct_index"],
+                },
+            }
+        },
+        "required": ["questions"],
+    },
+}
+
+_DIAGNOSTIC_SYSTEM = (
+    "You are an educator assessing a student's prior knowledge before teaching. "
+    "Generate 3-5 multiple-choice diagnostic questions on the given topic. "
+    "Each question must have exactly 4 options. "
+    "Include a mix of easy and medium difficulty. "
+    "Base questions only on what can be reasonably inferred from the topic title and summary — "
+    "do not assume the student has read anything yet."
+)
+
+
+def generate_diagnostic(state: GraphState) -> dict:
+    """Generate MCQ diagnostic questions from topic title + summary (no enriched content needed)."""
     llm = _get_llm()
     concept = state["current_concept"]
-    content = state.get("concept_content", "")
+    summary = state.get("concept_summary", "")
 
     prompt = (
-        f"You are an expert tutor. Present the following concept to a student "
-        f"in a clear, engaging way. Use examples and analogies.\n\n"
-        f"Concept: {concept}\n\n"
-        f"Source content:\n{content}\n\n"
-        f"Deliver a concise explanation (3-5 paragraphs) that builds understanding step by step."
+        f"Topic: {concept}\n"
+        f"Summary: {summary}\n\n"
+        "Generate diagnostic questions to assess the student's prior knowledge of this topic."
     )
 
-    explanation = llm.generate(prompt, system="You are a patient, encouraging tutor.")
-
-    history = list(state.get("chat_history", []))
-    history.append({"role": "tutor", "content": explanation})
+    result = llm.generate(prompt, system=_DIAGNOSTIC_SYSTEM, tool_schema=_DIAGNOSTIC_SCHEMA)
+    questions = result.get("questions", []) if isinstance(result, dict) else []
 
     return {
+        "diagnostic_questions": questions,
+        "diagnostic_answers": [],
+        "diagnostic_score": 0.0,
+        "presentation_depth": "intermediate",
+    }
+
+
+def evaluate_diagnostic(state: GraphState) -> dict:
+    """Score diagnostic answers and set presentation depth."""
+    questions = state.get("diagnostic_questions", [])
+    answers = state.get("diagnostic_answers", [])
+
+    if not questions:
+        return {"diagnostic_score": 0.0, "presentation_depth": "intermediate"}
+
+    correct = sum(
+        1 for i, q in enumerate(questions)
+        if i < len(answers) and answers[i] == q.get("correct_index", -1)
+    )
+    score = correct / len(questions)
+
+    if score < 0.4:
+        depth = "beginner"
+    elif score < 0.7:
+        depth = "intermediate"
+    else:
+        depth = "advanced"
+
+    return {"diagnostic_score": score, "presentation_depth": depth}
+
+
+# ---------------------------------------------------------------------------
+# Slide presentation node
+# ---------------------------------------------------------------------------
+
+_SLIDE_SCHEMA = {
+    "name": "return_slide",
+    "description": "Return a slide presentation for the concept.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "top_concepts": {
+                "type": "array",
+                "items": {"type": "string"},
+                "minItems": 2,
+                "maxItems": 3,
+            },
+            "transcript": {
+                "type": "string",
+                "description": "Conversational explanation adapted to the student's level.",
+            },
+            "mermaid_code": {
+                "type": "string",
+                "description": "Mermaid diagram code. Use flowchart or mindmap to show relationships.",
+            },
+        },
+        "required": ["top_concepts", "transcript", "mermaid_code"],
+    },
+}
+
+_SLIDE_SYSTEM = (
+    "You are a tutor creating a visual slide to explain a concept. "
+    "Produce a short conversational explanation (3-4 paragraphs) adapted to the student's level. "
+    "Also produce a Mermaid diagram (concept map or flowchart) and 2-3 top concept labels. "
+    "Use valid Mermaid v10 syntax. Never use double-quote characters inside Mermaid labels — "
+    "use #quot; instead. Do not wrap the Mermaid code in ``` fences."
+)
+
+_DEPTH_GUIDANCE = {
+    "beginner": (
+        "The student is a BEGINNER — no prior knowledge assumed. "
+        "Use simple words, everyday analogies, and explain every term."
+    ),
+    "intermediate": (
+        "The student has SOME background. "
+        "Use clear explanations with one or two analogies."
+    ),
+    "advanced": (
+        "The student is ADVANCED — already understands the basics. "
+        "Focus on nuance, edge cases, and deeper connections."
+    ),
+}
+
+
+def present_concept(state: GraphState) -> dict:
+    """Build a slide for the current concept, using enriched content if available."""
+    concept = state["current_concept"]
+    depth = state.get("presentation_depth", "intermediate")
+    enriched = state.get("enriched_topic")
+
+    # If the pipeline already finished enriching this topic, use its assets directly
+    if enriched:
+        diagrams = enriched.get("diagrams", [])
+        mermaid_code = diagrams[0]["content"] if diagrams else ""
+        audio_path = enriched.get("audio_path", "")
+        top_concepts = enriched.get("top_concepts", [])
+        content_md = enriched.get("content_md", "")
+
+        # If we have everything, adapt the transcript to depth and return the slide
+        if content_md:
+            llm = _get_llm()
+            depth_note = _DEPTH_GUIDANCE[depth]
+            adapted = llm.generate(
+                prompt=(
+                    f"Here is an explanation of '{concept}':\n\n{content_md}\n\n"
+                    f"{depth_note}\n"
+                    "Rewrite it in 2-3 paragraphs matching the student's level. "
+                    "Keep it conversational."
+                ),
+                system="You are a patient tutor adapting content for a specific learner.",
+            )
+            transcript = adapted if isinstance(adapted, str) else content_md
+
+            slide_msg = {
+                "role": "slide",
+                "concept": concept,
+                "top_concepts": top_concepts,
+                "transcript": transcript,
+                "mermaid_code": mermaid_code,
+                "audio_path": audio_path,
+            }
+            history = list(state.get("chat_history", []))
+            history.append(slide_msg)
+            return {
+                "topic_diagram": mermaid_code,
+                "topic_audio_path": audio_path,
+                "topic_top_concepts": top_concepts,
+                "concept_content": transcript,
+                "chat_history": history,
+                "attempts": 0,
+                "concept_mastered": False,
+                "feedback": "",
+            }
+
+    # Pipeline hasn't finished yet — generate a lightweight slide from title + summary
+    llm = _get_llm()
+    summary = state.get("concept_summary", "")
+    depth_note = _DEPTH_GUIDANCE[depth]
+
+    prompt = (
+        f"Topic: {concept}\nSummary: {summary}\n\n"
+        f"{depth_note}\n\n"
+        "Create a slide to introduce this concept to the student."
+    )
+
+    result = llm.generate(prompt, system=_SLIDE_SYSTEM, tool_schema=_SLIDE_SCHEMA)
+    if not isinstance(result, dict):
+        result = {"top_concepts": [], "transcript": str(result), "mermaid_code": ""}
+
+    from backend.content.diagram_generator import _sanitize_mermaid
+    mermaid_code = _sanitize_mermaid(result.get("mermaid_code", ""))
+
+    slide_msg = {
+        "role": "slide",
+        "concept": concept,
+        "top_concepts": result.get("top_concepts", []),
+        "transcript": result.get("transcript", ""),
+        "mermaid_code": mermaid_code,
+        "audio_path": "",
+    }
+
+    history = list(state.get("chat_history", []))
+    history.append(slide_msg)
+
+    return {
+        "topic_diagram": mermaid_code,
+        "topic_audio_path": "",
+        "topic_top_concepts": result.get("top_concepts", []),
+        "concept_content": result.get("transcript", ""),
         "chat_history": history,
         "attempts": 0,
         "concept_mastered": False,
@@ -69,25 +293,22 @@ def present_concept(state: GraphState) -> dict:
     }
 
 
+# ---------------------------------------------------------------------------
+# Question / evaluation nodes (unchanged logic, updated prompts)
+# ---------------------------------------------------------------------------
+
 def ask_question(state: GraphState) -> dict:
-    """Generate a targeted question assessing the current concept."""
+    """Generate a targeted open-ended question about the current concept."""
     llm = _get_llm()
     concept = state["current_concept"]
     content = state.get("concept_content", "")
+    depth = state.get("presentation_depth", "intermediate")
     attempts = state.get("attempts", 0)
 
+    depth_note = _DEPTH_GUIDANCE[depth]
     context = ""
     if attempts > 0 and state.get("feedback"):
         context = f"\nThe student previously struggled with: {state['feedback']}\nAsk a question that approaches the concept differently."
-
-    prompt = (
-        f"Generate a single comprehension question about: {concept}\n\n"
-        f"Source content:\n{content}\n{context}\n\n"
-        f"Return a JSON object with:\n"
-        f'- "question": the question text\n'
-        f'- "expected_answer": what a correct answer should include\n'
-        f'- "misconceptions": common wrong answers to watch for'
-    )
 
     schema = {
         "name": "generate_question",
@@ -103,16 +324,21 @@ def ask_question(state: GraphState) -> dict:
         },
     }
 
+    prompt = (
+        f"Generate a single comprehension question about: {concept}\n\n"
+        f"Explanation given to student:\n{content}\n"
+        f"{depth_note}\n{context}\n\n"
+        "The question difficulty should match the student's level. "
+        "Return via the tool."
+    )
+
     result = llm.generate(prompt, tool_schema=schema)
     question_data = result if isinstance(result, dict) else {"question": str(result), "expected_answer": "", "misconceptions": []}
 
     history = list(state.get("chat_history", []))
     history.append({"role": "tutor", "content": question_data["question"]})
 
-    return {
-        "current_question": question_data,
-        "chat_history": history,
-    }
+    return {"current_question": question_data, "chat_history": history}
 
 
 def evaluate_response(state: GraphState) -> dict:
@@ -120,16 +346,6 @@ def evaluate_response(state: GraphState) -> dict:
     llm = _get_llm()
     question = state.get("current_question", {})
     answer = state.get("student_answer", "")
-
-    prompt = (
-        f"Evaluate this student's answer.\n\n"
-        f"Question: {question.get('question', '')}\n"
-        f"Expected answer: {question.get('expected_answer', '')}\n"
-        f"Common misconceptions: {json.dumps(question.get('misconceptions', []))}\n"
-        f"Student's answer: {answer}\n\n"
-        f"Determine if the student has mastered this concept. "
-        f"Identify specific misconceptions if present."
-    )
 
     schema = {
         "name": "evaluate_answer",
@@ -144,6 +360,15 @@ def evaluate_response(state: GraphState) -> dict:
             "required": ["is_correct", "feedback"],
         },
     }
+
+    prompt = (
+        f"Evaluate this student's answer.\n\n"
+        f"Question: {question.get('question', '')}\n"
+        f"Expected answer: {question.get('expected_answer', '')}\n"
+        f"Common misconceptions: {json.dumps(question.get('misconceptions', []))}\n"
+        f"Student's answer: {answer}\n\n"
+        "Identify specific misconceptions if present. Be encouraging."
+    )
 
     result = llm.generate(prompt, tool_schema=schema)
     evaluation = result if isinstance(result, dict) else {"is_correct": False, "feedback": str(result)}
@@ -169,17 +394,14 @@ def provide_hint(state: GraphState) -> dict:
     prompt = (
         f"The student is struggling with: {concept}\n"
         f"Their specific difficulty: {feedback}\n\n"
-        f"Provide a targeted hint that:\n"
-        f"1. Acknowledges their attempt\n"
-        f"2. Points them toward the right thinking without giving the answer\n"
-        f"3. Uses a different analogy or example than before"
+        "Provide a targeted hint that acknowledges their attempt, "
+        "points them toward the right thinking without giving the answer, "
+        "and uses a different analogy or example than before."
     )
 
     hint = llm.generate(prompt, system="You are a patient tutor giving a helpful hint.")
-
     history = list(state.get("chat_history", []))
     history.append({"role": "tutor", "content": f"Hint: {hint}"})
-
     return {"chat_history": history}
 
 
@@ -191,48 +413,33 @@ def simplify_foundations(state: GraphState) -> dict:
 
     prompt = (
         f"The student has struggled with '{concept}' after multiple attempts.\n"
-        f"Original content:\n{content}\n\n"
-        f"Break this concept down into its simplest building blocks:\n"
-        f"1. Identify 2-3 prerequisite sub-concepts\n"
-        f"2. Explain each sub-concept simply\n"
-        f"3. Show how they combine into the main concept\n"
-        f"Use very simple language and concrete examples."
+        f"Original explanation:\n{content}\n\n"
+        "Break this concept into 2-3 simpler building blocks. "
+        "Explain each one simply, then show how they combine. "
+        "Use very simple language and concrete examples."
     )
 
     simplified = llm.generate(prompt, system="You are explaining to a complete beginner.")
-
     history = list(state.get("chat_history", []))
     history.append({"role": "tutor", "content": f"Let me break this down differently:\n\n{simplified}"})
+    return {"chat_history": history, "attempts": 0}
 
-    return {
-        "chat_history": history,
-        "attempts": 0,
-    }
 
+# ---------------------------------------------------------------------------
+# Navigation helpers
+# ---------------------------------------------------------------------------
 
 def _router(state: GraphState) -> str:
-    """Conditional router after evaluate_response."""
     if state.get("concept_mastered", False):
-        remaining = state.get("remaining_concepts", [])
-        if remaining:
-            return "next_concept"
-        return "session_complete"
-
-    attempts = state.get("attempts", 0)
-    if attempts >= 3:
-        return "simplify"
-
-    return "hint"
+        return "next_concept" if state.get("remaining_concepts") else "session_complete"
+    return "simplify" if state.get("attempts", 0) >= 3 else "hint"
 
 
 def _advance_concept(state: GraphState) -> dict:
-    """Move to the next concept in the sequence."""
     remaining = list(state.get("remaining_concepts", []))
     mastered = list(state.get("mastered_concepts", []))
     mastered.append(state["current_concept"])
-
     next_concept = remaining.pop(0) if remaining else ""
-
     return {
         "current_concept": next_concept,
         "remaining_concepts": remaining,
@@ -241,31 +448,37 @@ def _advance_concept(state: GraphState) -> dict:
         "attempts": 0,
         "current_question": None,
         "feedback": "",
+        "diagnostic_questions": [],
+        "diagnostic_answers": [],
+        "enriched_topic": None,
+        "topic_diagram": "",
+        "topic_audio_path": "",
+        "topic_top_concepts": [],
     }
 
 
 def _session_complete(state: GraphState) -> dict:
-    """Summarize mastery and end the session."""
     mastered = list(state.get("mastered_concepts", []))
     mastered.append(state["current_concept"])
-
     history = list(state.get("chat_history", []))
     summary = (
-        f"Session complete! You've mastered {len(mastered)} concept(s): "
+        f"Session complete! You have mastered {len(mastered)} concept(s): "
         + ", ".join(mastered)
     )
     history.append({"role": "tutor", "content": summary})
+    return {"mastered_concepts": mastered, "chat_history": history}
 
-    return {
-        "mastered_concepts": mastered,
-        "chat_history": history,
-    }
 
+# ---------------------------------------------------------------------------
+# Graph builder
+# ---------------------------------------------------------------------------
 
 def build_tutor_graph():
     """Build and compile the LangGraph tutor state machine."""
     graph = StateGraph(GraphState)
 
+    graph.add_node("generate_diagnostic", generate_diagnostic)
+    graph.add_node("evaluate_diagnostic", evaluate_diagnostic)
     graph.add_node("present_concept", present_concept)
     graph.add_node("ask_question", ask_question)
     graph.add_node("evaluate_response", evaluate_response)
@@ -274,8 +487,13 @@ def build_tutor_graph():
     graph.add_node("advance_concept", _advance_concept)
     graph.add_node("session_complete", _session_complete)
 
-    graph.set_entry_point("present_concept")
+    graph.set_entry_point("generate_diagnostic")
 
+    # Diagnostic runs, then UI pauses for student answers
+    graph.add_edge("generate_diagnostic", END)
+
+    # After UI submits answers: evaluate → present → question loop
+    graph.add_edge("evaluate_diagnostic", "present_concept")
     graph.add_edge("present_concept", "ask_question")
 
     graph.add_conditional_edges(
@@ -291,7 +509,7 @@ def build_tutor_graph():
 
     graph.add_edge("provide_hint", "ask_question")
     graph.add_edge("simplify_foundations", "ask_question")
-    graph.add_edge("advance_concept", "present_concept")
+    graph.add_edge("advance_concept", "generate_diagnostic")
     graph.add_edge("session_complete", END)
 
     return graph.compile()

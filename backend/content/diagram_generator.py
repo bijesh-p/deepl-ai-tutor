@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import uuid
 from backend.content.llm_client import LLMClient
 from backend.content.models import Diagram, EnrichedTopic
@@ -45,7 +46,7 @@ def generate_diagrams(
     prompt = (
         f"Topic: {enriched.topic.title}\n\n"
         f"{enriched.content_md}\n\n"
-        "Should a diagram be generated for this topic? If yes, produce Mermaid code."
+        "Generate a Mermaid diagram showing how the key ideas in this topic relate."
     )
 
     result = llm.generate(
@@ -70,4 +71,11 @@ def generate_diagrams(
 
 def _sanitize_mermaid(code: str) -> str:
     """Fix common LLM mistakes that produce Mermaid syntax errors."""
-    return code.replace('\\"', "#quot;")
+    code = code.strip()
+    # Strip ```mermaid ... ``` or ``` ... ``` fences
+    code = re.sub(r"^```(?:mermaid)?\s*\n?", "", code, flags=re.IGNORECASE)
+    code = re.sub(r"\n?```\s*$", "", code)
+    code = code.strip()
+    # Fix escaped quotes — Mermaid does not support \" inside labels
+    code = code.replace('\\"', "#quot;")
+    return code

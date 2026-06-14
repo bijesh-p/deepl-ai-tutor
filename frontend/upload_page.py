@@ -305,7 +305,7 @@ def _redirect_to_viewer(progress: dict) -> None:
     st.session_state["module"] = module
     st.session_state["user_id"] = progress["user_id"]
     st.session_state["username"] = progress["username"]
-    st.session_state["page"] = "learn"
+    st.session_state["page"] = "tutor_room"
     st.rerun()
 
 
