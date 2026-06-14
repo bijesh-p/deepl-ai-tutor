@@ -1,12 +1,12 @@
 import pytest
 import sqlite3
-from analytics.db import get_db
-from analytics.persistence import (
+from backend.analytics.db import get_db
+from backend.analytics.persistence import (
     save_user, save_attempt, save_module, load_module,
     list_modules, delete_module, get_user_attempts,
 )
-from analytics.stats import get_module_stats
-from quiz.models import QuizResult, AnswerResult
+from backend.analytics.stats import get_module_stats
+from backend.quiz.models import QuizResult, AnswerResult
 
 
 @pytest.fixture
@@ -49,18 +49,8 @@ def test_save_and_retrieve_user(db):
     assert uid == uid2  # idempotent
 
 
-def test_save_user_role(db):
-    admin_id = save_user("admin", role="admin", db=db)
-    row = db.execute("SELECT role FROM users WHERE user_id = ?", (admin_id,)).fetchone()
-    assert row["role"] == "admin"
-
-    user_id = save_user("alice", db=db)
-    row = db.execute("SELECT role FROM users WHERE user_id = ?", (user_id,)).fetchone()
-    assert row["role"] == "user"
-
-
 def test_save_and_load_module(db):
-    uid = save_user("admin", role="admin", db=db)
+    uid = save_user("admin", db=db)
     _save_test_module("mod-1", uid, db)
 
     loaded = load_module("mod-1", db=db)
@@ -71,7 +61,7 @@ def test_save_and_load_module(db):
 
 
 def test_list_and_delete_module(db):
-    uid = save_user("admin", role="admin", db=db)
+    uid = save_user("admin", db=db)
     _save_test_module("mod-1", uid, db)
     _save_test_module("mod-2", uid, db)
 
@@ -98,8 +88,8 @@ def test_save_attempt_and_get_stats(db):
 
 
 def test_cohort_stats_with_multiple_users(db):
-    admin_id = save_user("admin", role="admin", db=db)
-    _save_test_module("mod-1", admin_id, db)
+    creator_id = save_user("creator", db=db)
+    _save_test_module("mod-1", creator_id, db)
 
     for name, score in [("alice", 6), ("bob", 8), ("carol", 10)]:
         uid = save_user(name, db=db)

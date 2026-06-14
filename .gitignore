@@ -9,13 +9,25 @@ wheels/
 # Virtual environments
 .venv
 
+# Secrets — never commit these
+.env
+.env-works
 
-# Runtime data (keep .gitkeep placeholders)
+# Runtime data — generated at runtime, gitkeep placeholders keep the dirs
 data/uploads/*
 data/generated/*
+data/audio/*
 data/ai_tutor.db
+data/*/
 !data/uploads/.gitkeep
 !data/generated/.gitkeep
 
 # Test cache
 .pytest_cache/
+
+# DeepEval cache
+.deepeval/
+
+# Scratch / one-off files
+project-export-*.txt
+api_check.py

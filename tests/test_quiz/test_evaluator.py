@@ -1,7 +1,7 @@
 import pytest
 from datetime import timezone
-from quiz.evaluator import evaluate
-from quiz.models import Quiz, QuizQuestion
+from backend.quiz.evaluator import evaluate
+from backend.quiz.models import Quiz, QuizQuestion
 
 
 def _make_quiz() -> Quiz:

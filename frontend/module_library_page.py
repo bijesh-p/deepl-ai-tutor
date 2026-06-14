@@ -4,29 +4,27 @@ import json
 
 import streamlit as st
 
-from analytics.db import get_db
-from analytics.persistence import list_modules, delete_module, load_module
-from content.models import LearningModule
-from quiz.models import QuestionBank, QuizQuestion
+from backend.analytics.db import get_db
+from backend.analytics.persistence import list_modules, delete_module, load_module
+from backend.content.models import LearningModule
+from backend.quiz.models import QuestionBank, QuizQuestion
 
 
 def render_module_library_page() -> None:
-    role = st.session_state.get("role", "user")
-
     st.title("Module Library")
     st.caption(f"Welcome, **{st.session_state.get('username', '')}**")
 
     col1, col2 = st.columns([6, 1])
     with col2:
-        if role == "admin" and st.button("+ New Module"):
-            st.session_state["page"] = "admin_upload"
+        if st.button("+ New Module"):
+            st.session_state["page"] = "upload"
             st.rerun()
 
-    db = get_db()
+    db = get_db(st.session_state.get("db_path"))
     modules = list_modules(db=db)
 
     if not modules:
-        st.info("No learning modules available yet. Ask an admin to generate one.")
+        st.info("No learning modules available yet. Upload a PDF to generate one.")
         return
 
     st.markdown(f"**{len(modules)} module(s) available**")
@@ -46,10 +44,9 @@ def render_module_library_page() -> None:
         with col_actions:
             if st.button("Learn", key=f"learn_{mod['module_id']}", type="primary"):
                 _load_and_navigate(mod["module_id"], db)
-            if role == "admin":
-                if st.button("Delete", key=f"del_{mod['module_id']}", type="secondary"):
-                    delete_module(mod["module_id"], db=db)
-                    st.rerun()
+            if st.button("Delete", key=f"del_{mod['module_id']}", type="secondary"):
+                delete_module(mod["module_id"], db=db)
+                st.rerun()
 
         st.markdown("---")
 
@@ -63,7 +60,7 @@ def _load_and_navigate(module_id: str, db) -> None:
     if not row.get("module_json"):
         st.warning(
             "This module was saved before the v0.3 update and its content cannot be loaded. "
-            "Please delete it and ask an admin to regenerate it from the original PDF."
+            "Please delete it and regenerate it from the original PDF."
         )
         return
 

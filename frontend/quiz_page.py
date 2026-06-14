@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import streamlit as st
-from quiz.assembler import assemble_quiz
-from quiz.evaluator import evaluate
-from quiz.models import QuestionBank
+from backend.quiz.assembler import assemble_quiz
+from backend.quiz.evaluator import evaluate
+from backend.quiz.models import QuestionBank
 
 
 def render_quiz_page(bank: QuestionBank) -> None:
@@ -55,9 +55,9 @@ def render_quiz_page(bank: QuestionBank) -> None:
     if submitted:
         result = evaluate(quiz, answers, st.session_state["user_id"])
 
-        from analytics.db import get_db
-        from analytics.persistence import save_attempt
-        db = get_db()
+        from backend.analytics.db import get_db
+        from backend.analytics.persistence import save_attempt
+        db = get_db(st.session_state.get("db_path"))
         save_attempt(result, st.session_state["quiz_difficulty"], db=db)
 
         st.session_state["quiz_result"] = result

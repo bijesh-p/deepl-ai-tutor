@@ -1,213 +1,167 @@
 # plan.md — AI Tutor Implementation
 
-> **Goal:** Deliver a fully working AI Tutor with role-based access (Admin generates modules, Users consume them) and a persistent module library.
-> **Spec:** SPEC.md v0.3
-> **Last updated:** 2026-06-03
+> **Goal:** Deliver a fully working AI Tutor with adaptive tutoring, observability, and admin-curated module sharing.
+> **Spec:** SPEC.md v0.7
+> **Last updated:** 2026-06-14
 
 ---
 
-## Status of Original Phases (Phases 1–9) ✅ COMPLETE
+## Phase 1 — PDF POC ✅ COMPLETE (main branch)
 
-All nine original phases are committed to `main`. The application is fully functional for the single-user PDF→LLM→Quiz flow.
+All original Phases 1–16 committed to `main`. Full end-to-end flow: PDF → LLM → module → quiz → analytics.
+
+---
+
+## Phase 2 — Functional Skeleton (this branch: `changes-to-use-langgraph-evals-audio`)
+
+Goal: build a working skeleton for every planned capability. Rough edges allowed — Phase 3 polishes.
+
+### Completed sub-phases
 
 | Phase | Description | Status |
-|-------|-------------|--------|
-| 1 | Project setup, dependencies, folder skeleton | ✅ Done |
-| 2 | Data models across all five work streams | ✅ Done |
-| 3 | PDF parser with 4-page cap | ✅ Done |
-| 4 | Anthropic LLM client + topic decomposer | ✅ Done |
-| 5 | Content enricher, diagram generator, inline questions | ✅ Done |
-| 6 | Quiz engine — question bank, assembler, evaluator | ✅ Done |
-| 7 | SQLite persistence and analytics | ✅ Done |
-| 8 | Streamlit frontend — upload, learn, quiz, results | ✅ Done |
-| 9 | Integration smoke test, README, references | ✅ Done |
+|---|---|---|
+| Phase 17 | Parallelise content pipeline (concurrent topic enrichment) | ✅ Done |
+| Phase 18 | Fast redirect + progressive enrichment + wait engagement | ✅ Done |
+| Phase 19 | Sliding-window decomposition: 500-word assess, publish immediately | ✅ Done |
+| Phase 20 | Fix sliding pipeline: lower threshold, add force-publish fallbacks | ✅ Done |
+| Phase 21 | Per-user DB, per-user LLM preferences, file memory on retry | ✅ Done |
+| Phase 22 | Separate login page, redirect bug fix, model dropdown from env | ✅ Done |
+| Phase 23 | Hide sidebar on login, slide transition, 60s auto-advance, LLM prefs in DB | ✅ Done |
+| Phase 24 | Cleanup: remove redundant files, update .gitignore, add .env.copy template | ✅ Done |
+| Phase 25 | Consolidate LLM helpers into `backend/core/` | ✅ Done |
+| Phase 26 | Diagram-first slide generation: anchor (Mermaid or bullet fallback) before explanation | ✅ Done |
+| Phase 27 | Fix audio latency; sync slide timer to audio duration | ✅ Done |
+| Phase 28 | Fix repeated diagnostic audio on slide 1; add audio toggle | ✅ Done |
+
+### Remaining Phase 2 work
+
+#### Phase 29 — ChromaDB end-to-end wiring
+
+Wire the `storage_server` MCP tool into the content pipeline so enriched topics are actually stored in ChromaDB after generation. Verify `query_vector_db` returns correct chunks.
+
+**Files:**
+- `mcp_servers/storage_server/` — ensure `upsert_to_vector_db` and `query_vector_db` tools are complete
+- `backend/content/sliding_pipeline.py` — call `storage_server.upsert_to_vector_db` after each topic enrichment
+- `backend/core/mcp_client.py` — verify MCP client can call storage_server in subprocess mode
 
 ---
 
-## New Work — v0.3 Role-Based Access + Module Library
+#### Phase 30 — MCPClient pipeline integration
 
-### What is changing
+Replace the remaining direct function calls in the content pipeline with `mcp_client.call()` dispatches. The document parsing step should call `document_server.extract_text_from_pdf`.
 
-| Area | Current behaviour | New behaviour |
-|------|------------------|---------------|
-| Who uploads | Any user | Admin only (password-protected) |
-| Who generates modules | Any user triggers LLM | Admin only; LLM runs once |
-| Module persistence | Title + question_bank_json stored | Full LearningModule JSON stored |
-| User entry point | Upload page | Module Library (browse + select) |
-| Login | Username text box | Role-aware login (admin gets password prompt) |
-| New pages | — | `login_page`, `admin_upload_page`, `module_library_page` |
+**Files:**
+- `backend/core/mcp_client.py`
+- `backend/content/sliding_pipeline.py`
+- `mcp_servers/document_server/`
 
 ---
 
-## Phase 10 — DB Schema + Persistence Upgrade
+#### Phase 31 — Portkey + Ollama end-to-end validation
 
-**Goal:** Extend the SQLite schema to store the full LearningModule JSON, add a `role` column to users, and add `created_by` + `module_json` to modules. Update persistence functions to match.
+Run a full upload → module → tutor session against Portkey and Ollama. Fix any adapter bugs surfaced. Add a brief validation matrix to `references.md`.
 
-**Files modified:**
-- `analytics/db.py`
-  - `users` table: add `role TEXT NOT NULL DEFAULT 'user'`
-  - `modules` table: add `module_json TEXT NOT NULL` and `created_by TEXT NOT NULL`
-  - Drop and recreate schema (dev DB only — add `DROP TABLE IF EXISTS` guards for clean rebuild)
-- `analytics/persistence.py`
-  - `save_user(username, role='user', db=None) -> str` — add role param
-  - `save_module(module, question_bank_json, module_json, created_by, db=None)` — add module_json + created_by params
-  - New: `load_module(module_id, db=None) -> dict` — returns raw JSON strings for both module and bank
-  - New: `list_modules(db=None) -> list[dict]` — returns `[{module_id, title, source_filename, created_at}]` for the library page
-- `tests/test_analytics/test_persistence.py` — update tests for new schema and new functions
-
-**Open questions:** None — decisions made in SPEC.md v0.3.
-
-**Commit message:** `[Phase 10] DB schema v2: role-based users, module_json persistence, list/load APIs`
+**Files:**
+- `backend/core/llm_client/adapters/portkey_adapter.py`
+- `backend/core/llm_client/adapters/ollama_adapter.py`
+- `frontend/login_page.py` (provider selection tested)
 
 ---
 
-## Phase 11 — LearningModule JSON Serialization
+## Phase 3 — Refined Platform 🔲 Planned
 
-**Goal:** Add `to_json()` and `from_dict()` to `LearningModule` (and its nested types) so modules can be stored to and loaded from the database without re-running the LLM.
+Goal: production-quality polish and the admin module library feature.
 
-**Files modified:**
-- `content/models.py`
-  - Add `to_json() -> str` to `LearningModule` using `dataclasses.asdict()` + `json.dumps()`
-  - Add `LearningModule.from_dict(data: dict) -> LearningModule` — reconstructs full nested dataclass tree from a plain dict
-  - All nested types (`EnrichedTopic`, `Topic`, `Diagram`, `Question`) are reconstructed inside `from_dict`
+### Phase 32 — Admin mode: published module library
 
-**Design note:** `from_dict` rebuilds the full object graph:
-```
-dict → LearningModule
-         └── list[EnrichedTopic]
-               ├── topic: Topic
-               ├── diagrams: list[Diagram]
-               └── inline_questions: list[Question]
-```
+Add `is_published` flag to modules. Admin user can publish/unpublish a module, making it visible to all users without them generating it themselves.
 
-**Files modified:**
-- `tests/test_content/` — add round-trip test: `LearningModule.from_dict(module.to_json())` gives equal object
+**Scope:**
+- DB migration: add `is_published INTEGER DEFAULT 0` to `modules` table
+- `backend/analytics/persistence.py` — `publish_module(module_id)`, `unpublish_module(module_id)`, `get_published_modules()`
+- `frontend/module_library_page.py` — show published modules to all users; show publish/unpublish controls only to admin
+- Admin is identified by a configured admin username (or existing password mechanism from Phase 1)
+- Personal modules remain private to the generating user unless published
 
-**Commit message:** `[Phase 11] LearningModule to_json/from_dict for DB round-trip`
-
----
-
-## Phase 12 — Login Page
-
-**Goal:** Single login page that routes admins (password-matched) to the admin upload page and regular users (username-only) to the module library.
-
-**Files created:**
-- `frontend/login_page.py`
-  - `render_login_page()`
-  - Username text input always shown
-  - Password input shown when `AI_TUTOR_ADMIN_USERNAME` matches entered username
-  - On submit:
-    - Admin path: verify password against `AI_TUTOR_ADMIN_PASSWORD` env var; on success set `role=admin`, save admin user to DB, navigate to `admin_upload`
-    - User path: no password check; save user to DB (role=user), navigate to `module_library`
-  - Shows an error on wrong admin password without revealing which field is wrong
-
-**Files modified:**
-- `.env.example` — add `AI_TUTOR_ADMIN_USERNAME=admin` and `AI_TUTOR_ADMIN_PASSWORD=`
-
-**Commit message:** `[Phase 12] Login page with admin/user role routing`
+**Files:**
+| File | Change |
+|---|---|
+| `backend/analytics/db.py` | Add `is_published` column migration |
+| `backend/analytics/persistence.py` | `publish_module`, `unpublish_module`, `get_published_modules` |
+| `frontend/module_library_page.py` | Published section visible to all; admin controls |
+| `frontend/app.py` | Propagate `is_admin` flag into session state |
+| `backend/content/models.py` | Add `is_published: bool = False` to `LearningModule` |
 
 ---
 
-## Phase 13 — Admin Upload Page
+### Phase 33 — LangGraph mastery persistence + mastery report
 
-**Goal:** Dedicated admin-only page for uploading PDFs and generating learning modules. Saves the full module to the DB on completion. Refactored from the existing `upload_page.py`.
+Wire `SqliteSaver` as the LangGraph checkpointer so sessions resume after page refresh. Add a mastery report page.
 
-**Files created:**
-- `frontend/admin_upload_page.py`
-  - `render_admin_upload_page()`
-  - Guard: if `st.session_state["role"] != "admin"` → redirect to login
-  - PDF file uploader
-  - "Generate Learning Module" button
-  - Live `st.status()` log panel (6 steps, same as current upload_page.py)
-  - On completion: calls `save_module(module, question_bank_json=..., module_json=module.to_json(), created_by=user_id)`
-  - Success message with module title + "Go to Module Library" button
-  - Does **not** navigate to learn page (admin generates, users learn)
-
-**Files modified:**
-- `frontend/upload_page.py` — kept as-is for reference but no longer used by the router
-
-**Commit message:** `[Phase 13] Admin upload page with module persistence`
+**Files:**
+- `backend/interactive_tutor/graph.py` — add `SqliteSaver` checkpointer
+- `backend/analytics/db.py` — `topic_mastery` table (see SPEC §7.5)
+- `backend/analytics/stats.py` — `get_mastery_report`, `get_cohort_mastery`
+- `frontend/` — new `mastery_report_page.py` (or section in results)
 
 ---
 
-## Phase 14 — Module Library Page
+### Phase 34 — ChromaDB wired into LangGraph tutor
 
-**Goal:** A browsable list of all published modules, available to both admins and users. Clicking "Learn" loads the full module from the DB (no LLM call) and navigates to the module viewer.
+Replace `concept_content` injection from session state with a ChromaDB `query_vector_db` call inside `present_concept`. Wire `provide_hint` to retrieve additional context chunks.
 
-**Files created:**
-- `frontend/module_library_page.py`
-  - `render_module_library_page()`
-  - Calls `list_modules()` to get all available modules from DB
-  - Displays as a table: Title | Source File | Created | Actions
-  - "Learn" button per row:
-    - Calls `load_module(module_id)` to get stored JSON strings
-    - Deserialises: `LearningModule.from_dict(json.loads(module_json))`
-    - Deserialises: `QuestionBank` from `question_bank_json`
-    - Sets `st.session_state["module"]`, `st.session_state["bank"]`, navigates to `learn`
-  - Empty state message when no modules exist yet ("No modules available — ask an admin to generate one")
-  - Admin additionally sees a "Delete" button per row (calls `delete_module(module_id)`)
-
-**Files modified:**
-- `analytics/persistence.py` — add `delete_module(module_id, db=None)` function
-
-**Commit message:** `[Phase 14] Module library page — browse, select, and load published modules`
+**Files:**
+- `backend/interactive_tutor/nodes.py` — `present_concept` calls `storage_server.query_vector_db`
+- `backend/interactive_tutor/nodes.py` — `provide_hint` retrieves supporting chunks from ChromaDB
 
 ---
 
-## Phase 15 — App Router + Cleanup + Docs
+### Phase 35 — PPTX + DOCX parsing
 
-**Goal:** Wire all new pages into `app.py`. Update the navigation state machine. Update README and `.env.example`.
+Implement `pptx_parser.py` and `docx_parser.py`. Update upload page to accept `.pptx` and `.docx`. Output must conform to the same `Document` / `Section` contracts as the PDF parser.
 
-**Files modified:**
-- `app.py`
-  - New page states: `login`, `admin_upload`, `module_library`, `learn`, `quiz`, `results`
-  - Entry point: if no session, route to `login`
-  - Guard: `admin_upload` requires `role == admin`; redirect to `login` otherwise
-  - "Back to Library" button on results page sets page to `module_library`
-  - Remove direct routing to old `upload` page
-- `frontend/results_page.py`
-  - Replace "Upload New Document" button with "Back to Module Library" button
-- `README.md`
-  - Update Quick Start section with admin/user flow
-  - Add environment variables for admin credentials
-  - Update application flow diagram
-- `.env.example`
-  - Add `AI_TUTOR_ADMIN_USERNAME=admin` and `AI_TUTOR_ADMIN_PASSWORD=changeme`
-
-**Commit message:** `[Phase 15] App router v2: login → library flow, README and env updates`
+**Files:**
+- `backend/ingestion/pptx_parser.py`
+- `backend/ingestion/docx_parser.py`
+- `frontend/upload_page.py` — expand file type filter
+- `mcp_servers/document_server/` — add `extract_text_from_pptx`, `extract_text_from_docx` tools
 
 ---
 
-## Implementation Order (dependency graph)
+### Phase 36 — Error handling and UX polish
 
-```
-Phases 1–9 (complete)
-       │
-       ├── Phase 10  (DB schema + persistence)
-       │       │
-       │       ├── Phase 11  (LearningModule serialization)
-       │       │       │
-       │       │       ├── Phase 12  (Login page)
-       │       │       │
-       │       │       ├── Phase 13  (Admin upload page)
-       │       │       │
-       │       │       └── Phase 14  (Module library page)
-       │       │               │
-       │       └───────────────┴── Phase 15  (App router + docs)
-```
+Structured, user-actionable error messages at each pipeline step. Retry buttons. Partial-failure recovery (save topics that succeeded even if later steps fail).
 
-Phases 12, 13, 14 can be developed in parallel once Phases 10 and 11 are done.
+**Files:**
+- `backend/content/sliding_pipeline.py` — per-step error capture and publish
+- `frontend/upload_page.py` — surface step-specific errors with retry controls
+- `frontend/tutor_room.py` — graph error → reset session with checkpoint restore offer
 
 ---
 
-## Files Summary
+### Phase 37 — Observability dashboard
 
-| Phase | Files Created | Files Modified |
-|-------|--------------|----------------|
-| 10 | — | `analytics/db.py`, `analytics/persistence.py`, `tests/test_analytics/test_persistence.py` |
-| 11 | — | `content/models.py`, `tests/test_content/` |
-| 12 | `frontend/login_page.py` | `.env.example` |
-| 13 | `frontend/admin_upload_page.py` | — |
-| 14 | `frontend/module_library_page.py` | `analytics/persistence.py` (delete_module) |
-| 15 | — | `app.py`, `frontend/results_page.py`, `README.md`, `.env.example` |
-| **Total** | **3 new files** | **8 modified files** |
+Expose Arize Phoenix and DeepEval results in a dedicated Streamlit page. Link to Phoenix UI, show per-session eval summary, trend charts.
+
+**Files:**
+- `frontend/observability_page.py` (new)
+- `backend/observability/eval_runner.py` — add `get_eval_results(user_id)` query
+- `frontend/app.py` — add page to router
+
+---
+
+### Phase 38 — Test coverage
+
+Integration tests for MCP servers, LLM factory adapters, and the LangGraph graph (dry-run with mock LLM responses).
+
+**Files:**
+- `tests/test_mcp/` — test each MCP server tool in subprocess mode
+- `tests/test_llm_client/` — test all three adapters against a mock endpoint
+- `tests/test_tutor/` — test graph compilation and node state transitions
+
+---
+
+## Commit convention
+
+Format: `[Phase N] <short description>`
+Use the `/git-commit` skill after each phase — never run `git commit` directly.
