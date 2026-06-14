@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import threading
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 
 from backend.content.models import EnrichedTopic, Topic
 from backend.ingestion.models import Document
@@ -261,30 +262,35 @@ def _enrich_one(
     if abort_event.is_set():
         return None
 
-    # Step 3 — questions
-    try:
-        enriched.inline_questions = generate_inline_questions(enriched, llm)
-    except Exception:
-        enriched.inline_questions = []
+    # Steps 3 + 4 — questions and audio in parallel (neither depends on the other)
+    diagram = enriched.diagrams[0] if enriched.diagrams else None
 
-    if abort_event.is_set():
-        return None
+    def _gen_questions():
+        try:
+            return generate_inline_questions(enriched, llm)
+        except Exception:
+            return []
 
-    # Step 4 — audio: diagnostic intro + anchor narration + explanation
-    try:
-        diagram = enriched.diagrams[0] if enriched.diagrams else None
-        with tracer.start_as_current_span(
-            "sliding.audio", attributes={"topic.title": topic.title}
-        ):
-            enriched.audio_path = generate_audio(
-                enriched.content_md,
-                topic.topic_id,
-                diagram_caption=diagram.caption if diagram else "",
-                diagram_mermaid=diagram.content if diagram else "",
-                bullets=anchor.bullets if not anchor.has_diagram else [],
-                topic_title=topic.title,
-            )
-    except Exception:
-        enriched.audio_path = ""
+    def _gen_audio():
+        try:
+            with tracer.start_as_current_span(
+                "sliding.audio", attributes={"topic.title": topic.title}
+            ):
+                return generate_audio(
+                    enriched.content_md,
+                    topic.topic_id,
+                    diagram_caption=diagram.caption if diagram else "",
+                    diagram_mermaid=diagram.content if diagram else "",
+                    bullets=anchor.bullets if not anchor.has_diagram else [],
+                    topic_title=topic.title,
+                )
+        except Exception:
+            return ""
+
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        fut_qs = ex.submit(_gen_questions)
+        fut_audio = ex.submit(_gen_audio)
+        enriched.inline_questions = fut_qs.result()
+        enriched.audio_path = fut_audio.result()
 
     return enriched

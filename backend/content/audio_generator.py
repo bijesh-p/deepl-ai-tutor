@@ -16,6 +16,25 @@ _DIAGNOSTIC_INTRO = (
     "Think about it for a moment, then we will dive in."
 )
 
+_DIAGNOSTIC_AUDIO_DIR = "data/audio"
+
+
+def generate_diagnostic_audio(topic_title: str = "") -> str:
+    """Generate TTS for the diagnostic framing message — no LLM needed.
+
+    Called immediately after PDF parsing so audio is ready when the student
+    lands on the diagnostic page (~3s, pure TTS).
+    """
+    os.makedirs(_DIAGNOSTIC_AUDIO_DIR, exist_ok=True)
+    path = os.path.join(_DIAGNOSTIC_AUDIO_DIR, "diagnostic_intro.mp3")
+
+    intro = _DIAGNOSTIC_INTRO
+    if topic_title:
+        intro = f"Welcome. We will be exploring: {topic_title}. " + intro
+
+    asyncio.run(_synthesize(intro, path))
+    return path
+
 
 def generate_audio(
     text: str,

@@ -11,6 +11,7 @@ Flow:
 from __future__ import annotations
 
 import json
+import os
 from typing import TypedDict
 
 from langgraph.graph import StateGraph, END
@@ -215,34 +216,41 @@ def present_concept(state: GraphState) -> dict:
         top_concepts = enriched.get("top_concepts", [])
         content_md = enriched.get("content_md", "")
 
-        # If we have everything, adapt the transcript to depth and return the slide
         if content_md:
-            llm = _get_llm()
-            depth_note = _DEPTH_GUIDANCE[depth]
-            adapted = llm.generate(
-                prompt=(
-                    f"Here is an explanation of '{concept}':\n\n{content_md}\n\n"
-                    f"{depth_note}\n"
-                    "Rewrite it in 2-3 paragraphs matching the student's level. "
-                    "Keep it conversational."
-                ),
-                system="You are a patient tutor adapting content for a specific learner.",
-            )
-            transcript = adapted if isinstance(adapted, str) else content_md
-
-            # Re-generate audio if not present, bridging diagram and transcript
-            if not audio_path:
+            # Fast path: pipeline audio is already diagram-synced and depth-annotated.
+            # Only run depth-adaptation LLM when pipeline audio is missing.
+            if audio_path:
+                transcript = content_md
+            else:
+                llm = _get_llm()
+                depth_note = _DEPTH_GUIDANCE[depth]
+                adapted = llm.generate(
+                    prompt=(
+                        f"Here is an explanation of '{concept}':\n\n{content_md}\n\n"
+                        f"{depth_note}\n"
+                        "Rewrite it in 2-3 paragraphs matching the student's level. "
+                        "Keep it conversational."
+                    ),
+                    system="You are a patient tutor adapting content for a specific learner.",
+                )
+                transcript = adapted if isinstance(adapted, str) else content_md
+                # Generate audio synced to diagram
                 try:
                     from backend.content.audio_generator import generate_audio
-                    diagram_caption = enriched.get("diagrams", [{}])[0].get("caption", "") if enriched.get("diagrams") else ""
+                    diagram_caption = (enriched.get("diagrams", [{}])[0].get("caption", "")
+                                       if enriched.get("diagrams") else "")
                     audio_path = generate_audio(
                         transcript,
                         f"{concept}_tutor",
                         diagram_caption=diagram_caption,
                         diagram_mermaid=mermaid_code,
+                        topic_title=concept,
                     )
                 except Exception:
                     audio_path = ""
+
+            # Estimate audio duration from file size so slide timer can sync to it
+            audio_duration_s = _estimate_audio_duration(audio_path)
 
             slide_msg = {
                 "role": "slide",
@@ -251,6 +259,7 @@ def present_concept(state: GraphState) -> dict:
                 "transcript": transcript,
                 "mermaid_code": mermaid_code,
                 "audio_path": audio_path,
+                "audio_duration_s": audio_duration_s,
             }
             history = list(state.get("chat_history", []))
             history.append(slide_msg)
@@ -297,6 +306,8 @@ def present_concept(state: GraphState) -> dict:
     except Exception:
         fallback_audio = ""
 
+    audio_duration_s = _estimate_audio_duration(fallback_audio)
+
     slide_msg = {
         "role": "slide",
         "concept": concept,
@@ -304,6 +315,7 @@ def present_concept(state: GraphState) -> dict:
         "transcript": transcript,
         "mermaid_code": mermaid_code,
         "audio_path": fallback_audio,
+        "audio_duration_s": audio_duration_s,
     }
 
     history = list(state.get("chat_history", []))
@@ -319,6 +331,23 @@ def present_concept(state: GraphState) -> dict:
         "concept_mastered": False,
         "feedback": "",
     }
+
+
+def _estimate_audio_duration(audio_path: str) -> int:
+    """Estimate mp3 duration in seconds from file size.
+
+    edge-tts produces ~16 kbps mono mp3. At 16000 bits/s = 2000 bytes/s.
+    We add 15s buffer so the slide never auto-advances while audio is playing.
+    Falls back to 60s if the file is missing or unreadable.
+    """
+    try:
+        if audio_path and os.path.exists(audio_path):
+            size_bytes = os.path.getsize(audio_path)
+            estimated_s = size_bytes // 2000
+            return max(30, estimated_s + 15)
+    except Exception:
+        pass
+    return 60
 
 
 # ---------------------------------------------------------------------------

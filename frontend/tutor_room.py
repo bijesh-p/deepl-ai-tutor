@@ -1,6 +1,7 @@
 """Streamlit page for the LangGraph adaptive tutor with diagnostic quiz and slide presentation."""
 from __future__ import annotations
 
+import os
 import time
 from dataclasses import asdict
 
@@ -170,12 +171,24 @@ def _render_diagnostic(state: dict, graph) -> None:
     questions = state.get("diagnostic_questions")
     concept = state["current_concept"]
 
-    if not questions:
-        with st.spinner(f"Preparing diagnostic for **{concept}**..."):
-            _run_node(graph, state, "generate_diagnostic")
-        st.rerun()
-
     progress = st.session_state.get("pipeline_progress", {})
+
+    # Use prefetched questions from pipeline if available, else generate now
+    if not questions:
+        prefetched = progress.get("diagnostic_questions", [])
+        if prefetched:
+            state["diagnostic_questions"] = prefetched
+            questions = prefetched
+        else:
+            with st.spinner(f"Preparing diagnostic for **{concept}**..."):
+                _run_node(graph, state, "generate_diagnostic")
+            st.rerun()
+
+    # Play diagnostic audio — generated right after PDF parse, no wait
+    diag_audio = progress.get("diagnostic_audio_path", "")
+    if diag_audio and os.path.exists(diag_audio):
+        st.audio(diag_audio, format="audio/mp3", autoplay=True)
+
     generating = progress.get("state") not in ("completed", "failed", "aborted", "")
     if generating:
         done = progress.get("topics_enriched", 0)
@@ -208,7 +221,7 @@ def _render_diagnostic(state: dict, graph) -> None:
             st.rerun()
 
 
-_SLIDE_DURATION_S = 60  # auto-advance after this many seconds
+_SLIDE_DURATION_DEFAULT_S = 60  # fallback when no audio duration available
 
 
 def _render_slide(state: dict, graph) -> None:
@@ -224,6 +237,8 @@ def _render_slide(state: dict, graph) -> None:
     transcript = slide.get("transcript", "")
     mermaid_code = slide.get("mermaid_code", "")
     audio_path = slide.get("audio_path", "")
+    # Use audio duration as the slide hold time so advance never interrupts playback
+    slide_duration_s = slide.get("audio_duration_s") or _SLIDE_DURATION_DEFAULT_S
 
     st.subheader(concept)
 
@@ -236,8 +251,8 @@ def _render_slide(state: dict, graph) -> None:
         else:
             st.code(mermaid_code, language="text")
 
-    if audio_path:
-        st.audio(audio_path, format="audio/mp3")
+    if audio_path and os.path.exists(audio_path):
+        st.audio(audio_path, format="audio/mp3", autoplay=True)
 
     with st.expander("Read transcript", expanded=not bool(audio_path)):
         st.markdown(transcript)
@@ -252,14 +267,13 @@ def _render_slide(state: dict, graph) -> None:
         st.markdown("---")
         _render_chat_history(qa_history)
 
-    # ── Slide timer and advance controls ──────────────────────────────────────
-    # Record when this slide was first shown
+    # ── Slide timer: synced to audio length ───────────────────────────────────
     slide_key = f"slide_shown_at_{concept}"
     if slide_key not in st.session_state:
         st.session_state[slide_key] = time.monotonic()
 
     elapsed = int(time.monotonic() - st.session_state[slide_key])
-    remaining_s = max(0, _SLIDE_DURATION_S - elapsed)
+    remaining_s = max(0, slide_duration_s - elapsed)
 
     remaining_concepts = state.get("remaining_concepts", [])
     has_next = bool(remaining_concepts)

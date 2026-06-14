@@ -6,6 +6,7 @@ import tempfile
 import threading
 import time
 import uuid
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict
 from datetime import datetime, timezone
 
@@ -159,12 +160,30 @@ def _run_pipeline_bg(
             progress["state"] = "aborted"
             return
 
+        # Generate diagnostic audio immediately — pure TTS, no LLM needed.
+        # Plays as soon as the student lands on the diagnostic page (~3s from here).
+        try:
+            from backend.content.audio_generator import generate_diagnostic_audio
+            first_title = doc.sections[0].title if doc.sections else doc.title
+            progress["diagnostic_audio_path"] = generate_diagnostic_audio(first_title)
+        except Exception:
+            progress["diagnostic_audio_path"] = ""
+
+        # Prefetch diagnostic questions for slide 1 in background — ready by redirect.
+        diag_future = _prefetch_diagnostic(llm, doc, progress)
+
         # Sliding-window pipeline: reads 500 words at a time, assesses whether
         # enough material exists for a slide, enriches immediately and publishes.
         # Sets progress["ready"]=True after first slide → redirect to tutor room.
         enriched_topics = run_sliding_pipeline(
             doc, llm, progress, abort_event, tracer
         )
+
+        # Collect prefetched diagnostic (may already be done)
+        try:
+            progress["diagnostic_questions"] = diag_future.result(timeout=30)
+        except Exception:
+            progress["diagnostic_questions"] = []
 
         if abort_event.is_set():
             progress["state"] = "aborted"
@@ -318,6 +337,36 @@ def _redirect_to_viewer(progress: dict) -> None:
     st.session_state["module"] = module
     st.session_state["page"] = "tutor_room"
     st.rerun()
+
+
+def _prefetch_diagnostic(llm, doc, progress: dict) -> Future:
+    """Prefetch diagnostic questions for the first topic in a background thread.
+
+    Runs in parallel with slide 1 enrichment so questions are ready at redirect.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    from backend.interactive_tutor.graph import _DIAGNOSTIC_SCHEMA, _DIAGNOSTIC_SYSTEM
+
+    first_section = doc.sections[0] if doc.sections else None
+    title = first_section.title if first_section else doc.title
+    summary = (first_section.body[:300] if first_section else "")
+
+    def _fetch():
+        try:
+            result = llm.generate(
+                prompt=(
+                    f"Topic: {title}\nSummary: {summary}\n\n"
+                    "Generate diagnostic questions to assess the student's prior knowledge."
+                ),
+                system=_DIAGNOSTIC_SYSTEM,
+                tool_schema=_DIAGNOSTIC_SCHEMA,
+            )
+            return result.get("questions", []) if isinstance(result, dict) else []
+        except Exception:
+            return []
+
+    ex = ThreadPoolExecutor(max_workers=1, thread_name_prefix="diag-prefetch")
+    return ex.submit(_fetch)
 
 
 def _abort_button() -> None:
