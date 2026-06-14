@@ -39,6 +39,13 @@ def render_module_viewer(module: LearningModule) -> None:
 
     for et in module.topics:
         with st.expander(f"**{et.topic.title}**", expanded=False):
+            if et.top_concepts:
+                concepts_text = " | ".join(f"**{c}**" for c in et.top_concepts)
+                st.info(f"Top concepts: {concepts_text}")
+
+            if et.audio_path:
+                st.audio(et.audio_path, format="audio/mp3")
+
             st.markdown(et.content_md)
 
             if et.key_takeaways:

@@ -10,6 +10,8 @@ A web application that transforms PDF documents into interactive, adaptive learn
 - **Adaptive Tutor** — LangGraph state machine (5 nodes, conditional routing) adjusts difficulty, provides targeted hints, and simplifies concepts for struggling students.
 - **MCP Tool Servers** — Document parsing, assessment validation, and storage exposed as standalone MCP servers.
 - **ChromaDB Vector Store** — Semantic search over document chunks using `all-MiniLM-L6-v2` embeddings.
+- **Audio Narration** — Each topic includes a TTS audio player (edge-tts, Microsoft voices) so users can listen while reading.
+- **Mandatory Diagrams** — Every topic gets a Mermaid concept map or flowchart showing how ideas relate.
 - **Inline Questions** — Reinforcement questions embedded within each sub-topic for active learning.
 - **Quizzes** — End-of-module quizzes with selectable difficulty, randomized questions, and explanations.
 - **Performance Analytics** — Score tracking with cohort comparison (min/max/avg) across all participants.
@@ -26,6 +28,7 @@ A web application that transforms PDF documents into interactive, adaptive learn
 | Vector Store | ChromaDB + sentence-transformers (`all-MiniLM-L6-v2`) |
 | Database | SQLite |
 | Document Parsing | PyMuPDF |
+| Audio TTS | edge-tts (Microsoft Edge voices) |
 | Diagrams | Mermaid (via `streamlit-mermaid`) |
 | Package Manager | [uv](https://docs.astral.sh/uv/) |
 | Python | 3.14+ |

@@ -110,7 +110,8 @@ Streamlit Frontend
 | Vector store | ChromaDB + `sentence-transformers` (`all-MiniLM-L6-v2`) | 2 |
 | Relational DB | SQLite (`sqlite3` stdlib) | 1+ |
 | Document parsing | PyMuPDF (PDF only in Phase 2) | 1+ |
-| Diagrams | Mermaid (LLM-generated) | 1+ |
+| Diagrams | Mermaid (LLM-generated, mandatory per topic) | 1+ |
+| Audio TTS | edge-tts (Microsoft Edge voices, offline) | 1+ |
 | Package manager | `uv` | 1+ |
 | Python | 3.14+ | 1+ |
 
@@ -385,12 +386,13 @@ Step 2: Decompose (topic_decomposer.py)
     → Decomposes document sections into ordered learning topics
     → Output: list[Topic] with source section mapping
 
-Step 3: Enrich each topic (content_enricher.py + diagram_generator.py + inline_question_gen.py)
-    → Per topic (3 LLM calls each):
-        - enrich(): rewrite into learner-friendly Markdown with key takeaways
-        - generate_diagrams(): generate Mermaid diagrams where visuals aid understanding
+Step 3: Enrich each topic (content_enricher.py + diagram_generator.py + inline_question_gen.py + audio_generator.py)
+    → Per topic (3 LLM calls + 1 TTS call each):
+        - enrich(): conversational explanation with top concepts, analogies, real-world examples
+        - generate_diagrams(): mandatory Mermaid concept map/flowchart for every topic
         - generate_inline_questions(): create 2-3 reinforcement questions (SCQ/MCQ)
-    → Output: list[EnrichedTopic]
+        - generate_audio(): edge-tts narration of the enriched content (mp3)
+    → Output: list[EnrichedTopic] (with top_concepts, audio_path fields)
     → **Just-in-time delivery:** After each topic is enriched, it is published
       to the UI immediately. The user is redirected to the module viewer after
       topic 1 completes (~20-40s), while remaining topics generate in background.
@@ -673,6 +675,8 @@ class Question:
 class EnrichedTopic:
     topic: Topic; content_md: str; key_takeaways: list[str]
     diagrams: list[Diagram]; inline_questions: list[Question]
+    top_concepts: list[str] = []   # 2-3 key concepts highlighted prominently
+    audio_path: str = ""           # path to TTS mp3 narration
 
 @dataclass
 class LearningModule:

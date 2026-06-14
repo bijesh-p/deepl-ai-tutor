@@ -32,6 +32,10 @@
 - [Sentence Transformers](https://www.sbert.net/) — Framework for sentence embeddings; uses `all-MiniLM-L6-v2` model.
 - [all-MiniLM-L6-v2 on HuggingFace](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) — Lightweight embedding model (384 dimensions, 22M params).
 
+## Audio / Text-to-Speech
+
+- [edge-tts](https://github.com/rany2/edge-tts) — Python library for Microsoft Edge's TTS API; used in `backend/content/audio_generator.py` for topic narration.
+
 ## Frontend
 
 - [Streamlit Documentation](https://docs.streamlit.io/) — Python web framework powering all UI pages.

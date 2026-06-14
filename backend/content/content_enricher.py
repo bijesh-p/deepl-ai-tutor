@@ -10,9 +10,20 @@ _TOOL_SCHEMA = {
     "input_schema": {
         "type": "object",
         "properties": {
+            "top_concepts": {
+                "type": "array",
+                "items": {"type": "string"},
+                "minItems": 2,
+                "maxItems": 3,
+                "description": "The 2-3 most important concepts from this topic, each as a short phrase.",
+            },
             "content_md": {
                 "type": "string",
-                "description": "Learner-friendly explanation in Markdown.",
+                "description": (
+                    "Conversational explanation in Markdown. Write as if talking to "
+                    "a curious student — use 'you', 'let's', 'think of it like...'. "
+                    "Use analogies and real-world examples. Keep it engaging, not textbook-dry."
+                ),
             },
             "key_takeaways": {
                 "type": "array",
@@ -20,15 +31,17 @@ _TOOL_SCHEMA = {
                 "description": "3-5 concise bullet-point takeaways.",
             },
         },
-        "required": ["content_md", "key_takeaways"],
+        "required": ["top_concepts", "content_md", "key_takeaways"],
     },
 }
 
 _SYSTEM = (
-    "You are an expert educator. "
-    "Rewrite the provided topic content into clear, engaging prose for a learner. "
-    "Add helpful analogies and highlight important definitions. "
-    "Preserve all factual content — do not add new information."
+    "You are a friendly tutor explaining concepts in a conversation. "
+    "Write as if you are talking to a curious student — use 'you', 'let us explore', "
+    "'think of it like...'. Start by identifying the 2-3 top concepts, then explain "
+    "each one with analogies and real-world examples. "
+    "Keep it engaging and conversational, not textbook-dry. "
+    "Preserve all factual content — do not invent new information."
 )
 
 
@@ -56,6 +69,7 @@ def enrich(
         topic=topic,
         content_md=result["content_md"],
         key_takeaways=result["key_takeaways"],
+        top_concepts=result.get("top_concepts", []),
         diagrams=[],
         inline_questions=[],
     )

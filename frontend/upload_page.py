@@ -104,6 +104,7 @@ def _run_pipeline_bg(
     abort_event: threading.Event,
 ) -> None:
     try:
+        from backend.content.audio_generator import generate_audio
         from backend.content.content_enricher import enrich
         from backend.content.diagram_generator import generate_diagrams
         from backend.content.inline_question_gen import generate_inline_questions
@@ -177,6 +178,12 @@ def _run_pipeline_bg(
                 return
 
             enriched.inline_questions = generate_inline_questions(enriched, llm)
+
+            progress["detail"] = f"Generating audio for {topic.title}..."
+            try:
+                enriched.audio_path = generate_audio(enriched.content_md, topic.topic_id)
+            except Exception:
+                enriched.audio_path = ""
 
             enriched_topics.append(enriched)
             progress["enriched_topics"] = list(enriched_topics)

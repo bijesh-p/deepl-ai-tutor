@@ -6,32 +6,28 @@ from backend.content.models import Diagram, EnrichedTopic
 
 _TOOL_SCHEMA = {
     "name": "return_diagram",
-    "description": "Return a Mermaid diagram for the topic, or indicate none is needed.",
+    "description": "Return a Mermaid diagram for the topic.",
     "input_schema": {
         "type": "object",
         "properties": {
-            "needs_diagram": {
-                "type": "boolean",
-                "description": "True if a diagram would meaningfully aid understanding.",
-            },
             "mermaid_code": {
                 "type": "string",
-                "description": "Valid Mermaid diagram code (empty string if needs_diagram is false).",
+                "description": "Valid Mermaid diagram code showing concept relationships.",
             },
             "caption": {
                 "type": "string",
                 "description": "Short caption describing the diagram.",
             },
         },
-        "required": ["needs_diagram", "mermaid_code", "caption"],
+        "required": ["mermaid_code", "caption"],
     },
 }
 
 _SYSTEM = (
     "You are an expert at creating clear educational diagrams. "
-    "Decide if a Mermaid diagram (flowchart, sequence, class, etc.) would meaningfully "
-    "aid understanding of the topic. If yes, generate valid Mermaid syntax for Mermaid v10. "
-    "If a diagram would not add value, set needs_diagram to false. "
+    "You MUST always generate a Mermaid diagram — a concept map, flowchart, or "
+    "sequence diagram that shows how the key ideas in the topic relate to each other. "
+    "Use valid Mermaid v10 syntax. "
     "Mermaid syntax rules you must follow: "
     "Never use a double-quote character or a backslash-escaped quote (\\\")"
     " inside a label — Mermaid does not support escaped quotes, and it produces a syntax error. "
@@ -58,14 +54,15 @@ def generate_diagrams(
         tool_schema=_TOOL_SCHEMA,
     )
 
-    if not result.get("needs_diagram") or not result.get("mermaid_code", "").strip():
+    mermaid_code = result.get("mermaid_code", "").strip()
+    if not mermaid_code:
         return []
 
     return [
         Diagram(
             diagram_id=str(uuid.uuid4()),
             diagram_type="mermaid",
-            content=_sanitize_mermaid(result["mermaid_code"]),
+            content=_sanitize_mermaid(mermaid_code),
             caption=result.get("caption", ""),
         )
     ]

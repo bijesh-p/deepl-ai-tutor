@@ -38,6 +38,8 @@ class EnrichedTopic:
     key_takeaways: list[str]
     diagrams: list[Diagram]
     inline_questions: list[Question]
+    top_concepts: list[str] = field(default_factory=list)
+    audio_path: str = ""
 
     @classmethod
     def from_dict(cls, d: dict) -> EnrichedTopic:
@@ -47,6 +49,8 @@ class EnrichedTopic:
             key_takeaways=d["key_takeaways"],
             diagrams=[Diagram(**x) for x in d["diagrams"]],
             inline_questions=[Question(**x) for x in d["inline_questions"]],
+            top_concepts=d.get("top_concepts", []),
+            audio_path=d.get("audio_path", ""),
         )
 
 
