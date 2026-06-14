@@ -9,55 +9,78 @@ import edge_tts
 VOICE = "en-US-AriaNeural"
 OUTPUT_DIR = "data/audio"
 
+_DIAGNOSTIC_INTRO = (
+    "Before we begin, I have a quick question to understand where you are with this topic. "
+    "Don't worry — there are no right or wrong answers here. "
+    "This just helps me pitch the explanation at the right level for you. "
+    "Think about it for a moment, then we will dive in."
+)
+
 
 def generate_audio(
     text: str,
     topic_id: str,
     diagram_caption: str = "",
     diagram_mermaid: str = "",
+    bullets: list[str] | None = None,
+    topic_title: str = "",
 ) -> str:
     """Generate mp3 narration for a topic.
 
-    The audio opens by describing the diagram (so speech and image are connected),
-    then continues with the concept explanation.
+    Opens with a short diagnostic framing statement, then describes the slide
+    anchor (diagram or bullet points), then continues with the explanation.
     """
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     path = os.path.join(OUTPUT_DIR, f"{topic_id}.mp3")
 
-    script = _build_script(text, diagram_caption, diagram_mermaid)
+    script = _build_script(text, diagram_caption, diagram_mermaid, bullets or [], topic_title)
     asyncio.run(_synthesize(script, path))
     return path
 
 
-def _build_script(text: str, caption: str, mermaid: str) -> str:
-    parts = []
+def _build_script(
+    text: str,
+    caption: str,
+    mermaid: str,
+    bullets: list[str],
+    topic_title: str,
+) -> str:
+    parts: list[str] = []
 
-    # Describe the diagram before the concept explanation
+    # 1. Diagnostic framing intro
+    parts.append(_DIAGNOSTIC_INTRO)
+
+    # 2. Topic introduction
+    if topic_title:
+        parts.append(f"Now let's explore: {topic_title}.")
+
+    # 3. Slide anchor — diagram or bullets
     if caption or mermaid:
         diagram_description = _describe_diagram(caption, mermaid)
         if diagram_description:
             parts.append(diagram_description)
+    elif bullets:
+        parts.append(_describe_bullets(bullets))
 
+    # 4. Main explanation
     parts.append(_strip_markdown(text))
+
     return "\n\n".join(p for p in parts if p.strip())
 
 
 def _describe_diagram(caption: str, mermaid: str) -> str:
-    """Turn a Mermaid diagram into a spoken description."""
-    lines = []
+    lines: list[str] = []
 
     if caption:
         lines.append(f"Let us look at the diagram. {caption}.")
 
-    # Extract node labels and edges from Mermaid flowchart syntax
     if mermaid:
         node_labels = re.findall(r'\[([^\]]+)\]', mermaid)
-        # Clean up labels: remove HTML entities, extra whitespace
         node_labels = [re.sub(r'#\w+;', '', lbl).strip() for lbl in node_labels]
         node_labels = [lbl for lbl in node_labels if lbl and len(lbl) > 1]
 
         if node_labels:
-            unique = list(dict.fromkeys(node_labels))  # preserve order, deduplicate
+            unique = list(dict.fromkeys(node_labels))
             if len(unique) == 1:
                 lines.append(f"The diagram shows: {unique[0]}.")
             elif len(unique) == 2:
@@ -69,6 +92,14 @@ def _describe_diagram(caption: str, mermaid: str) -> str:
                 )
 
     return " ".join(lines)
+
+
+def _describe_bullets(bullets: list[str]) -> str:
+    if not bullets:
+        return ""
+    intro = "Here are the key ideas for this topic."
+    items = " ".join(f"Point {i + 1}: {b}" for i, b in enumerate(bullets))
+    return f"{intro} {items}"
 
 
 async def _synthesize(text: str, output_path: str) -> None:

@@ -381,21 +381,35 @@ Step 1: Parse PDF (pdf_parser.py)
     → Extract sections with heading-aware splitting
     → Output: Document with list[Section]
 
-Step 2: Decompose (topic_decomposer.py)
-    → 1 LLM call with return_topics tool schema
-    → Decomposes document sections into ordered learning topics
-    → Output: list[Topic] with source section mapping
+Step 2: Sliding window assessment (sliding_pipeline.py)
+    → Accumulate ~500 words at a time; LLM decides if text is a teachable concept
+    → Force-publish after 1500 words; fallback if nothing published by end of doc
+    → Output: Topic (title, summary, source_section_ids)
 
-Step 3: Enrich each topic (content_enricher.py + diagram_generator.py + inline_question_gen.py + audio_generator.py)
+Step 3: Enrich each topic — diagram-first approach
     → Per topic (3 LLM calls + 1 TTS call each):
-        - enrich(): conversational explanation with top concepts, analogies, real-world examples
-        - generate_diagrams(): mandatory Mermaid concept map/flowchart for every topic
-        - generate_inline_questions(): create 2-3 reinforcement questions (SCQ/MCQ)
-        - generate_audio(): edge-tts narration of the enriched content (mp3)
-    → Output: list[EnrichedTopic] (with top_concepts, audio_path fields)
-    → **Just-in-time delivery:** After each topic is enriched, it is published
-      to the UI immediately. The user is redirected to the module viewer after
-      topic 1 completes (~20-40s), while remaining topics generate in background.
+
+    3a. generate_slide_anchor(source_text, topic, llm)    ← FIRST
+        - Attempts to generate a Mermaid diagram from source text + topic title/summary
+        - If diagram generation fails or produces empty output:
+            → falls back to generate_key_bullets(): 4-6 bulleted key points
+        - Output: SlideAnchor (either diagram OR bullets — never empty)
+
+    3b. enrich(topic, source_text, anchor, llm)           ← SECOND
+        - Receives the slide anchor (diagram or bullets) as context
+        - Writes a conversational explanation that walks through the anchor —
+          "let's look at this diagram..." or "here are the key ideas..."
+        - Presentation is grounded in the anchor, not free-form
+        - Output: EnrichedTopic.content_md, key_takeaways, top_concepts
+
+    3c. generate_inline_questions(enriched, llm)          ← PARALLEL with 3b could be here but after anchor
+        - 2 comprehension questions based on the enriched content
+
+    3d. generate_audio(content_md, diagram, llm)
+        - edge-tts narration of enriched content
+
+    → Output: EnrichedTopic (anchor embedded in diagrams field or as bullets in content_md)
+    → **Just-in-time delivery:** Redirect after topic 1 is ready.
 
 Step 4: Generate quiz bank (question_bank.py)
     → 1 LLM call to produce 20-50 quiz questions across all topics
@@ -405,6 +419,20 @@ Step 4: Generate quiz bank (question_bank.py)
 Step 5: Save (persistence.py)
     → Persist LearningModule + QuestionBank to SQLite
 ```
+
+### 6.3 Slide Anchor
+
+Every slide must have a visual or structural anchor before the explanation is written.
+This ensures the text explanation is tightly coupled to what the student sees.
+
+| Anchor type | When used | Rendered as |
+|---|---|---|
+| Mermaid diagram | LLM produces valid Mermaid code | `streamlit-mermaid` component |
+| Bulleted key points | Diagram fails or produces empty output | `st.markdown` bullet list |
+
+The anchor is passed to `content_enricher.enrich()` so the generated explanation
+explicitly references it ("As you can see in the diagram..." / "These are the key points...").
+The explanation must not introduce topics or concepts not visible in the anchor.
 
 ### 6.3 Just-in-Time Delivery Model
 

@@ -13,18 +13,17 @@ from __future__ import annotations
 
 import threading
 import uuid
-from concurrent.futures import ThreadPoolExecutor
 
 from backend.content.models import EnrichedTopic, Topic
 from backend.ingestion.models import Document
 
-CHUNK_WORDS = 500
+CHUNK_WORDS = 200
 
 # ---------------------------------------------------------------------------
 # Assessment prompt / schema
 # ---------------------------------------------------------------------------
 
-MAX_ACCUMULATE_WORDS = 1500  # force-publish after this many words even if not assessed presentable
+MAX_ACCUMULATE_WORDS = 500  # force-publish after this many words even if not assessed presentable
 
 _ASSESS_SYSTEM = (
     "You are an instructional designer reading a section of a document. "
@@ -103,7 +102,6 @@ def run_sliding_pipeline(
         chunk = all_words[start : start + chunk_words]
         accumulated += chunk
 
-        words_so_far = len(accumulated)
         progress["detail"] = (
             f"Reading document... {start + len(chunk)}/{total_words} words processed"
         )
@@ -221,38 +219,58 @@ def _enrich_one(
     tracer,
     abort_event: threading.Event,
 ) -> EnrichedTopic | None:
-    """Enrich a single topic: enrich + [diagram ‖ questions] (parallel) + audio."""
+    """Enrich a single topic using a diagram-first approach.
+
+    Order:
+      1. Generate slide anchor (diagram or bullet fallback) from source text
+      2. Enrich — write explanation anchored to the visual
+      3. Generate inline questions from enriched content
+      4. Generate audio (diagnostic intro + anchor narration + explanation)
+    """
     from backend.content.audio_generator import generate_audio
     from backend.content.content_enricher import enrich
-    from backend.content.diagram_generator import generate_diagrams
+    from backend.content.diagram_generator import generate_slide_anchor
     from backend.content.inline_question_gen import generate_inline_questions
 
     if abort_event.is_set():
         return None
 
+    # Step 1 — anchor first (diagram or bullet fallback)
+    with tracer.start_as_current_span(
+        "sliding.anchor", attributes={"topic.title": topic.title}
+    ):
+        anchor = generate_slide_anchor(source_text, topic, llm)
+
+    if abort_event.is_set():
+        return None
+
+    # Step 2 — explanation grounded in the anchor
     with tracer.start_as_current_span(
         "sliding.enrich", attributes={"topic.title": topic.title}
     ):
-        enriched = enrich(topic, source_text, llm)
+        enriched = enrich(topic, source_text, llm, anchor=anchor)
+
+    # Attach anchor to enriched topic
+    if anchor.has_diagram:
+        enriched.diagrams = [anchor.diagram]
+    else:
+        # Prepend bullets into content_md so UI can render them
+        enriched.content_md = f"{anchor.bullets_md()}\n\n{enriched.content_md}"
+        enriched.diagrams = []
 
     if abort_event.is_set():
         return None
 
-    with ThreadPoolExecutor(max_workers=2) as ex:
-        fut_diag = ex.submit(generate_diagrams, enriched, llm)
-        fut_qs = ex.submit(generate_inline_questions, enriched, llm)
-        try:
-            enriched.diagrams = fut_diag.result()
-        except Exception:
-            enriched.diagrams = []
-        try:
-            enriched.inline_questions = fut_qs.result()
-        except Exception:
-            enriched.inline_questions = []
+    # Step 3 — questions
+    try:
+        enriched.inline_questions = generate_inline_questions(enriched, llm)
+    except Exception:
+        enriched.inline_questions = []
 
     if abort_event.is_set():
         return None
 
+    # Step 4 — audio: diagnostic intro + anchor narration + explanation
     try:
         diagram = enriched.diagrams[0] if enriched.diagrams else None
         with tracer.start_as_current_span(
@@ -263,6 +281,8 @@ def _enrich_one(
                 topic.topic_id,
                 diagram_caption=diagram.caption if diagram else "",
                 diagram_mermaid=diagram.content if diagram else "",
+                bullets=anchor.bullets if not anchor.has_diagram else [],
+                topic_title=topic.title,
             )
     except Exception:
         enriched.audio_path = ""

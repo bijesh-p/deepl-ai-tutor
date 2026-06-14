@@ -1,8 +1,8 @@
-"""Tests for the sliding_pipeline enrichment path.
+"""Tests for the sliding_pipeline enrichment path (diagram-first flow).
 
-run_sliding_pipeline is the production pipeline; this test exercises
-_enrich_one (enrich + diagrams + questions) via the same mock LLM
-used in the old pipeline tests.
+_enrich_one now: anchor → enrich → questions → audio.
+The mock LLM must handle assess_chunk, return_diagram, return_enriched_topic,
+return_questions in that order.
 """
 import threading
 import uuid
@@ -27,17 +27,17 @@ class MockLLMClient:
                 "reason": "Contains enough material.",
             }
 
+        if name == "return_diagram":
+            return {
+                "mermaid_code": "graph LR\n  A[Data] --> B[Model] --> C[Prediction]",
+                "caption": "Data flows through the model to produce predictions.",
+            }
+
         if name == "return_enriched_topic":
             return {
                 "content_md": "## Overview\nThis topic covers machine learning fundamentals.",
                 "key_takeaways": ["ML learns from data", "Models generalise"],
-            }
-
-        if name == "return_diagram":
-            return {
-                "needs_diagram": True,
-                "mermaid_code": "graph TD\n  A[Data] --> B[Model]",
-                "caption": "Data to model flow",
+                "top_concepts": ["supervised learning", "model training"],
             }
 
         if name == "return_questions":
@@ -56,6 +56,57 @@ class MockLLMClient:
                         "options": ["Classification", "Clustering", "Regression", "Dimensionality Reduction"],
                         "correct_answers": [0, 2],
                         "explanation": "Classification and regression are supervised.",
+                    },
+                ]
+            }
+
+        return ""
+
+
+class MockLLMNoDiagram:
+    """Returns empty diagram → triggers bullet fallback."""
+    def make_cached_document_blocks(self, text):
+        return [{"type": "text", "text": text}]
+
+    def generate(self, prompt, system=None, tool_schema=None, cached_blocks=None):
+        name = tool_schema["name"] if tool_schema else ""
+
+        if name == "return_diagram":
+            return {"mermaid_code": "", "caption": ""}
+
+        if name == "return_key_bullets":
+            return {
+                "bullets": [
+                    "ML learns patterns from labelled examples.",
+                    "A model is a mathematical function fitted to data.",
+                    "Generalisation means doing well on unseen data.",
+                    "Overfitting happens when the model memorises training data.",
+                ]
+            }
+
+        if name == "return_enriched_topic":
+            return {
+                "content_md": "## Overview\nML fundamentals explained via bullet points.",
+                "key_takeaways": ["Generalisation is key"],
+                "top_concepts": ["generalisation"],
+            }
+
+        if name == "return_questions":
+            return {
+                "questions": [
+                    {
+                        "question_text": "What is overfitting?",
+                        "question_type": "single_choice",
+                        "options": ["Good generalisation", "Memorising training data", "Low error", "High bias"],
+                        "correct_answers": [1],
+                        "explanation": "Overfitting = memorising training data.",
+                    },
+                    {
+                        "question_text": "Which best describes a model?",
+                        "question_type": "single_choice",
+                        "options": ["A database", "A mathematical function", "A chart", "A dataset"],
+                        "correct_answers": [1],
+                        "explanation": "A model is a mathematical function.",
                     },
                 ]
             }
@@ -82,12 +133,12 @@ def _make_topic_fixture():
     )
 
 
-def _enrich(topic=None):
+def _enrich(llm=None, topic=None):
     t = topic or _make_topic_fixture()
     return _enrich_one(
         t,
         "Machine learning is a subset of AI. It learns from data.",
-        MockLLMClient(),
+        llm or MockLLMClient(),
         _NoopTracer(),
         threading.Event(),
     )
@@ -99,6 +150,20 @@ def test_enrich_returns_enriched_topic():
     assert et.content_md
 
 
+def test_enrich_has_diagram_when_llm_succeeds():
+    et = _enrich()
+    assert len(et.diagrams) == 1
+    assert et.diagrams[0].diagram_type == "mermaid"
+
+
+def test_enrich_falls_back_to_bullets_when_diagram_empty():
+    et = _enrich(llm=MockLLMNoDiagram())
+    assert et is not None
+    assert et.diagrams == []
+    # Bullets are prepended to content_md
+    assert "- " in et.content_md
+
+
 def test_enrich_has_content_and_takeaways():
     et = _enrich()
     assert et.content_md
@@ -108,12 +173,6 @@ def test_enrich_has_content_and_takeaways():
 def test_enrich_has_questions():
     et = _enrich()
     assert len(et.inline_questions) == 2
-
-
-def test_enrich_has_diagram():
-    et = _enrich()
-    assert len(et.diagrams) == 1
-    assert et.diagrams[0].diagram_type == "mermaid"
 
 
 def test_module_json_roundtrip():
