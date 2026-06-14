@@ -24,16 +24,16 @@ CHUNK_WORDS = 500
 # Assessment prompt / schema
 # ---------------------------------------------------------------------------
 
+MAX_ACCUMULATE_WORDS = 1500  # force-publish after this many words even if not assessed presentable
+
 _ASSESS_SYSTEM = (
     "You are an instructional designer reading a section of a document. "
-    "Decide: does the accumulated text contain enough material to teach ONE "
-    "focused concept that a student could engage with for at least 2 minutes? "
-    "A concept is presentable if it has a clear topic, enough technical detail "
-    "to explain it well, and can generate a meaningful diagram and 2-3 "
-    "comprehension questions. "
-    "Return is_presentable=true only when you are confident. "
-    "If the text is mostly a table of contents, index, references, or headings "
-    "with little body text, return false."
+    "Decide: does the accumulated text introduce at least ONE concept, process, "
+    "technique, or idea that could be explained to a student? "
+    "Return is_presentable=true if there is any substantive explanatory content — "
+    "even a single well-explained idea qualifies. "
+    "Only return false if the text is purely a table of contents, index, "
+    "reference list, or bare headings with no explanatory body text at all."
 )
 
 _ASSESS_SCHEMA = {
@@ -108,9 +108,18 @@ def run_sliding_pipeline(
             f"Reading document... {start + len(chunk)}/{total_words} words processed"
         )
 
+        force_publish = len(accumulated) >= MAX_ACCUMULATE_WORDS
         assessment = _assess(llm, accumulated)
 
-        if assessment.get("is_presentable"):
+        if assessment.get("is_presentable") or force_publish:
+            if force_publish and not assessment.get("is_presentable"):
+                # Override: synthesise a generic title from the accumulated text
+                assessment = {
+                    "is_presentable": True,
+                    "concept_title": assessment.get("concept_title") or f"Concept {idx + 1}",
+                    "concept_summary": assessment.get("concept_summary") or "Key ideas from this section of the document.",
+                    "reason": "force-published after max accumulation limit",
+                }
             topic = _make_topic(assessment, accumulated, idx)
             source_text = " ".join(w for w, _ in accumulated)
 
@@ -132,7 +141,16 @@ def run_sliding_pipeline(
     # Handle leftover text at end of document
     if accumulated and not abort_event.is_set():
         assessment = _assess(llm, accumulated)
-        if assessment.get("is_presentable"):
+        # Always publish leftover if nothing was published yet — last resort fallback
+        force = not published
+        if assessment.get("is_presentable") or force:
+            if force and not assessment.get("is_presentable"):
+                assessment = {
+                    "is_presentable": True,
+                    "concept_title": assessment.get("concept_title") or f"Concept {idx + 1}",
+                    "concept_summary": assessment.get("concept_summary") or "Key ideas from this document.",
+                    "reason": "fallback: only content available",
+                }
             topic = _make_topic(assessment, accumulated, idx)
             source_text = " ".join(w for w, _ in accumulated)
             enriched = _enrich_one(topic, source_text, llm, tracer, abort_event)
@@ -162,6 +180,7 @@ def _doc_words(doc: Document) -> list[tuple[str, str]]:
 
 def _assess(llm, accumulated: list[tuple[str, str]]) -> dict:
     """Ask the LLM whether accumulated text is presentable as one concept."""
+    import traceback
     text = " ".join(w for w, _ in accumulated)
     try:
         result = llm.generate(
@@ -169,9 +188,11 @@ def _assess(llm, accumulated: list[tuple[str, str]]) -> dict:
             system=_ASSESS_SYSTEM,
             tool_schema=_ASSESS_SCHEMA,
         )
-        return result if isinstance(result, dict) else {}
-    except Exception:
-        return {}
+        return result if isinstance(result, dict) else {"is_presentable": False, "concept_title": "", "concept_summary": "", "reason": "unexpected response format"}
+    except Exception as exc:
+        print(f"[sliding_pipeline] _assess error ({type(exc).__name__}): {exc}")
+        traceback.print_exc()
+        return {"is_presentable": False, "concept_title": "", "concept_summary": "", "reason": f"error: {exc}"}
 
 
 def _make_topic(assessment: dict, accumulated: list[tuple[str, str]], idx: int) -> Topic:
