@@ -1,394 +1,221 @@
-# AI Tutor — Architecture Document
+# AI Tutor — Architecture
 
-> **Version:** 0.7 | **Updated:** 2026-06-14
+> **Version:** 0.8 | **Updated:** 2026-06-14
 > Companion to [SPEC.md](SPEC.md).
 
 ---
 
-## 1. System Overview
+## 1. End-to-End Flow
 
-Three layers — presentation, orchestration, and tool services — connected through a unified LLM factory.
+The sequence below shows what happens from PDF upload to the end of a tutoring session. After upload, two concurrent activities run: a background pipeline that generates content and a LangGraph session that teaches.
 
 ```mermaid
 ---
-title: System Architecture
+title: Upload to Tutoring — Sequence
 ---
-flowchart TD
-    subgraph Frontend["Streamlit Frontend"]
-        UP[Upload & Generate]
-        LIB[Module Library]
-        LEARN[Module Viewer]
-        QUIZ[Quiz Page]
-        RES[Results Page]
+sequenceDiagram
+    actor Student
+    participant UI as Streamlit UI
+    participant BG as Background Thread
+    participant LG as LangGraph Tutor
+    participant LLM as LLM (Claude)
+    participant TTS as edge-tts
+
+    Student->>UI: Upload PDF
+    UI->>BG: spawn daemon thread
+    UI-->>Student: show progress
+
+    BG->>LLM: parse + decompose topics
+    BG->>LLM: enrich topic 1
+    BG->>LLM: generate diagram
+    BG->>TTS: generate audio (mp3)
+    BG-->>UI: publish EnrichedTopic 1, set ready=True
+
+    UI->>LG: redirect to Tutor Room
+    LG->>LLM: generate diagnostic MCQ
+    LG-->>Student: show diagnostic quiz
+
+    Note over BG: topics 2 to N enrich in background
+
+    Student->>LG: submit answers
+    LG->>LG: score, set presentation_depth
+    LG->>LG: inject EnrichedTopic 1 from pipeline
+    LG->>LLM: adapt transcript to depth
+    LG-->>Student: slide — diagram + audio + transcript
+
+    Student->>LG: Ask me a question
+    LG->>LLM: generate question
+    Student->>LG: answer
+    LG->>LLM: evaluate answer
+    LG-->>Student: feedback or hint
+
+    loop each next topic
+        LG->>LG: advance_concept
+        LG->>LG: generate_diagnostic
+        Student->>LG: answer diagnostic
+        LG-->>Student: slide for next topic
+    end
+```
+
+---
+
+## 2. System Components
+
+Three layers — Streamlit frontend, backend orchestration, and storage — connected through a shared LLM factory.
+
+```mermaid
+---
+title: System Components
+---
+flowchart LR
+    subgraph Frontend
+        UP[Upload Page]
         TUTOR[Tutor Room]
+        LIB[Module Library]
     end
 
-    subgraph Orchestration["Backend Orchestration"]
-        CF["content/\nDirect LLM Pipeline\n(decompose → enrich → diagrams → quiz)"]
-        IT["interactive_tutor/\nLangGraph Graph\n(5 nodes, conditional routing)"]
-    end
-
-    subgraph Core["Shared Core"]
-        LF["LLMFactory\nanthropic | portkey | ollama"]
-        MC["MCPClient\ntool discovery + dispatch"]
-    end
-
-    subgraph MCP["MCP Tool Servers"]
-        DS[document_server]
-        AS[assessment_server]
-        SS[storage_server]
+    subgraph Backend
+        BG[Pipeline Thread]
+        LG[LangGraph Tutor]
+        LLM[LLMFactory]
+        TTS[edge-tts]
     end
 
     subgraph Storage
         DB[(SQLite)]
-        VDB[(ChromaDB\nall-MiniLM-L6-v2)]
+        AUDIO[data/audio/]
     end
 
-    UP -->|"_run_pipeline_bg() in daemon thread"| CF
-    TUTOR -->|"graph.invoke()"| IT
-    LIB & LEARN & QUIZ & RES --> DB
-
-    CF --> MC & LF
-    IT --> MC & LF
-    MC --> DS & AS & SS
-    SS --> DB & VDB
-    DS --> DB
+    UP -->|spawn| BG
+    BG -->|EnrichedTopic| TUTOR
+    TUTOR --> LG
+    BG --> LLM
+    BG --> TTS
+    LG --> LLM
+    TTS --> AUDIO
+    BG --> DB
+    LIB --> DB
 ```
 
 ---
 
-## 2. LLM Client — Factory & Adapters
+## 3. Content Pipeline
 
-All LLM access goes through a single factory. Callers pass Anthropic-format tool schemas; adapters translate internally.
+The pipeline runs in a daemon thread. It publishes each `EnrichedTopic` to `st.session_state["pipeline_progress"]` immediately on completion. The UI redirects to the Tutor Room after topic 1 is ready (~30 s); remaining topics enrich in the background.
+
+**Total LLM cost:** 3N + 2 calls + N TTS calls for N topics.
 
 ```mermaid
 ---
-title: LLM Client Class Hierarchy
----
-classDiagram
-    class BaseLLMClient {
-        <<abstract>>
-        +generate(prompt, system, tool_schema, context_blocks) str | dict
-        +make_context_blocks(text) list
-    }
-    class AnthropicAdapter {
-        +generate(...)
-        +make_context_blocks(text) cached_blocks
-    }
-    class PortkeyAdapter {
-        +generate(...)
-        +make_context_blocks(text) cached_blocks
-    }
-    class OllamaAdapter {
-        +generate(...)
-        -_translate_tool_schema(schema) dict
-    }
-    class LLMFactory {
-        +create(provider, **kwargs)$ BaseLLMClient
-    }
-
-    BaseLLMClient <|-- AnthropicAdapter
-    BaseLLMClient <|-- PortkeyAdapter
-    BaseLLMClient <|-- OllamaAdapter
-    LLMFactory ..> BaseLLMClient : creates
-
-    note for OllamaAdapter "Translates Anthropic tool schema\nto OpenAI function format.\nContext blocks degraded to\nplain text prefix (no caching)."
-```
-
----
-
-## 3. Content Pipeline — Just-in-Time Delivery
-
-The pipeline runs in a background daemon thread. Each enriched topic is published to `st.session_state["pipeline_progress"]` immediately on completion. The user is redirected to the module viewer after topic 1 finishes (~30s); remaining topics and the quiz bank generate in the background.
-
-Total LLM cost: **3N + 2 LLM calls** + N TTS calls for N topics.
-
-```mermaid
----
-title: Content Pipeline — Just-in-Time Delivery
----
-flowchart TD
-    PDF([PDF upload]) --> PARSE
-
-    subgraph Thread["Background daemon thread"]
-        PARSE["Parse PDF\npdf_parser.py"]
-        DECOMPOSE["Decompose Topics\ntopic_decomposer.py\n1 LLM call"]
-        ENRICH["Enrich Topic i\ncontent_enricher.py — 1 LLM call\ndiagram_generator.py — 1 LLM call\ninline_question_gen.py — 1 LLM call\naudio_generator.py — 1 TTS call"]
-        QUIZ["Quiz Bank\nquestion_bank.py — 1 LLM call"]
-        SAVE["Save to SQLite"]
-    end
-
-    PARSE --> DECOMPOSE
-    DECOMPOSE --> ENRICH
-    ENRICH -->|"repeat for each topic"| ENRICH
-    ENRICH -->|"all topics done"| QUIZ
-    QUIZ --> SAVE
-
-    ENRICH -->|"publish enriched_topics[i]\nset ready=True after topic 1"| PROGRESS[("progress dict\nin session_state")]
-    PROGRESS -->|"@st.fragment polls every 2s\nredirects to viewer after topic 1"| LEARN([Module Viewer])
-```
-
-**Pipeline step details:**
-
-| Step | Module | Calls | Output |
-|---|---|---|---|
-| Parse | `pdf_parser.py` | 0 | `Document` with `list[Section]` |
-| Decompose | `topic_decomposer.py` | 1 LLM | `list[Topic]` |
-| Enrich (per topic) | `content_enricher.py` | 1 LLM | `EnrichedTopic` with conversational Markdown + top concepts |
-| Diagrams (per topic) | `diagram_generator.py` | 1 LLM | `list[Diagram]` — Mermaid concept map (mandatory) |
-| Inline questions (per topic) | `inline_question_gen.py` | 1 LLM | `list[Question]` (SCQ/MCQ) |
-| Audio (per topic) | `audio_generator.py` | 1 TTS | mp3 narration via edge-tts |
-| Quiz bank | `question_bank.py` | 1 LLM | `QuestionBank` (deferred until all topics done) |
-
----
-
-## 3a. Enriched Topic Structure
-
-Each `EnrichedTopic` produced by the pipeline contains:
-
-| Field | Type | Source |
-|---|---|---|
-| `topic` | `Topic` | Decomposer |
-| `top_concepts` | `list[str]` (2-3) | Enricher LLM — key ideas shown as callout in viewer |
-| `content_md` | `str` | Enricher LLM — conversational Markdown explanation |
-| `key_takeaways` | `list[str]` (3-5) | Enricher LLM — bullet summary |
-| `diagrams` | `list[Diagram]` | Diagram generator LLM — mandatory Mermaid concept map |
-| `inline_questions` | `list[Question]` | Question generator LLM — 2 SCQ/MCQ |
-| `audio_path` | `str` | edge-tts — mp3 narration file path |
-
----
-
-## 4. LangGraph Interactive Tutor
-
-Five node functions connected by a conditional router. The graph is the single source of truth for the tutoring session — every decision is made by inspecting `GraphState`.
-
-### Graph State
-
-```python
-class GraphState(TypedDict):
-    current_concept: str           # topic currently being taught
-    concept_content: str           # enriched content from ChromaDB
-    current_question: dict | None  # active question
-    attempts: int                  # attempts on current concept (reset per concept)
-    concept_mastered: bool         # set by evaluate_response
-    mastered_concepts: list[str]   # accumulates across session
-    chat_history: Annotated[list, add_messages]
-    user_id: str
-    module_id: str
-```
-
-### Graph Flow
-
-```mermaid
----
-title: LangGraph Interactive Tutor — State Machine
----
-flowchart TD
-    START([START]) --> PC
-
-    PC["present_concept\n\nLoad concept content from ChromaDB\nDeliver explanation to student"]
-
-    PC --> AQ
-
-    AQ["ask_question\n\nGenerate targeted question\nassessing the current concept"]
-
-    AQ --> WAIT([Wait for student answer])
-    WAIT --> ER
-
-    ER["evaluate_response\n\nLLM analyses answer\nChecks for specific misconceptions\nSets concept_mastered flag"]
-
-    ER --> ROUTER{Conditional\nRouter}
-
-    ROUTER -->|"concept_mastered\n== True"| NEXT{More\nconcepts?}
-    NEXT -->|Yes| PC
-    NEXT -->|No| DONE
-
-    ROUTER -->|"attempts < 3\n&& not mastered"| PH
-
-    PH["provide_hint\n\nTailor hint to student's\nspecific error"]
-
-    PH --> AQ
-
-    ROUTER -->|"attempts >= 3\n&& not mastered"| SF
-
-    SF["simplify_foundations\n\nBreak concept into\nsimpler building blocks\nRe-teach from basics"]
-
-    SF --> AQ
-
-    DONE["session_complete\n\nSummarise mastery\nPersist to topic_mastery table"]
-    DONE --> END([END])
-
-```
-
-### Router Logic
-
-```
-after evaluate_response:
-    if concept_mastered:
-        → next concept (or session_complete if all done)
-    elif attempts < 3:
-        → provide_hint → ask_question (retry)
-    else:
-        → simplify_foundations → ask_question (fresh approach)
-```
-
----
-
-## 5. MCP Tool Servers
-
-Three standalone MCP servers. All backend orchestration (content pipeline, LangGraph nodes) accesses tools exclusively through `MCPClient` — no direct imports of `chromadb`, `fitz`, etc. outside the servers.
-
-```mermaid
----
-title: MCP Tool Servers and Dependencies
+title: Pipeline Steps
 ---
 flowchart LR
-    subgraph Callers["Backend Orchestration"]
-        CF[content/\npipeline steps]
-        IT[interactive_tutor/\nnodes]
-    end
-
-    MC["MCPClient"]
-
-    subgraph document_server
-        T1[extract_text_from_pdf]
-        T2[parse_images]
-    end
-
-    subgraph assessment_server
-        T3[validate_json_schema]
-        T4[evaluate_taxonomy]
-    end
-
-    subgraph storage_server
-        T5[upsert_to_vector_db]
-        T6[save_module_to_db]
-        T7[query_vector_db]
-    end
-
-    CF & IT --> MC
-    MC --> document_server & assessment_server & storage_server
-
-    document_server --> PyMuPDF[PyMuPDF]
-    storage_server --> SQLite[(SQLite)]
-    storage_server --> ChromaDB[(ChromaDB)]
+    PDF([PDF]) --> PARSE[Parse]
+    PARSE --> DECOMP[Decompose]
+    DECOMP --> ENRICH[Enrich]
+    ENRICH --> DIAG[Diagram]
+    DIAG --> AUDIO[Audio TTS]
+    AUDIO --> PUB[Publish Topic]
+    PUB -->|topic 1| REDIRECT[Redirect to Tutor]
+    PUB -->|loop| ENRICH
+    ENRICH -->|all done| QUIZ[Quiz Bank]
+    QUIZ --> SAVE[Save SQLite]
 ```
+
+**EnrichedTopic fields:**
+
+| Field | Source |
+|---|---|
+| `top_concepts` (2–3 strings) | Enricher LLM — key ideas shown as callout |
+| `content_md` | Enricher LLM — conversational Markdown explanation |
+| `key_takeaways` | Enricher LLM — 3–5 bullet summary |
+| `diagrams` | Diagram LLM — Mermaid flowchart, max 6 nodes |
+| `inline_questions` | Question LLM — 2 SCQ/MCQ per topic |
+| `audio_path` | edge-tts — mp3 narration in `data/audio/` |
 
 ---
 
-## 6. Frontend Navigation
+## 4. LangGraph Tutor
 
-No admin/user separation. Any user uploads a PDF and is redirected to the module viewer after the first topic is enriched (~30s). Background generation continues while they read.
+LangGraph is the primary entry point for every tutoring session. Nodes are dispatched manually (not via `graph.invoke()`) so Streamlit can render between each step.
 
 ```mermaid
 ---
-title: Streamlit Page Navigation
+title: LangGraph Node Flow
 ---
-stateDiagram-v2
-    [*] --> upload
-
-    upload --> learn : Topic 1 ready\n(~30s, JIT redirect)
-    upload --> module_library : Choose existing module
-
-    module_library --> learn : Select module
-    module_library --> upload : Generate new
-
-    learn --> quiz : Take Quiz\n(enabled after quiz bank ready)
-    learn --> tutor_room : Start Tutor
-
-    quiz --> results : Submit answers
-
-    results --> quiz : Retake
-    results --> module_library : Back to Library
-
-    tutor_room --> module_library : End Session
+flowchart TD
+    START --> GD[generate_diagnostic]
+    GD --> WAIT([Student answers])
+    WAIT --> ED[evaluate_diagnostic]
+    ED --> PC[present_concept\nslide output]
+    PC --> AQ[ask_question]
+    AQ --> WAIT2([Student answers])
+    WAIT2 --> ER[evaluate_response]
+    ER --> ROUTER{mastered?}
+    ROUTER -->|yes, more| GD
+    ROUTER -->|yes, done| DONE[session_complete]
+    ROUTER -->|no, attempts < 3| HINT[provide_hint]
+    ROUTER -->|no, attempts >= 3| SF[simplify_foundations]
+    HINT --> AQ
+    SF --> AQ
 ```
 
+**How it works:**
+
+- `generate_diagnostic` creates 3–5 MCQ from topic title and summary only — no enriched content needed, so it runs immediately while the pipeline is still working.
+- `evaluate_diagnostic` scores answers and sets `presentation_depth`: below 0.4 → beginner; 0.4–0.7 → intermediate; above 0.7 → advanced.
+- `present_concept` checks if the pipeline has delivered `EnrichedTopic` for this concept. If yes, uses its diagram, audio, and top concepts. If not yet ready, generates a lightweight slide from title and summary.
+- After mastering a concept, the loop returns to `generate_diagnostic` for the next topic.
+
 ---
 
-## 7. Database Schema
+## 5. LLM Factory
+
+All LLM calls go through a single factory. Callers use Anthropic-format tool schemas; adapters translate for each backend.
+
+| Adapter | Backend | Notes |
+|---|---|---|
+| `AnthropicAdapter` | Anthropic API | Prompt caching on document blocks |
+| `PortkeyAdapter` | Portkey → Vertex AI | Same caching; routes via Portkey gateway |
+| `OllamaAdapter` | Ollama (local) | Translates tool schema to OpenAI function format |
+
+---
+
+## 6. Database Schema
 
 ```mermaid
 ---
-title: SQLite Schema
+title: SQLite Tables
 ---
 erDiagram
-    users {
-        TEXT user_id PK
-        TEXT username UK
-        TEXT created_at
-    }
-
-    modules {
-        TEXT module_id PK
-        TEXT title
-        TEXT source_filename
-        TEXT module_json
-        TEXT question_bank_json
-        TEXT created_by FK
-        TEXT created_at
-    }
-
-    quiz_attempts {
-        TEXT attempt_id PK
-        TEXT quiz_id
-        TEXT module_id FK
-        TEXT user_id FK
-        TEXT difficulty
-        INTEGER score
-        INTEGER total
-        REAL percentage
-        TEXT completed_at
-        TEXT answers_json
-    }
-
-    topic_mastery {
-        TEXT user_id FK
-        TEXT module_id FK
-        TEXT topic_id
-        INTEGER mastered
-        TEXT difficulty
-        INTEGER attempts
-        TEXT last_updated
-    }
-
     users ||--o{ modules : creates
     users ||--o{ quiz_attempts : attempts
     modules ||--o{ quiz_attempts : tested_on
     users ||--o{ topic_mastery : tracks
     modules ||--o{ topic_mastery : covers
+
+    users { TEXT user_id PK; TEXT username }
+    modules { TEXT module_id PK; TEXT title }
+    quiz_attempts { TEXT attempt_id PK; INTEGER score }
+    topic_mastery { TEXT topic_id; INTEGER mastered }
 ```
 
 ---
 
-## 8. Data Flow — End to End
+## 7. Page Navigation
 
-Two independent paths through the system: incremental JIT generation and live adaptive tutoring.
+Upload is the only generation entry point. Module Library gives access to previously generated modules.
 
 ```mermaid
 ---
-title: Two Data Paths
+title: Page Navigation
 ---
-flowchart TD
-    subgraph GenerationPath["Path 1: Module Generation (JIT, background thread)"]
-        direction LR
-        PDF([PDF]) --> PARSE2[Parse PDF]
-        PARSE2 --> DECOMP2[Decompose Topics]
-        DECOMP2 --> ENRICH2["Enrich + Diagrams\n+ Questions + Audio\n(per topic, published live)"]
-        ENRICH2 --> LEARN2([Module Viewer\nreceives topics\nas they arrive])
-        ENRICH2 --> DB2[(SQLite\nfull module\nsaved at end)]
-    end
-
-    subgraph TutoringPath["Path 2: Adaptive Tutoring (live)"]
-        direction LR
-        USER([Student]) --> PC2[present\nconcept]
-        PC2 --> AQ2[ask\nquestion]
-        AQ2 --> ER2[evaluate\nresponse]
-        ER2 --> BRANCH2{mastered?}
-        BRANCH2 -->|No| PH2[hint /\nsimplify]
-        PH2 --> AQ2
-        BRANCH2 -->|Yes| NEXT2[next concept]
-    end
-
-    DB2 -->|"load module"| PC2
+flowchart LR
+    UPLOAD[Upload] -->|topic 1 ready| TUTOR[Tutor Room]
+    UPLOAD -->|existing module| LIB[Module Library]
+    LIB -->|select| TUTOR
+    LIB -->|generate new| UPLOAD
+    TUTOR -->|take quiz| QUIZ[Quiz]
+    QUIZ --> RESULTS[Results]
+    RESULTS --> LIB
 ```

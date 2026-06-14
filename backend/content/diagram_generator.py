@@ -25,16 +25,15 @@ _TOOL_SCHEMA = {
 }
 
 _SYSTEM = (
-    "You are an expert at creating clear educational diagrams. "
-    "You MUST always generate a Mermaid diagram — a concept map, flowchart, or "
-    "sequence diagram that shows how the key ideas in the topic relate to each other. "
-    "Use valid Mermaid v10 syntax. "
-    "Mermaid syntax rules you must follow: "
-    "Never use a double-quote character or a backslash-escaped quote (\\\")"
-    " inside a label — Mermaid does not support escaped quotes, and it produces a syntax error. "
-    "If a label needs to show quoted text, use the HTML entity #quot; instead, or "
-    "rephrase without quotes. "
-    "Do not create an edge from a subgraph to itself."
+    "You are an expert at creating clear educational slide diagrams. "
+    "Follow ALL rules — no exceptions:\n"
+    "1. Always generate a Mermaid flowchart (direction LR). "
+    "2. Use at most 6 nodes total. Every node label must be 1-4 words — no full sentences. "
+    "3. Do NOT use subgraphs. Keep the diagram flat. "
+    "4. Never use a double-quote character or backslash-escaped quote inside a label — "
+    "use #quot; if needed, or rephrase without quotes. "
+    "5. Do not create an edge from a subgraph to itself. "
+    "6. Output only the Mermaid code with no markdown fences around it."
 )
 
 
