@@ -57,7 +57,7 @@ def render_quiz_page(bank: QuestionBank) -> None:
 
         from backend.analytics.db import get_db
         from backend.analytics.persistence import save_attempt
-        db = get_db()
+        db = get_db(st.session_state.get("db_path"))
         save_attempt(result, st.session_state["quiz_difficulty"], db=db)
 
         st.session_state["quiz_result"] = result

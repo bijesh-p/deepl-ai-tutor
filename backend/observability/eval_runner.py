@@ -32,11 +32,12 @@ def run_session_evals_async(
     module_id: str,
     provider: str | None = None,
     model: str | None = None,
+    db_path: str | None = None,
 ) -> None:
     """Kick off DeepEval evals in a background daemon thread."""
     t = threading.Thread(
         target=_run,
-        args=(chat_history, source_text, user_id, module_id, provider, model),
+        args=(chat_history, source_text, user_id, module_id, provider, model, db_path),
         daemon=True,
         name="eval-worker",
     )
@@ -54,6 +55,7 @@ def _run(
     module_id: str,
     provider: str | None,
     model: str | None,
+    db_path: str | None = None,
 ) -> None:
     try:
         from deepeval import evaluate
@@ -92,7 +94,7 @@ def _run(
             run_async=False,
             print_results=False,
         )
-        _persist_results(results, user_id, module_id)
+        _persist_results(results, user_id, module_id, db_path=db_path)
         _log.info("Eval complete — %d test cases, judge=%s", len(test_cases), judge.get_model_name())
     except Exception as exc:
         _log.warning("DeepEval evaluate() failed: %s", exc)
@@ -190,11 +192,11 @@ class LLMFactoryJudge:
 # Persist eval results to SQLite
 # ---------------------------------------------------------------------------
 
-def _persist_results(results: Any, user_id: str, module_id: str) -> None:
+def _persist_results(results: Any, user_id: str, module_id: str, db_path: str | None = None) -> None:
     """Write metric scores to the eval_results table."""
     try:
         from backend.analytics.db import get_db
-        db = get_db()
+        db = get_db(db_path)
         _ensure_eval_table(db)
 
         scores: list[dict] = []

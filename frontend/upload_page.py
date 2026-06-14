@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 import streamlit as st
 
-from backend.analytics.db import get_db
+from backend.analytics.db import db_path_for_user, get_db
 from backend.analytics.persistence import load_user_profile, save_module, save_user
 from backend.core.llm_client import LLMFactory
 
@@ -25,39 +25,75 @@ def render_upload_page() -> None:
         _pipeline_status_fragment()
         return
 
-    username = st.text_input("Your name (used for analytics)", placeholder="e.g. Alice")
-    uploaded = st.file_uploader("Upload a PDF document", type=["pdf"])
+    # ── Login form ────────────────────────────────────────────────────────────
+    with st.form("login_form"):
+        st.markdown("#### Sign in")
+        username = st.text_input(
+            "Username",
+            value=st.session_state.get("_last_username", ""),
+            placeholder="e.g. alice",
+        )
+        st.text_input(
+            "Password",
+            type="password",
+            placeholder="(authentication not required)",
+            disabled=True,
+        )
+        uploaded = st.file_uploader(
+            "Upload a PDF",
+            type=["pdf"],
+            help="The document will be converted into an interactive learning module.",
+        )
+        submitted = st.form_submit_button("Start Learning", type="primary")
 
-    missing = []
-    if not username:
-        missing.append("enter your name")
-    if not uploaded:
-        missing.append("upload a PDF")
-    if missing:
-        st.caption(f"To enable: {' and '.join(missing)}")
-
-    if not st.button("Start Learning", disabled=bool(missing), type="primary"):
+    if not submitted:
         return
 
+    # ── Validation ────────────────────────────────────────────────────────────
+    errors = []
     if not username.strip():
-        st.error("Please enter your name.")
+        errors.append("Please enter a username.")
+    if uploaded is None:
+        # Fallback to previously uploaded file stored in session state
+        cached = st.session_state.get("_cached_upload_bytes")
+        cached_name = st.session_state.get("_cached_upload_name", "document.pdf")
+        if cached is None:
+            errors.append("Please upload a PDF.")
+        else:
+            uploaded_bytes = cached
+            uploaded_name = cached_name
+    else:
+        uploaded_bytes = uploaded.read()
+        uploaded_name = uploaded.name
+        # Cache so retry works without re-selecting the file
+        st.session_state["_cached_upload_bytes"] = uploaded_bytes
+        st.session_state["_cached_upload_name"] = uploaded_name
+
+    if errors:
+        for e in errors:
+            st.error(e)
         return
+
+    # Remember username for next render
+    st.session_state["_last_username"] = username.strip()
 
     with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-        tmp.write(uploaded.read())
+        tmp.write(uploaded_bytes)
         tmp_path = tmp.name
 
-    db = get_db()
+    db_path = db_path_for_user(username.strip())
+    db = get_db(db_path)
     user_id = save_user(username.strip(), db=db)
     profile = load_user_profile(user_id, db=db)
     db.close()
 
     st.session_state["user_profile"] = profile
-    _start_pipeline(tmp_path, user_id, username.strip())
+    st.session_state["db_path"] = db_path
+    _start_pipeline(tmp_path, user_id, username.strip(), db_path)
     st.rerun()
 
 
-def _start_pipeline(tmp_path: str, user_id: str, username: str) -> None:
+def _start_pipeline(tmp_path: str, user_id: str, username: str, db_path: str) -> None:
     provider = st.session_state.get("llm_provider", "anthropic")
     model = st.session_state.get("llm_model", "claude-sonnet-4-6")
     tracing_enabled = st.session_state.get("tracing_enabled", True)
@@ -83,6 +119,7 @@ def _start_pipeline(tmp_path: str, user_id: str, username: str) -> None:
         "bank": None,
         "user_id": user_id,
         "username": username,
+        "db_path": db_path,
         "tracing_enabled": tracing_enabled,
     }
 
@@ -91,7 +128,7 @@ def _start_pipeline(tmp_path: str, user_id: str, username: str) -> None:
 
     thread = threading.Thread(
         target=_run_pipeline_bg,
-        args=(tmp_path, user_id, username, provider, model, progress, abort_event),
+        args=(tmp_path, user_id, username, provider, model, db_path, progress, abort_event),
         daemon=True,
         name="pipeline-worker",
     )
@@ -104,6 +141,7 @@ def _run_pipeline_bg(
     username: str,
     provider: str,
     model: str,
+    db_path: str,
     progress: dict,
     abort_event: threading.Event,
 ) -> None:
@@ -177,7 +215,7 @@ def _run_pipeline_bg(
         # Save to database
         progress["state"] = "saving"
         progress["detail"] = "Saving module..."
-        db = get_db()
+        db = get_db(db_path)
         try:
             save_module(
                 module_id=module.module_id,
@@ -234,6 +272,9 @@ def _pipeline_status_fragment() -> None:
     elif state == "failed":
         st.error(f"Generation failed: {progress['error']}")
         st.caption(f"Failed after {elapsed}s")
+        cached_name = st.session_state.get("_cached_upload_name")
+        if cached_name:
+            st.info(f"Previous file **{cached_name}** will be re-used on retry.")
         if st.button("Retry", type="primary"):
             _cleanup_pipeline_state()
             st.rerun()
@@ -242,6 +283,9 @@ def _pipeline_status_fragment() -> None:
         st.warning(f"Generation was cancelled after {elapsed}s.")
         if st.button("Start New", type="primary"):
             _cleanup_pipeline_state()
+            # Clear cached file so the user picks a fresh one
+            st.session_state.pop("_cached_upload_bytes", None)
+            st.session_state.pop("_cached_upload_name", None)
             st.rerun()
 
 

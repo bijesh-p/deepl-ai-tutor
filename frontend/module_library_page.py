@@ -20,7 +20,7 @@ def render_module_library_page() -> None:
             st.session_state["page"] = "upload"
             st.rerun()
 
-    db = get_db()
+    db = get_db(st.session_state.get("db_path"))
     modules = list_modules(db=db)
 
     if not modules:

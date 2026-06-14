@@ -438,7 +438,7 @@ def _end_session(state: dict | None = None) -> None:
             depth = state.get("presentation_depth", "intermediate")
             module_id = state.get("module_id")
             try:
-                db = get_db()
+                db = get_db(st.session_state.get("db_path"))
                 save_user_profile(
                     user_id=user_id,
                     overall_depth=depth,
@@ -489,6 +489,7 @@ def _trigger_evals(state: dict) -> None:
             module_id=state.get("module_id", ""),
             provider=provider,
             model=model,
+            db_path=st.session_state.get("db_path"),
         )
     except Exception:
         pass  # evals are best-effort — never crash the UI

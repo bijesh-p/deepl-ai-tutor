@@ -82,9 +82,10 @@ def _check_database() -> None:
     try:
         from backend.analytics.db import get_db
 
-        conn = get_db()
+        import streamlit as _st
+        db_path = _st.session_state.get("db_path") or os.environ.get("AI_TUTOR_DB_PATH", "data/ai_tutor.db")
+        conn = get_db(db_path)
         conn.execute("SELECT 1")
-        db_path = os.environ.get("AI_TUTOR_DB_PATH", "data/ai_tutor.db")
         st.success(f"Database — OK (`{db_path}`)")
     except Exception as e:
         st.error(f"Database — FAILED: {e}")

@@ -19,7 +19,7 @@ def render_results_page(result: QuizResult) -> None:
     )
 
     # Cohort stats
-    db = get_db()
+    db = get_db(st.session_state.get("db_path"))
     stats = get_module_stats(result.module_id, result.user_id, db=db)
     _render_cohort_chart(stats)
 

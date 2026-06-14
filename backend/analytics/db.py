@@ -5,6 +5,14 @@ import sqlite3
 from pathlib import Path
 
 _DEFAULT_DB = "data/ai_tutor.db"
+_DEFAULT_DB_DIR = "data"
+
+
+def db_path_for_user(username: str) -> str:
+    """Return a per-user DB path: <AI_TUTOR_DB_DIR>/<username>/ai_tutor.db"""
+    base = os.environ.get("AI_TUTOR_DB_DIR", _DEFAULT_DB_DIR)
+    safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in username)
+    return str(Path(base) / safe / "ai_tutor.db")
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
