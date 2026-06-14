@@ -6,7 +6,7 @@ A web application that transforms PDF documents into interactive, adaptive learn
 
 - **PDF Ingestion** — Upload a PDF and extract structured content with heading-aware section splitting.
 - **Multi-LLM Support** — Switch between Anthropic Claude, Portkey, or Ollama via environment config.
-- **Content Pipeline** — Direct LLM pipeline (decompose → enrich → diagrams → questions) generates structured learning modules.
+- **Just-in-Time Content** — Upload a PDF and start learning within ~30 seconds. Topics are delivered as they're enriched; remaining content generates in the background.
 - **Adaptive Tutor** — LangGraph state machine (5 nodes, conditional routing) adjusts difficulty, provides targeted hints, and simplifies concepts for struggling students.
 - **MCP Tool Servers** — Document parsing, assessment validation, and storage exposed as standalone MCP servers.
 - **ChromaDB Vector Store** — Semantic search over document chunks using `all-MiniLM-L6-v2` embeddings.

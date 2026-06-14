@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import time
+from datetime import datetime, timezone
+
 import streamlit as st
 from backend.content.models import LearningModule, Question
 
@@ -11,14 +14,28 @@ except ImportError:
 
 
 def render_module_viewer(module: LearningModule) -> None:
-    st.title(module.title)
-    st.caption(f"{len(module.topics)} topics")
+    progress = st.session_state.get("pipeline_progress")
+    generating = progress and progress["state"] not in ("completed", "failed", "aborted")
 
-    # Sidebar table of contents
+    module = _sync_module_from_progress(module, progress)
+    st.session_state["module"] = module
+
+    total_expected = progress["total_topics"] if progress else len(module.topics)
+    done_count = len(module.topics)
+
+    st.title(module.title)
+    st.caption(f"{done_count}/{total_expected} topics ready" if generating else f"{done_count} topics")
+
     with st.sidebar:
         st.markdown("### Contents")
         for et in module.topics:
             st.markdown(f"- {et.topic.title}")
+        if generating and progress:
+            pending_topics = progress.get("topics", [])
+            enriched_titles = {et.topic.title for et in module.topics}
+            for t in pending_topics:
+                if t.title not in enriched_titles:
+                    st.markdown(f"- *{t.title}* (pending)")
 
     for et in module.topics:
         with st.expander(f"**{et.topic.title}**", expanded=False):
@@ -42,16 +59,64 @@ def render_module_viewer(module: LearningModule) -> None:
                 st.markdown("**Check your understanding**")
                 _render_inline_questions(et.topic.topic_id, et.inline_questions)
 
+    if generating and progress:
+        _pending_topics_fragment()
+
     st.markdown("---")
     col_quiz, col_tutor = st.columns(2)
     with col_quiz:
-        if st.button("Take the Quiz", type="primary"):
+        quiz_ready = not generating or (progress and progress.get("bank") is not None)
+        if st.button("Take the Quiz", type="primary", disabled=not quiz_ready):
+            if progress and progress.get("bank"):
+                st.session_state["question_bank"] = progress["bank"]
             st.session_state["page"] = "quiz"
             st.rerun()
+        if not quiz_ready:
+            st.caption("Available after all topics are generated")
     with col_tutor:
         if st.button("Start Adaptive Tutor"):
             st.session_state["page"] = "tutor_room"
             st.rerun()
+
+
+def _sync_module_from_progress(module: LearningModule, progress: dict | None) -> LearningModule:
+    if not progress:
+        return module
+    enriched = progress.get("enriched_topics", [])
+    if len(enriched) > len(module.topics):
+        return LearningModule(
+            module_id=progress.get("module_id", module.module_id),
+            title=progress.get("doc_title", module.title),
+            source_doc_id=progress.get("doc_id", module.source_doc_id),
+            topics=list(enriched),
+            created_at=module.created_at,
+        )
+    if progress["state"] == "completed" and progress.get("module"):
+        return progress["module"]
+    return module
+
+
+@st.fragment(run_every=3)
+def _pending_topics_fragment() -> None:
+    progress = st.session_state.get("pipeline_progress")
+    if not progress:
+        return
+
+    state = progress["state"]
+    if state in ("completed", "failed", "aborted"):
+        st.rerun()
+        return
+
+    current = progress.get("current_topic", "")
+    done = progress.get("topics_enriched", 0)
+    total = progress.get("total_topics", 0)
+
+    if state == "enriching" and current:
+        st.info(f"Generating: {current} ({done}/{total} topics ready)")
+    elif state == "quiz":
+        st.info("Generating quiz questions...")
+    elif state == "saving":
+        st.info("Saving module...")
 
 
 def _render_inline_questions(topic_id: str, questions: list[Question]) -> None:
@@ -78,7 +143,6 @@ def _render_inline_questions(topic_id: str, questions: list[Question]) -> None:
                     st.error(f"Not quite. The correct answer is: **{correct_text}**. {q.explanation}")
                 st.session_state[answered_key] = True
         else:
-            # multiple_choice
             selected = []
             for j, opt in enumerate(q.options):
                 if st.checkbox(opt, key=f"{key}_opt_{j}"):

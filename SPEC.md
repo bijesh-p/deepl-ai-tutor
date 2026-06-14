@@ -1,7 +1,7 @@
 # SPEC.md — AI Tutor System Specification
 
-> **Version:** 0.5 (Multi-LLM + MCP Servers + Direct LLM Pipeline + LangGraph Adaptive Tutor)
-> **Last updated:** 2026-06-09
+> **Version:** 0.6 (Just-in-Time Content Delivery + Background Enrichment)
+> **Last updated:** 2026-06-14
 
 ---
 
@@ -391,23 +391,52 @@ Step 3: Enrich each topic (content_enricher.py + diagram_generator.py + inline_q
         - generate_diagrams(): generate Mermaid diagrams where visuals aid understanding
         - generate_inline_questions(): create 2-3 reinforcement questions (SCQ/MCQ)
     → Output: list[EnrichedTopic]
+    → **Just-in-time delivery:** After each topic is enriched, it is published
+      to the UI immediately. The user is redirected to the module viewer after
+      topic 1 completes (~20-40s), while remaining topics generate in background.
 
 Step 4: Generate quiz bank (question_bank.py)
     → 1 LLM call to produce 20-50 quiz questions across all topics
+    → Runs after all topics are enriched (deferred from user's perspective)
     → Output: QuestionBank
 
 Step 5: Save (persistence.py)
     → Persist LearningModule + QuestionBank to SQLite
 ```
 
-### 6.3 Entry Point (`frontend/upload_page.py`)
+### 6.3 Just-in-Time Delivery Model
 
-```python
-def _run_pipeline(tmp_path, user_id, username, db):
-    """Parse PDF, run direct LLM pipeline, save module to database."""
+The pipeline runs in a background daemon thread. A shared progress dict publishes
+each enriched topic incrementally:
+
+```
+User uploads PDF → "Start Learning"
+    │
+    ├─ Parse PDF (instant, ~1s)
+    ├─ Decompose into topics (1 LLM call, ~5-10s)
+    ├─ Enrich topic 1 (3 LLM calls, ~15-30s)
+    │   → redirect to module viewer with topic 1 ready
+    ├─ [background] Enrich topic 2...N (3 LLM calls each)
+    │   → each topic appears in viewer as it completes
+    └─ [background] Generate quiz bank (1 LLM call)
+        → "Take Quiz" button enables when ready
 ```
 
-The frontend calls each pipeline step directly — no intermediate orchestration layer.
+**Time to first content:** ~20-40 seconds (parse + decompose + enrich 1 topic)
+instead of 2-5 minutes for full generation.
+
+The module viewer uses `@st.fragment(run_every=3)` to poll for new topics
+and renders them as they arrive. Pending topics show as placeholders.
+
+### 6.4 Entry Point (`frontend/upload_page.py`)
+
+```python
+def _run_pipeline_bg(tmp_path, user_id, username, provider, model, progress, abort_event):
+    """Background thread: parse PDF, run direct LLM pipeline incrementally."""
+```
+
+The frontend calls each pipeline step directly in a daemon thread. Progress is
+communicated via a shared dict in `st.session_state`.
 
 ### 6.4 ChromaDB Integration
 
@@ -577,19 +606,18 @@ No admin/user role separation — any user can upload and generate modules.
 ### 10.3 Navigation
 
 ```
-[upload] ──→ [module_library]
-                  │
-           ┌──────┴──────┐
-           ▼              ▼
-        [learn]      [tutor_room]  ◀── Phase 3
-           │              │
-           ▼         (adaptive loop)
-        [quiz]
-           │
-           ▼
-        [results]
-           │
-           └──→ [module_library]
+[upload] ──→ [learn]  (redirected after first topic is enriched)
+                │         ↑
+                │    [module_library] (select existing module)
+                │
+         ┌──────┴──────┐
+         ▼              ▼
+      [quiz]       [tutor_room]
+         │              │
+         ▼         (adaptive loop)
+      [results]
+         │
+         └──→ [module_library]
 ```
 
 ### 10.4 Tutor Room UI (Phase 3)
@@ -717,7 +745,7 @@ class MasteryReport:          # Phase 3
 
 ### 12.3 Performance
 - PDF parsing: < 30 s for 50-page document
-- Content pipeline: 1-3 minutes — progress shown via `st.status()`
+- Content pipeline: 1-3 minutes total; first topic visible in ~20-40s (just-in-time)
 - Quiz assembly (no LLM): < 1 s
 - LangGraph node invocation: < 10 s per turn
 - ChromaDB query: < 500 ms

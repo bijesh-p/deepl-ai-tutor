@@ -41,6 +41,8 @@ def render_tutor_room() -> None:
         st.session_state["tutor_content_map"] = content_map
         st.session_state["tutor_phase"] = "present"
         st.session_state["tutor_graph"] = build_tutor_graph()
+    else:
+        _refresh_content_map(module)
 
     state = st.session_state["tutor_state"]
     phase = st.session_state["tutor_phase"]
@@ -87,10 +89,15 @@ def render_tutor_room() -> None:
                 if state.get("concept_mastered", False):
                     remaining = state.get("remaining_concepts", [])
                     if remaining:
-                        _run_node(graph, state, "advance_concept")
+                        next_concept = remaining[0]
                         content_map = st.session_state.get("tutor_content_map", {})
-                        state["concept_content"] = content_map.get(state["current_concept"], "")
-                        st.session_state["tutor_phase"] = "present"
+                        if next_concept not in content_map:
+                            st.info(f"Next topic **{next_concept}** is still being generated. Please wait a moment...")
+                            st.session_state["tutor_phase"] = "waiting"
+                        else:
+                            _run_node(graph, state, "advance_concept")
+                            state["concept_content"] = content_map.get(state["current_concept"], "")
+                            st.session_state["tutor_phase"] = "present"
                     else:
                         _run_node(graph, state, "session_complete")
                         st.session_state["tutor_phase"] = "done"
@@ -101,6 +108,21 @@ def render_tutor_room() -> None:
                     _run_node(graph, state, "provide_hint")
                     st.session_state["tutor_phase"] = "question"
 
+                st.rerun()
+
+    elif phase == "waiting":
+        remaining = state.get("remaining_concepts", [])
+        next_concept = remaining[0] if remaining else ""
+        content_map = st.session_state.get("tutor_content_map", {})
+        if next_concept and next_concept in content_map:
+            _run_node(graph, state, "advance_concept")
+            state["concept_content"] = content_map.get(state["current_concept"], "")
+            st.session_state["tutor_phase"] = "present"
+            st.rerun()
+        else:
+            st.info(f"Waiting for **{next_concept}** to finish generating...")
+            if st.button("Check again"):
+                _refresh_content_map(module)
                 st.rerun()
 
     elif phase == "done":
@@ -151,7 +173,20 @@ def _render_chat_history(history: list[dict]) -> None:
             st.chat_message("user").markdown(content)
 
 
+def _refresh_content_map(module: LearningModule) -> None:
+    content_map = st.session_state.get("tutor_content_map", {})
+    state = st.session_state.get("tutor_state")
+    for t in module.topics:
+        if t.topic.title not in content_map:
+            content_map[t.topic.title] = t.content_md
+            if state and t.topic.title not in state.get("remaining_concepts", []):
+                remaining = state.get("remaining_concepts", [])
+                mastered = state.get("mastered_concepts", [])
+                if t.topic.title != state.get("current_concept") and t.topic.title not in mastered:
+                    remaining.append(t.topic.title)
+    st.session_state["tutor_content_map"] = content_map
+
+
 def _cleanup_tutor() -> None:
-    """Remove tutor state from session."""
     for key in ("tutor_state", "tutor_phase", "tutor_graph", "tutor_content_map"):
         st.session_state.pop(key, None)

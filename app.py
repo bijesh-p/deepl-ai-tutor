@@ -91,12 +91,24 @@ def main() -> None:
     _render_sidebar()
 
     progress = st.session_state.get("pipeline_progress")
-    if progress and progress["state"] == "running":
+    if progress and progress["state"] not in ("completed", "failed", "aborted"):
         elapsed = int(_time.monotonic() - progress["started_at"])
-        st.info(
-            f"Generating module — Step {progress['step']}/6: "
-            f"{progress['step_label']} ({elapsed}s)"
-        )
+        state = progress["state"]
+        if state == "parsing":
+            label = "Parsing PDF..."
+        elif state == "decomposing":
+            label = "Identifying topics..."
+        elif state == "enriching":
+            done = progress.get("topics_enriched", 0)
+            total = progress.get("total_topics", 0)
+            label = f"Enriching topics ({done}/{total})..."
+        elif state == "quiz":
+            label = "Generating quiz..."
+        elif state == "saving":
+            label = "Saving module..."
+        else:
+            label = "Working..."
+        st.info(f"{label} ({elapsed}s)")
 
     page = st.session_state["page"]
 
@@ -124,7 +136,7 @@ def main() -> None:
         render_module_viewer(module)
 
     elif page == "quiz":
-        bank = st.session_state.get("bank")
+        bank = st.session_state.get("question_bank") or st.session_state.get("bank")
         if bank is None:
             st.session_state["page"] = "module_library"
             st.rerun()
