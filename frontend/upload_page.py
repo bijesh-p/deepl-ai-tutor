@@ -11,85 +11,68 @@ from datetime import datetime, timezone
 
 import streamlit as st
 
-from backend.analytics.db import db_path_for_user, get_db
-from backend.analytics.persistence import load_user_profile, save_module, save_user
+from backend.analytics.db import get_db
+from backend.analytics.persistence import save_module
 from backend.core.llm_client import LLMFactory
 
 
 def render_upload_page() -> None:
-    st.title("AI Tutor")
-    st.subheader("Transform any PDF into an interactive learning module")
-
-    progress = st.session_state.get("pipeline_progress")
-    if progress and progress["state"] not in ("completed",):
-        _pipeline_status_fragment()
+    # Guard: must be logged in
+    username = st.session_state.get("username", "")
+    user_id = st.session_state.get("user_id", "")
+    db_path = st.session_state.get("db_path", "")
+    if not username or not user_id:
+        st.session_state["page"] = "login"
+        st.rerun()
         return
 
-    # ── Login form ────────────────────────────────────────────────────────────
-    with st.form("login_form"):
-        st.markdown("#### Sign in")
-        username = st.text_input(
-            "Username",
-            value=st.session_state.get("_last_username", ""),
-            placeholder="e.g. alice",
-        )
-        st.text_input(
-            "Password",
-            type="password",
-            placeholder="(authentication not required)",
-            disabled=True,
-        )
+    # ── If pipeline is running or just finished, show status / redirect ──────
+    progress = st.session_state.get("pipeline_progress")
+    if progress:
+        state = progress["state"]
+        if state == "completed":
+            # Pipeline finished in the background — redirect now
+            _handle_completed(progress)
+            return
+        if state not in ("failed", "aborted"):
+            _pipeline_status_fragment()
+            return
+        # failed/aborted fall through to upload form below
+
+    # ── Upload form ───────────────────────────────────────────────────────────
+    st.title("New Module")
+    st.caption("Upload a PDF to create an interactive learning module.")
+
+    with st.form("upload_form"):
         uploaded = st.file_uploader(
-            "Upload a PDF",
+            "PDF document",
             type=["pdf"],
-            help="The document will be converted into an interactive learning module.",
+            help="The document will be converted into slides, diagrams, audio, and quizzes.",
         )
+        cached_name = st.session_state.get("_cached_upload_name")
+        if cached_name:
+            st.info(f"Previous file **{cached_name}** will be re-used if no new file is chosen.")
         submitted = st.form_submit_button("Start Learning", type="primary")
 
     if not submitted:
         return
 
-    # ── Validation ────────────────────────────────────────────────────────────
-    errors = []
-    if not username.strip():
-        errors.append("Please enter a username.")
     if uploaded is None:
-        # Fallback to previously uploaded file stored in session state
         cached = st.session_state.get("_cached_upload_bytes")
-        cached_name = st.session_state.get("_cached_upload_name", "document.pdf")
         if cached is None:
-            errors.append("Please upload a PDF.")
-        else:
-            uploaded_bytes = cached
-            uploaded_name = cached_name
+            st.error("Please upload a PDF.")
+            return
+        uploaded_bytes = cached
     else:
         uploaded_bytes = uploaded.read()
-        uploaded_name = uploaded.name
-        # Cache so retry works without re-selecting the file
         st.session_state["_cached_upload_bytes"] = uploaded_bytes
-        st.session_state["_cached_upload_name"] = uploaded_name
-
-    if errors:
-        for e in errors:
-            st.error(e)
-        return
-
-    # Remember username for next render
-    st.session_state["_last_username"] = username.strip()
+        st.session_state["_cached_upload_name"] = uploaded.name
 
     with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
         tmp.write(uploaded_bytes)
         tmp_path = tmp.name
 
-    db_path = db_path_for_user(username.strip())
-    db = get_db(db_path)
-    user_id = save_user(username.strip(), db=db)
-    profile = load_user_profile(user_id, db=db)
-    db.close()
-
-    st.session_state["user_profile"] = profile
-    st.session_state["db_path"] = db_path
-    _start_pipeline(tmp_path, user_id, username.strip(), db_path)
+    _start_pipeline(tmp_path, user_id, username, db_path)
     st.rerun()
 
 
@@ -274,22 +257,51 @@ def _pipeline_status_fragment() -> None:
         st.caption(f"Failed after {elapsed}s")
         cached_name = st.session_state.get("_cached_upload_name")
         if cached_name:
-            st.info(f"Previous file **{cached_name}** will be re-used on retry.")
+            st.caption(f"Previous file **{cached_name}** will be re-used on retry.")
         if st.button("Retry", type="primary"):
             _cleanup_pipeline_state()
             st.rerun()
 
     elif state == "aborted":
         st.warning(f"Generation was cancelled after {elapsed}s.")
-        if st.button("Start New", type="primary"):
+        if st.button("Upload New File", type="primary"):
             _cleanup_pipeline_state()
-            # Clear cached file so the user picks a fresh one
             st.session_state.pop("_cached_upload_bytes", None)
             st.session_state.pop("_cached_upload_name", None)
             st.rerun()
 
 
+def _handle_completed(progress: dict) -> None:
+    """Pipeline finished fully — set module/bank in session state and go to tutor room."""
+    from backend.content.models import LearningModule
+
+    module = progress.get("module")
+    if module is None:
+        # Build from enriched topics if full module object not yet set
+        enriched = progress.get("enriched_topics", [])
+        if not enriched:
+            _cleanup_pipeline_state()
+            st.rerun()
+            return
+        module = LearningModule(
+            module_id=progress["module_id"],
+            title=progress["doc_title"],
+            source_doc_id=progress["doc_id"],
+            topics=list(enriched),
+            created_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+    bank = progress.get("bank")
+    st.session_state["module"] = module
+    if bank:
+        st.session_state["bank"] = bank
+    st.session_state["page"] = "tutor_room"
+    _cleanup_pipeline_state()
+    st.rerun()
+
+
 def _redirect_to_viewer(progress: dict) -> None:
+    """Early redirect — first slide ready, background continues enriching."""
     from backend.content.models import LearningModule
 
     enriched = progress.get("enriched_topics", [])
@@ -304,8 +316,6 @@ def _redirect_to_viewer(progress: dict) -> None:
         created_at=datetime.now(timezone.utc).isoformat(),
     )
     st.session_state["module"] = module
-    st.session_state["user_id"] = progress["user_id"]
-    st.session_state["username"] = progress["username"]
     st.session_state["page"] = "tutor_room"
     st.rerun()
 
