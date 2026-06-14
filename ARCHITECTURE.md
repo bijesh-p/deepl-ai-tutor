@@ -1,6 +1,6 @@
 # AI Tutor — Architecture Document
 
-> **Version:** 0.5 | **Updated:** 2026-06-12
+> **Version:** 0.7 | **Updated:** 2026-06-14
 > Companion to [SPEC.md](SPEC.md).
 
 ---
@@ -44,7 +44,7 @@ flowchart TD
         VDB[(ChromaDB\nall-MiniLM-L6-v2)]
     end
 
-    UP -->|"_run_pipeline()"| CF
+    UP -->|"_run_pipeline_bg() in daemon thread"| CF
     TUTOR -->|"graph.invoke()"| IT
     LIB & LEARN & QUIZ & RES --> DB
 
@@ -97,42 +97,64 @@ classDiagram
 
 ---
 
-## 3. Content Pipeline — Direct LLM Calls
+## 3. Content Pipeline — Just-in-Time Delivery
 
-A linear pipeline where each step makes a single LLM call with a typed tool schema, ensuring deterministic structured output. Total cost: **3N + 2 LLM calls** for N topics.
+The pipeline runs in a background daemon thread. Each enriched topic is published to `st.session_state["pipeline_progress"]` immediately on completion. The user is redirected to the module viewer after topic 1 finishes (~30s); remaining topics and the quiz bank generate in the background.
+
+Total LLM cost: **3N + 2 LLM calls** + N TTS calls for N topics.
 
 ```mermaid
 ---
-title: Content Pipeline — Direct LLM Calls
+title: Content Pipeline — Just-in-Time Delivery
 ---
-flowchart LR
-    PDF([PDF\nupload]) --> PARSE
+flowchart TD
+    PDF([PDF upload]) --> PARSE
 
-    subgraph Pipeline["content/  —  Direct LLM Pipeline"]
-        PARSE["Parse PDF\n\npdf_parser.py\nExtract sections with\nheading-aware splitting"]
-
-        DECOMPOSE["Decompose\n\ntopic_decomposer.py\n1 LLM call\nIdentify learning topics"]
-
-        ENRICH["Enrich Topics\n\ncontent_enricher.py\ndiagram_generator.py\ninline_question_gen.py\n3 LLM calls per topic"]
-
-        QUIZ["Quiz Bank\n\nquestion_bank.py\n1 LLM call\n20-50 questions"]
+    subgraph Thread["Background daemon thread"]
+        PARSE["Parse PDF\npdf_parser.py"]
+        DECOMPOSE["Decompose Topics\ntopic_decomposer.py\n1 LLM call"]
+        ENRICH["Enrich Topic i\ncontent_enricher.py — 1 LLM call\ndiagram_generator.py — 1 LLM call\ninline_question_gen.py — 1 LLM call\naudio_generator.py — 1 TTS call"]
+        QUIZ["Quiz Bank\nquestion_bank.py — 1 LLM call"]
+        SAVE["Save to SQLite"]
     end
 
-    PARSE --> DECOMPOSE --> ENRICH --> QUIZ
+    PARSE --> DECOMPOSE
+    DECOMPOSE --> ENRICH
+    ENRICH -->|"repeat for each topic"| ENRICH
+    ENRICH -->|"all topics done"| QUIZ
+    QUIZ --> SAVE
 
-    QUIZ --> OUT([LearningModule\nstored in SQLite])
+    ENRICH -->|"publish enriched_topics[i]\nset ready=True after topic 1"| PROGRESS[("progress dict\nin session_state")]
+    PROGRESS -->|"@st.fragment polls every 2s\nredirects to viewer after topic 1"| LEARN([Module Viewer])
 ```
 
 **Pipeline step details:**
 
-| Step | Module | LLM calls | Output |
+| Step | Module | Calls | Output |
 |---|---|---|---|
 | Parse | `pdf_parser.py` | 0 | `Document` with `list[Section]` |
-| Decompose | `topic_decomposer.py` | 1 | `list[Topic]` |
-| Enrich (per topic) | `content_enricher.py` | 1 | `EnrichedTopic` with Markdown content |
-| Diagrams (per topic) | `diagram_generator.py` | 1 | `list[Diagram]` (Mermaid) |
-| Inline questions (per topic) | `inline_question_gen.py` | 1 | `list[Question]` (SCQ/MCQ) |
-| Quiz bank | `question_bank.py` | 1 | `QuestionBank` |
+| Decompose | `topic_decomposer.py` | 1 LLM | `list[Topic]` |
+| Enrich (per topic) | `content_enricher.py` | 1 LLM | `EnrichedTopic` with conversational Markdown + top concepts |
+| Diagrams (per topic) | `diagram_generator.py` | 1 LLM | `list[Diagram]` — Mermaid concept map (mandatory) |
+| Inline questions (per topic) | `inline_question_gen.py` | 1 LLM | `list[Question]` (SCQ/MCQ) |
+| Audio (per topic) | `audio_generator.py` | 1 TTS | mp3 narration via edge-tts |
+| Quiz bank | `question_bank.py` | 1 LLM | `QuestionBank` (deferred until all topics done) |
+
+---
+
+## 3a. Enriched Topic Structure
+
+Each `EnrichedTopic` produced by the pipeline contains:
+
+| Field | Type | Source |
+|---|---|---|
+| `topic` | `Topic` | Decomposer |
+| `top_concepts` | `list[str]` (2-3) | Enricher LLM — key ideas shown as callout in viewer |
+| `content_md` | `str` | Enricher LLM — conversational Markdown explanation |
+| `key_takeaways` | `list[str]` (3-5) | Enricher LLM — bullet summary |
+| `diagrams` | `list[Diagram]` | Diagram generator LLM — mandatory Mermaid concept map |
+| `inline_questions` | `list[Question]` | Question generator LLM — 2 SCQ/MCQ |
+| `audio_path` | `str` | edge-tts — mp3 narration file path |
 
 ---
 
@@ -256,7 +278,7 @@ flowchart LR
 
 ## 6. Frontend Navigation
 
-No admin/user separation. Any user can upload a PDF to generate a module, browse the library, learn, or enter the adaptive tutor.
+No admin/user separation. Any user uploads a PDF and is redirected to the module viewer after the first topic is enriched (~30s). Background generation continues while they read.
 
 ```mermaid
 ---
@@ -265,12 +287,13 @@ title: Streamlit Page Navigation
 stateDiagram-v2
     [*] --> upload
 
-    upload --> module_library : Module generated
+    upload --> learn : Topic 1 ready\n(~30s, JIT redirect)
+    upload --> module_library : Choose existing module
 
     module_library --> learn : Select module
     module_library --> upload : Generate new
 
-    learn --> quiz : Take Quiz
+    learn --> quiz : Take Quiz\n(enabled after quiz bank ready)
     learn --> tutor_room : Start Tutor
 
     quiz --> results : Submit answers
@@ -340,19 +363,20 @@ erDiagram
 
 ## 8. Data Flow — End to End
 
-Two independent paths through the system: batch generation (direct LLM pipeline) and live tutoring (LangGraph).
+Two independent paths through the system: incremental JIT generation and live adaptive tutoring.
 
 ```mermaid
 ---
 title: Two Data Paths
 ---
 flowchart TD
-    subgraph GenerationPath["Path 1: Module Generation (batch)"]
+    subgraph GenerationPath["Path 1: Module Generation (JIT, background thread)"]
         direction LR
-        PDF([PDF]) --> PARSE2[Parse\nPDF]
-        PARSE2 --> DECOMP2[Decompose\nTopics]
-        DECOMP2 --> ENRICH2[Enrich +\nDiagrams +\nQuestions]
-        ENRICH2 --> DB2[(SQLite)]
+        PDF([PDF]) --> PARSE2[Parse PDF]
+        PARSE2 --> DECOMP2[Decompose Topics]
+        DECOMP2 --> ENRICH2["Enrich + Diagrams\n+ Questions + Audio\n(per topic, published live)"]
+        ENRICH2 --> LEARN2([Module Viewer\nreceives topics\nas they arrive])
+        ENRICH2 --> DB2[(SQLite\nfull module\nsaved at end)]
     end
 
     subgraph TutoringPath["Path 2: Adaptive Tutoring (live)"]
@@ -366,5 +390,5 @@ flowchart TD
         BRANCH2 -->|Yes| NEXT2[next concept]
     end
 
-    DB2 -->|"load module +\nsemantic search"| PC2
+    DB2 -->|"load module"| PC2
 ```
