@@ -208,6 +208,9 @@ def _render_diagnostic(state: dict, graph) -> None:
             st.rerun()
 
 
+_SLIDE_DURATION_S = 60  # auto-advance after this many seconds
+
+
 def _render_slide(state: dict, graph) -> None:
     history = state.get("chat_history", [])
     slide = next((m for m in reversed(history) if m.get("role") == "slide"), None)
@@ -249,10 +252,64 @@ def _render_slide(state: dict, graph) -> None:
         st.markdown("---")
         _render_chat_history(qa_history)
 
-    if st.button("Ask me a question about this", type="primary"):
-        _run_node(graph, state, "ask_question")
-        st.session_state["tutor_phase"] = "answer"
+    # ── Slide timer and advance controls ──────────────────────────────────────
+    # Record when this slide was first shown
+    slide_key = f"slide_shown_at_{concept}"
+    if slide_key not in st.session_state:
+        st.session_state[slide_key] = time.monotonic()
+
+    elapsed = int(time.monotonic() - st.session_state[slide_key])
+    remaining_s = max(0, _SLIDE_DURATION_S - elapsed)
+
+    remaining_concepts = state.get("remaining_concepts", [])
+    has_next = bool(remaining_concepts)
+
+    col_q, col_next = st.columns([3, 1])
+    with col_q:
+        if st.button("Ask me a question about this", type="primary"):
+            _run_node(graph, state, "ask_question")
+            st.session_state["tutor_phase"] = "answer"
+            st.rerun()
+    with col_next:
+        if has_next:
+            lbl = f"Next slide ({remaining_s}s)" if remaining_s > 0 else "Next slide →"
+            if st.button(lbl, type="secondary"):
+                _do_advance_from_slide(state, graph)
+                st.rerun()
+
+    # Auto-advance when timer expires
+    if has_next and remaining_s == 0:
+        _do_advance_from_slide(state, graph)
         st.rerun()
+
+
+def _do_advance_from_slide(state: dict, graph) -> None:
+    """Mark current concept mastered and move to next slide."""
+    concept = state.get("current_concept", "")
+    mastered = state.get("mastered_concepts", [])
+    if concept and concept not in mastered:
+        mastered.append(concept)
+    state["mastered_concepts"] = mastered
+    state["concept_mastered"] = True
+
+    remaining = state.get("remaining_concepts", [])
+    content_map = st.session_state.get("tutor_content_map", {})
+
+    if not remaining:
+        _run_node(graph, state, "session_complete")
+        st.session_state["tutor_phase"] = "done"
+        return
+
+    next_concept = remaining[0]
+    # Clear the slide timer for the new slide
+    slide_key = f"slide_shown_at_{next_concept}"
+    st.session_state.pop(slide_key, None)
+
+    if next_concept in content_map and content_map[next_concept]:
+        _advance_to_next(state, graph, content_map)
+    else:
+        # Next slide not ready yet — go to waiting phase
+        st.session_state["tutor_phase"] = "waiting"
 
 
 # ---------------------------------------------------------------------------
@@ -374,15 +431,32 @@ def _refresh_content_map(module) -> None:
     content_map = st.session_state.get("tutor_content_map", {})
     summary_map = st.session_state.get("tutor_summary_map", {})
     state = st.session_state.get("tutor_state")
-    for t in module.topics:
+
+    # Build the authoritative list of enriched topics from two sources:
+    # 1. module.topics — what was available at redirect time (just slide 1)
+    # 2. pipeline_progress["enriched_topics"] — live list as background publishes more
+    seen_titles: set[str] = set()
+    all_enriched = list(module.topics)
+    pipeline_progress = st.session_state.get("pipeline_progress", {})
+    for et in pipeline_progress.get("enriched_topics", []):
+        if et.topic.title not in seen_titles:
+            all_enriched.append(et)
+            seen_titles.add(et.topic.title)
+
+    for t in all_enriched:
+        if not t.content_md:
+            continue  # skip stubs / not-yet-enriched placeholders
         content_map[t.topic.title] = t.content_md
         summary_map[t.topic.title] = t.topic.summary
-        if state and t.topic.title not in state.get("remaining_concepts", []):
+        if state:
             current = state.get("current_concept", "")
             mastered = state.get("mastered_concepts", [])
             remaining = state.get("remaining_concepts", [])
-            if t.topic.title != current and t.topic.title not in mastered and t.topic.title not in remaining:
+            if (t.topic.title != current
+                    and t.topic.title not in mastered
+                    and t.topic.title not in remaining):
                 remaining.append(t.topic.title)
+
     st.session_state["tutor_content_map"] = content_map
     st.session_state["tutor_summary_map"] = summary_map
 
@@ -444,6 +518,8 @@ def _end_session(state: dict | None = None) -> None:
                     overall_depth=depth,
                     topic_mastery=topic_mastery,
                     module_id=module_id,
+                    llm_provider=st.session_state.get("llm_provider", ""),
+                    llm_model=st.session_state.get("llm_model", ""),
                     db=db,
                 )
                 db.close()

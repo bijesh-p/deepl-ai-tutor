@@ -26,7 +26,9 @@ CREATE TABLE IF NOT EXISTS user_profiles (
     overall_depth       TEXT NOT NULL DEFAULT 'intermediate',
     topic_mastery_json  TEXT NOT NULL DEFAULT '{}',
     module_visits_json  TEXT NOT NULL DEFAULT '{}',
-    last_seen           TEXT NOT NULL DEFAULT (datetime('now'))
+    last_seen           TEXT NOT NULL DEFAULT (datetime('now')),
+    llm_provider        TEXT NOT NULL DEFAULT '',
+    llm_model           TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS modules (
@@ -67,7 +69,8 @@ CREATE TABLE IF NOT EXISTS topic_mastery (
 _MIGRATIONS = [
     "ALTER TABLE modules ADD COLUMN module_json TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE modules ADD COLUMN created_by TEXT NOT NULL DEFAULT ''",
-    # user_profiles created via CREATE TABLE IF NOT EXISTS above — no ALTER needed
+    "ALTER TABLE user_profiles ADD COLUMN llm_provider TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE user_profiles ADD COLUMN llm_model TEXT NOT NULL DEFAULT ''",
 ]
 
 

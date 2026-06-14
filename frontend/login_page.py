@@ -8,6 +8,12 @@ from backend.analytics.persistence import load_user_profile, save_user
 
 def render_login_page() -> None:
     """Clean login — username + greyed password only. Routes to upload on success."""
+    # Hide the sidebar entirely on the login screen
+    st.markdown(
+        "<style>[data-testid='stSidebar']{display:none}</style>",
+        unsafe_allow_html=True,
+    )
+
     # Centre the form with empty columns
     _, col, _ = st.columns([1, 2, 1])
     with col:
@@ -49,5 +55,14 @@ def render_login_page() -> None:
             st.session_state["user_id"] = user_id
             st.session_state["user_profile"] = profile
             st.session_state["db_path"] = db_path
+
+            # Restore LLM preferences saved from previous session
+            saved_provider = profile.get("llm_provider", "")
+            saved_model = profile.get("llm_model", "")
+            if saved_provider:
+                st.session_state["llm_provider"] = saved_provider
+            if saved_model:
+                st.session_state["llm_model"] = saved_model
+
             st.session_state["page"] = "upload"
             st.rerun()

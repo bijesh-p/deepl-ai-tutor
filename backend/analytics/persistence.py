@@ -141,6 +141,8 @@ def load_user_profile(user_id: str, db: sqlite3.Connection | None = None) -> dic
         "topic_mastery": {},
         "module_visits": {},
         "last_seen": "",
+        "llm_provider": "",
+        "llm_model": "",
     }
 
 
@@ -149,12 +151,14 @@ def save_user_profile(
     overall_depth: str,
     topic_mastery: dict,
     module_id: str | None = None,
+    llm_provider: str = "",
+    llm_model: str = "",
     db: sqlite3.Connection | None = None,
 ) -> None:
     """Upsert the user profile, merging new mastery data with existing."""
     conn = db or get_db()
 
-    # Load existing mastery so we merge, not overwrite
+    # Load existing so we merge mastery and visits rather than overwrite
     existing = load_user_profile(user_id, db=conn)
     merged_mastery = {**existing["topic_mastery"], **topic_mastery}
     merged_visits = existing["module_visits"]
@@ -162,16 +166,24 @@ def save_user_profile(
         from datetime import datetime, timezone
         merged_visits[module_id] = datetime.now(timezone.utc).isoformat()
 
+    # Keep existing llm prefs if caller doesn't supply new ones
+    final_provider = llm_provider or existing.get("llm_provider", "")
+    final_model = llm_model or existing.get("llm_model", "")
+
     conn.execute(
         """
-        INSERT INTO user_profiles (user_id, overall_depth, topic_mastery_json, module_visits_json, last_seen)
-        VALUES (?, ?, ?, ?, datetime('now'))
+        INSERT INTO user_profiles
+            (user_id, overall_depth, topic_mastery_json, module_visits_json, last_seen, llm_provider, llm_model)
+        VALUES (?, ?, ?, ?, datetime('now'), ?, ?)
         ON CONFLICT(user_id) DO UPDATE SET
             overall_depth      = excluded.overall_depth,
             topic_mastery_json = excluded.topic_mastery_json,
             module_visits_json = excluded.module_visits_json,
-            last_seen          = excluded.last_seen
+            last_seen          = excluded.last_seen,
+            llm_provider       = excluded.llm_provider,
+            llm_model          = excluded.llm_model
         """,
-        (user_id, overall_depth, json.dumps(merged_mastery), json.dumps(merged_visits)),
+        (user_id, overall_depth, json.dumps(merged_mastery), json.dumps(merged_visits),
+         final_provider, final_model),
     )
     conn.commit()
