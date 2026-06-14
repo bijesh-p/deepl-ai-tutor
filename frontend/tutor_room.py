@@ -138,8 +138,10 @@ def render_tutor_room() -> None:
                 if topics_total > 0:
                     st.progress(
                         topics_done / topics_total,
-                        text=f"Background enrichment: {topics_done}/{topics_total} topics ready",
+                        text=f"Background: {topics_done}/{topics_total} slides ready",
                     )
+                else:
+                    st.caption(f"Slides ready so far: {topics_done}")
 
                 _render_chat_history(state.get("chat_history", []))
 

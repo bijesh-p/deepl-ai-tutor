@@ -6,7 +6,6 @@ import tempfile
 import threading
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict
 from datetime import datetime, timezone
 
@@ -110,7 +109,7 @@ def _run_pipeline_bg(
 ) -> None:
     try:
         from backend.content.models import LearningModule
-        from backend.content.topic_decomposer import decompose, _format_sections
+        from backend.content.sliding_pipeline import run_sliding_pipeline
         from backend.ingestion.pdf_parser import parse_pdf
         from backend.observability.tracer import get_tracer
         from backend.quiz.question_bank import generate_question_bank
@@ -131,76 +130,28 @@ def _run_pipeline_bg(
             progress["state"] = "aborted"
             return
 
-        # Connect to LLM + decompose
-        progress["state"] = "decomposing"
-        progress["detail"] = f"Connecting to {provider}..."
+        progress["state"] = "enriching"
+        progress["detail"] = "Connecting to LLM..."
         llm = LLMFactory.create(provider=provider, model=model)
 
         if abort_event.is_set():
             progress["state"] = "aborted"
             return
 
-        # Decompose using a 500-word excerpt — produces topic titles+summaries fast
-        progress["detail"] = "Identifying learning topics..."
-        fast_text = _truncate_doc_text(doc, max_words=500)
-        cached_blocks = llm.make_cached_document_blocks(_format_sections(doc))
-        topics = decompose(doc, llm, source_text=fast_text)
-        progress["topics"] = topics
-        progress["total_topics"] = len(topics)
-        progress["detail"] = f"{len(topics)} topic(s) identified"
+        # Sliding-window pipeline: reads 500 words at a time, assesses whether
+        # enough material exists for a slide, enriches immediately and publishes.
+        # Sets progress["ready"]=True after first slide → redirect to tutor room.
+        enriched_topics = run_sliding_pipeline(
+            doc, llm, progress, abort_event, tracer
+        )
 
         if abort_event.is_set():
             progress["state"] = "aborted"
             return
 
-        # Create stubs immediately and redirect student to tutor room.
-        # Stubs have content_md="" — tutor room detects this and uses the
-        # fallback LLM slide path until real enrichment arrives.
-        from backend.content.models import EnrichedTopic as _ET
-        stubs = [
-            _ET(topic=t, content_md="", key_takeaways=[], diagrams=[],
-                inline_questions=[], top_concepts=[], audio_path="")
-            for t in topics
-        ]
-        enriched_slots: list = list(stubs)
-        progress["enriched_topics"] = list(enriched_slots)
-        progress["state"] = "enriching"
-        progress["ready"] = True   # redirect fires NOW — enrichment continues behind
-
-        # Enrich topics in parallel using full document context
-        with ThreadPoolExecutor(max_workers=min(4, len(topics))) as ex:
-            future_to_idx = {
-                ex.submit(
-                    _enrich_topic,
-                    topic, i, doc, llm, cached_blocks, tracer, abort_event,
-                ): i
-                for i, topic in enumerate(topics)
-            }
-            for future in as_completed(future_to_idx):
-                if abort_event.is_set():
-                    break
-                idx = future_to_idx[future]
-                result = future.result()
-                if result is not None:
-                    enriched_slots[idx] = result
-                    progress["enriched_topics"] = list(enriched_slots)
-                    progress["topics_enriched"] = sum(
-                        1 for e in enriched_slots if e.content_md
-                    )
-                    progress["current_topic"] = result.topic.title
-                    progress["detail"] = (
-                        f"Enriched {progress['topics_enriched']}/{len(topics)}: {result.topic.title}"
-                    )
-
-        if abort_event.is_set():
-            progress["state"] = "aborted"
-            return
-
-        # Keep only fully enriched topics for the final module save
-        enriched_topics = [e for e in enriched_slots if e.content_md]
-
-        if abort_event.is_set():
-            progress["state"] = "aborted"
+        if not enriched_topics:
+            progress["state"] = "failed"
+            progress["error"] = "No presentable concepts found in document."
             return
 
         module = LearningModule(
@@ -252,78 +203,6 @@ def _run_pipeline_bg(
             os.unlink(tmp_path)
 
 
-def _truncate_doc_text(doc, max_words: int = 500) -> str:
-    """Return the first max_words words of doc content for fast decomposition."""
-    from backend.content.topic_decomposer import _format_sections
-    parts = [f"Document: {doc.title}\n"]
-    remaining = max_words
-    for s in doc.sections:
-        words = s.body.split()
-        taken = words[:remaining]
-        parts.append(f"## {s.title}\n{' '.join(taken)}")
-        remaining -= len(taken)
-        if remaining <= 0:
-            break
-    return "\n\n".join(parts)
-
-
-def _enrich_topic(topic, idx, doc, llm, cached_blocks, tracer, abort_event):
-    """Enrich a single topic with diagrams, questions, and audio. Thread-safe."""
-    from backend.content.audio_generator import generate_audio
-    from backend.content.content_enricher import enrich
-    from backend.content.diagram_generator import generate_diagrams
-    from backend.content.inline_question_gen import generate_inline_questions
-
-    if abort_event.is_set():
-        return None
-
-    source_text = "\n\n".join(
-        s.body for s in doc.sections if s.section_id in set(topic.source_section_ids)
-    )
-
-    with tracer.start_as_current_span(
-        "pipeline.enrich_topic",
-        attributes={"topic.title": topic.title, "topic.index": idx},
-    ):
-        enriched = enrich(topic, source_text, llm, cached_blocks=cached_blocks)
-
-    if abort_event.is_set():
-        return None
-
-    # Diagram and inline questions are independent — run in parallel
-    with ThreadPoolExecutor(max_workers=2) as inner:
-        fut_diag = inner.submit(generate_diagrams, enriched, llm)
-        fut_qs = inner.submit(generate_inline_questions, enriched, llm)
-        try:
-            enriched.diagrams = fut_diag.result()
-        except Exception:
-            enriched.diagrams = []
-        try:
-            enriched.inline_questions = fut_qs.result()
-        except Exception:
-            enriched.inline_questions = []
-
-    if abort_event.is_set():
-        return None
-
-    try:
-        diagram = enriched.diagrams[0] if enriched.diagrams else None
-        with tracer.start_as_current_span(
-            "pipeline.generate_audio",
-            attributes={"topic.title": topic.title},
-        ):
-            enriched.audio_path = generate_audio(
-                enriched.content_md,
-                topic.topic_id,
-                diagram_caption=diagram.caption if diagram else "",
-                diagram_mermaid=diagram.content if diagram else "",
-            )
-    except Exception:
-        enriched.audio_path = ""
-
-    return enriched
-
-
 @st.fragment(run_every=2)
 def _pipeline_status_fragment() -> None:
     progress = st.session_state.get("pipeline_progress")
@@ -333,7 +212,7 @@ def _pipeline_status_fragment() -> None:
     state = progress["state"]
     elapsed = int(time.monotonic() - progress["started_at"])
 
-    if state in ("parsing", "decomposing"):
+    if state in ("parsing",):
         st.info(f"{progress['detail'] or 'Preparing...'} ({elapsed}s)")
 
     elif state == "enriching":
@@ -341,12 +220,11 @@ def _pipeline_status_fragment() -> None:
             _redirect_to_viewer(progress)
             return
 
-        total = progress["total_topics"]
-        done = progress["topics_enriched"]
-        if total > 0:
-            st.progress(done / total, text=f"Enriching topic {done + 1}/{total}...")
-        st.caption(progress.get("detail", ""))
-        st.caption(f"Elapsed: {elapsed}s")
+        done = progress.get("topics_enriched", 0)
+        detail = progress.get("detail", "Reading document...")
+        st.info(f"{detail} ({elapsed}s)")
+        if done > 0:
+            st.metric("Slides ready", done)
         _abort_button()
 
     elif state in ("quiz", "saving"):
