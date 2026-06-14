@@ -126,6 +126,20 @@ def _render_sidebar() -> None:
 
         st.markdown("---")
 
+        # ── Audio ────────────────────────────────────────────────────────────
+        if logged_in:
+            st.markdown("### Audio")
+            audio_on = st.toggle(
+                "Enable audio",
+                value=st.session_state.get("audio_enabled", True),
+                help="Disable to skip TTS generation — useful for testing latency without audio",
+                key="_audio_toggle",
+            )
+            st.session_state["audio_enabled"] = audio_on
+            if not audio_on:
+                st.caption("Audio disabled — slides and diagnostic will be silent.")
+            st.markdown("---")
+
         # ── Observability ─────────────────────────────────────────────────────
         if logged_in:
             st.markdown("### Observability")

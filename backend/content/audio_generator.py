@@ -66,14 +66,11 @@ def _build_script(
 ) -> str:
     parts: list[str] = []
 
-    # 1. Diagnostic framing intro
-    parts.append(_DIAGNOSTIC_INTRO)
-
-    # 2. Topic introduction
+    # 1. Topic introduction
     if topic_title:
         parts.append(f"Now let's explore: {topic_title}.")
 
-    # 3. Slide anchor — diagram or bullets
+    # 2. Slide anchor — diagram or bullets
     if caption or mermaid:
         diagram_description = _describe_diagram(caption, mermaid)
         if diagram_description:

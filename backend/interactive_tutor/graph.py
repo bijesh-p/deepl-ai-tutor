@@ -219,6 +219,7 @@ def present_concept(state: GraphState) -> dict:
         if content_md:
             # Fast path: pipeline audio is already diagram-synced and depth-annotated.
             # Only run depth-adaptation LLM when pipeline audio is missing.
+            audio_enabled = state.get("audio_enabled", True)
             if audio_path:
                 transcript = content_md
             else:
@@ -234,19 +235,22 @@ def present_concept(state: GraphState) -> dict:
                     system="You are a patient tutor adapting content for a specific learner.",
                 )
                 transcript = adapted if isinstance(adapted, str) else content_md
-                # Generate audio synced to diagram
-                try:
-                    from backend.content.audio_generator import generate_audio
-                    diagram_caption = (enriched.get("diagrams", [{}])[0].get("caption", "")
-                                       if enriched.get("diagrams") else "")
-                    audio_path = generate_audio(
-                        transcript,
-                        f"{concept}_tutor",
-                        diagram_caption=diagram_caption,
-                        diagram_mermaid=mermaid_code,
-                        topic_title=concept,
-                    )
-                except Exception:
+                # Generate audio synced to diagram only if audio is enabled
+                if audio_enabled:
+                    try:
+                        from backend.content.audio_generator import generate_audio
+                        diagram_caption = (enriched.get("diagrams", [{}])[0].get("caption", "")
+                                           if enriched.get("diagrams") else "")
+                        audio_path = generate_audio(
+                            transcript,
+                            f"{concept}_tutor",
+                            diagram_caption=diagram_caption,
+                            diagram_mermaid=mermaid_code,
+                            topic_title=concept,
+                        )
+                    except Exception:
+                        audio_path = ""
+                else:
                     audio_path = ""
 
             # Estimate audio duration from file size so slide timer can sync to it
@@ -294,17 +298,19 @@ def present_concept(state: GraphState) -> dict:
 
     transcript = result.get("transcript", "")
 
-    # Generate diagram-aware audio for the fallback slide
+    # Generate diagram-aware audio for the fallback slide (skip if disabled)
     fallback_audio = ""
-    try:
-        from backend.content.audio_generator import generate_audio
-        fallback_audio = generate_audio(
-            transcript,
-            f"{concept}_tutor_fallback",
-            diagram_mermaid=mermaid_code,
-        )
-    except Exception:
-        fallback_audio = ""
+    if state.get("audio_enabled", True):
+        try:
+            from backend.content.audio_generator import generate_audio
+            fallback_audio = generate_audio(
+                transcript,
+                f"{concept}_tutor_fallback",
+                diagram_mermaid=mermaid_code,
+                topic_title=concept,
+            )
+        except Exception:
+            fallback_audio = ""
 
     audio_duration_s = _estimate_audio_duration(fallback_audio)
 

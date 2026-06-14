@@ -81,6 +81,7 @@ def _start_pipeline(tmp_path: str, user_id: str, username: str, db_path: str) ->
     provider = st.session_state.get("llm_provider", "anthropic")
     model = st.session_state.get("llm_model", "claude-sonnet-4-6")
     tracing_enabled = st.session_state.get("tracing_enabled", True)
+    audio_enabled = st.session_state.get("audio_enabled", True)
 
     abort_event = threading.Event()
     module_id = str(uuid.uuid4())
@@ -105,6 +106,7 @@ def _start_pipeline(tmp_path: str, user_id: str, username: str, db_path: str) ->
         "username": username,
         "db_path": db_path,
         "tracing_enabled": tracing_enabled,
+        "audio_enabled": audio_enabled,
     }
 
     st.session_state["pipeline_progress"] = progress
@@ -162,11 +164,14 @@ def _run_pipeline_bg(
 
         # Generate diagnostic audio immediately — pure TTS, no LLM needed.
         # Plays as soon as the student lands on the diagnostic page (~3s from here).
-        try:
-            from backend.content.audio_generator import generate_diagnostic_audio
-            first_title = doc.sections[0].title if doc.sections else doc.title
-            progress["diagnostic_audio_path"] = generate_diagnostic_audio(first_title)
-        except Exception:
+        if progress.get("audio_enabled", True):
+            try:
+                from backend.content.audio_generator import generate_diagnostic_audio
+                first_title = doc.sections[0].title if doc.sections else doc.title
+                progress["diagnostic_audio_path"] = generate_diagnostic_audio(first_title)
+            except Exception:
+                progress["diagnostic_audio_path"] = ""
+        else:
             progress["diagnostic_audio_path"] = ""
 
         # Prefetch diagnostic questions for slide 1 in background — ready by redirect.

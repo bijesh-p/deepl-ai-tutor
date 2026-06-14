@@ -122,7 +122,10 @@ def run_sliding_pipeline(
             topic = _make_topic(assessment, accumulated, idx)
             source_text = " ".join(w for w, _ in accumulated)
 
-            enriched = _enrich_one(topic, source_text, llm, tracer, abort_event)
+            enriched = _enrich_one(
+                topic, source_text, llm, tracer, abort_event,
+                audio_enabled=progress.get("audio_enabled", True),
+            )
             if enriched is not None:
                 published.append(enriched)
                 progress["enriched_topics"] = list(published)
@@ -152,7 +155,10 @@ def run_sliding_pipeline(
                 }
             topic = _make_topic(assessment, accumulated, idx)
             source_text = " ".join(w for w, _ in accumulated)
-            enriched = _enrich_one(topic, source_text, llm, tracer, abort_event)
+            enriched = _enrich_one(
+                topic, source_text, llm, tracer, abort_event,
+                audio_enabled=progress.get("audio_enabled", True),
+            )
             if enriched is not None:
                 published.append(enriched)
                 progress["enriched_topics"] = list(published)
@@ -219,6 +225,7 @@ def _enrich_one(
     llm,
     tracer,
     abort_event: threading.Event,
+    audio_enabled: bool = True,
 ) -> EnrichedTopic | None:
     """Enrich a single topic using a diagram-first approach.
 
@@ -287,10 +294,14 @@ def _enrich_one(
         except Exception:
             return ""
 
-    with ThreadPoolExecutor(max_workers=2) as ex:
-        fut_qs = ex.submit(_gen_questions)
-        fut_audio = ex.submit(_gen_audio)
-        enriched.inline_questions = fut_qs.result()
-        enriched.audio_path = fut_audio.result()
+    if audio_enabled:
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            fut_qs = ex.submit(_gen_questions)
+            fut_audio = ex.submit(_gen_audio)
+            enriched.inline_questions = fut_qs.result()
+            enriched.audio_path = fut_audio.result()
+    else:
+        enriched.inline_questions = _gen_questions()
+        enriched.audio_path = ""
 
     return enriched

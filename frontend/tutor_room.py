@@ -368,6 +368,7 @@ def _init_tutor_state(module) -> None:
         "topic_audio_path": "",
         "topic_top_concepts": [],
         "enriched_topic": None,
+        "audio_enabled": st.session_state.get("audio_enabled", True),
     }
     st.session_state["tutor_content_map"] = content_map
     st.session_state["tutor_summary_map"] = summary_map
