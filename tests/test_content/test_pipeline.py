@@ -1,8 +1,15 @@
+"""Tests for the sliding_pipeline enrichment path.
+
+run_sliding_pipeline is the production pipeline; this test exercises
+_enrich_one (enrich + diagrams + questions) via the same mock LLM
+used in the old pipeline tests.
+"""
+import threading
 import uuid
 import pytest
 from backend.ingestion.models import Document, Section, SourceType
-from backend.content.pipeline import run_pipeline
-from backend.content.models import LearningModule
+from backend.content.sliding_pipeline import _enrich_one, _make_topic, _assess
+from backend.content.models import LearningModule, Topic
 
 
 class MockLLMClient:
@@ -12,23 +19,12 @@ class MockLLMClient:
     def generate(self, prompt, system=None, tool_schema=None, cached_blocks=None):
         name = tool_schema["name"] if tool_schema else ""
 
-        if name == "return_topics":
+        if name == "assess_chunk":
             return {
-                "topics": [
-                    {
-                        "title": "ML Basics",
-                        "summary": "Introduction to machine learning concepts.",
-                        "source_section_titles": ["Introduction to Machine Learning"],
-                    },
-                    {
-                        "title": "Learning Paradigms",
-                        "summary": "Supervised vs unsupervised learning.",
-                        "source_section_titles": [
-                            "Supervised Learning",
-                            "Unsupervised Learning",
-                        ],
-                    },
-                ]
+                "is_presentable": True,
+                "concept_title": "ML Basics",
+                "concept_summary": "Introduction to machine learning concepts.",
+                "reason": "Contains enough material.",
             }
 
         if name == "return_enriched_topic":
@@ -67,54 +63,72 @@ class MockLLMClient:
         return ""
 
 
-def _make_doc():
-    return Document(
-        doc_id=str(uuid.uuid4()),
-        title="Sample ML Document",
-        source_filename="sample.pdf",
-        source_type=SourceType.PDF,
-        total_pages=3,
-        sections=[
-            Section(str(uuid.uuid4()), "Introduction to Machine Learning", "ML basics.", 1),
-            Section(str(uuid.uuid4()), "Supervised Learning", "Labelled data.", 1),
-            Section(str(uuid.uuid4()), "Unsupervised Learning", "No labels.", 1),
-        ],
+class _NoopSpan:
+    def __enter__(self): return self
+    def __exit__(self, *_): pass
+
+
+class _NoopTracer:
+    def start_as_current_span(self, name, **kw): return _NoopSpan()
+
+
+def _make_topic_fixture():
+    return Topic(
+        topic_id=str(uuid.uuid4()),
+        title="ML Basics",
+        summary="Introduction to machine learning concepts.",
+        source_section_ids=[str(uuid.uuid4())],
+        order=0,
     )
 
 
-def test_pipeline_returns_module():
-    module = run_pipeline(_make_doc(), MockLLMClient())
-    assert isinstance(module, LearningModule)
+def _enrich(topic=None):
+    t = topic or _make_topic_fixture()
+    return _enrich_one(
+        t,
+        "Machine learning is a subset of AI. It learns from data.",
+        MockLLMClient(),
+        _NoopTracer(),
+        threading.Event(),
+    )
 
 
-def test_module_has_topics():
-    module = run_pipeline(_make_doc(), MockLLMClient())
-    assert len(module.topics) == 2
+def test_enrich_returns_enriched_topic():
+    et = _enrich()
+    assert et is not None
+    assert et.content_md
 
 
-def test_each_topic_has_content_and_questions():
-    module = run_pipeline(_make_doc(), MockLLMClient())
-    for et in module.topics:
-        assert et.content_md
-        assert len(et.key_takeaways) >= 1
-        assert len(et.inline_questions) == 2
+def test_enrich_has_content_and_takeaways():
+    et = _enrich()
+    assert et.content_md
+    assert len(et.key_takeaways) >= 1
 
 
-def test_each_topic_has_diagram():
-    module = run_pipeline(_make_doc(), MockLLMClient())
-    for et in module.topics:
-        assert len(et.diagrams) == 1
-        assert et.diagrams[0].diagram_type == "mermaid"
+def test_enrich_has_questions():
+    et = _enrich()
+    assert len(et.inline_questions) == 2
+
+
+def test_enrich_has_diagram():
+    et = _enrich()
+    assert len(et.diagrams) == 1
+    assert et.diagrams[0].diagram_type == "mermaid"
 
 
 def test_module_json_roundtrip():
-    module = run_pipeline(_make_doc(), MockLLMClient())
+    et = _enrich()
+    module = LearningModule(
+        module_id=str(uuid.uuid4()),
+        title="Test Module",
+        source_doc_id=str(uuid.uuid4()),
+        topics=[et],
+        created_at="2026-01-01T00:00:00+00:00",
+    )
     restored = LearningModule.from_json(module.to_json())
     assert restored.module_id == module.module_id
-    assert restored.title == module.title
-    assert len(restored.topics) == len(module.topics)
-    for orig, rest in zip(module.topics, restored.topics):
-        assert rest.topic.title == orig.topic.title
-        assert rest.content_md == orig.content_md
-        assert len(rest.diagrams) == len(orig.diagrams)
-        assert len(rest.inline_questions) == len(orig.inline_questions)
+    assert len(restored.topics) == 1
+    assert restored.topics[0].topic.title == et.topic.title
+    assert restored.topics[0].content_md == et.content_md
+    assert len(restored.topics[0].diagrams) == len(et.diagrams)
+    assert len(restored.topics[0].inline_questions) == len(et.inline_questions)
