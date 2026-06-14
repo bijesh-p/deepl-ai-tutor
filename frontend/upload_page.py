@@ -60,6 +60,7 @@ def render_upload_page() -> None:
 def _start_pipeline(tmp_path: str, user_id: str, username: str) -> None:
     provider = st.session_state.get("llm_provider", "anthropic")
     model = st.session_state.get("llm_model", "claude-sonnet-4-6")
+    tracing_enabled = st.session_state.get("tracing_enabled", True)
 
     abort_event = threading.Event()
     module_id = str(uuid.uuid4())
@@ -82,6 +83,7 @@ def _start_pipeline(tmp_path: str, user_id: str, username: str) -> None:
         "bank": None,
         "user_id": user_id,
         "username": username,
+        "tracing_enabled": tracing_enabled,
     }
 
     st.session_state["pipeline_progress"] = progress
@@ -115,7 +117,7 @@ def _run_pipeline_bg(
         from backend.ingestion.pdf_parser import parse_pdf
         from backend.observability.tracer import get_tracer
         from backend.quiz.question_bank import generate_question_bank
-        tracer = get_tracer()
+        tracer = get_tracer() if progress.get("tracing_enabled", True) else _noop_tracer()
 
         # Parse PDF
         progress["state"] = "parsing"
@@ -349,3 +351,18 @@ def _cleanup_pipeline_state() -> None:
 
 def _bank_to_dict(bank) -> dict:
     return {"module_id": bank.module_id, "questions": [asdict(q) for q in bank.questions]}
+
+
+class _NoopSpan:
+    """Context manager that does nothing — used when tracing is disabled."""
+    def __enter__(self): return self
+    def __exit__(self, *_): pass
+
+
+class _NoopTracer:
+    def start_as_current_span(self, name: str, **kwargs) -> _NoopSpan:
+        return _NoopSpan()
+
+
+def _noop_tracer() -> _NoopTracer:
+    return _NoopTracer()

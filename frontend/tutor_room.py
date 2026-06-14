@@ -391,23 +391,28 @@ def _end_session(state: dict | None = None) -> None:
 
 
 def _trigger_evals(state: dict) -> None:
-    """Start DeepEval quality checks in a background thread."""
+    """Start DeepEval quality checks in a background thread — only if enabled in sidebar."""
+    if not st.session_state.get("evals_enabled", False):
+        return
     try:
         from backend.observability.eval_runner import run_session_evals_async
+
+        # Capture provider/model now (session_state not safe to read from daemon thread)
+        provider = st.session_state.get("llm_provider")
+        model = st.session_state.get("llm_model")
 
         # Collect source text from pipeline progress for faithfulness checks
         progress = st.session_state.get("pipeline_progress", {})
         enriched_list = progress.get("enriched_topics", [])
-        source_chunks = []
-        for et in enriched_list:
-            source_chunks.append(et.content_md)
-        source_text = "\n\n".join(source_chunks)
+        source_text = "\n\n".join(et.content_md for et in enriched_list)
 
         run_session_evals_async(
             chat_history=state.get("chat_history", []),
             source_text=source_text,
             user_id=state.get("user_id", ""),
             module_id=state.get("module_id", ""),
+            provider=provider,
+            model=model,
         )
     except Exception:
         pass  # evals are best-effort — never crash the UI

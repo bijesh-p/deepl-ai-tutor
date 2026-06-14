@@ -1,7 +1,11 @@
 """DeepEval quality metrics for tutor sessions.
 
-run_session_evals() is called from tutor_room._end_session() in a background
-thread — it must not block the UI. Results are stored in SQLite and logged.
+run_session_evals_async() is called from tutor_room._end_session() as a
+fire-and-forget background thread — must not block the UI.
+Results are stored in SQLite and visible in the Arize Phoenix UI.
+
+The judge LLM is the same provider/model chosen in the sidebar, pulled
+through LLMFactory — no separate API key or configuration needed.
 """
 from __future__ import annotations
 
@@ -26,11 +30,13 @@ def run_session_evals_async(
     source_text: str,
     user_id: str,
     module_id: str,
+    provider: str | None = None,
+    model: str | None = None,
 ) -> None:
-    """Kick off DeepEval evals in a background thread (fire-and-forget)."""
+    """Kick off DeepEval evals in a background daemon thread."""
     t = threading.Thread(
         target=_run,
-        args=(chat_history, source_text, user_id, module_id),
+        args=(chat_history, source_text, user_id, module_id, provider, model),
         daemon=True,
         name="eval-worker",
     )
@@ -46,11 +52,12 @@ def _run(
     source_text: str,
     user_id: str,
     module_id: str,
+    provider: str | None,
+    model: str | None,
 ) -> None:
     try:
         from deepeval import evaluate
         from deepeval.metrics import AnswerRelevancyMetric, FaithfulnessMetric, GEval
-        from deepeval.models.base_model import DeepEvalBaseLLM
         from deepeval.test_case import LLMTestCase, LLMTestCaseParams
     except ImportError:
         _log.warning("deepeval not installed — skipping evals")
@@ -61,7 +68,7 @@ def _run(
         _log.info("No eval test cases built from session history")
         return
 
-    judge = _AnthropicJudge()
+    judge = LLMFactoryJudge(provider=provider, model=model)
 
     metrics = [
         AnswerRelevancyMetric(threshold=0.5, model=judge, async_mode=False),
@@ -79,15 +86,24 @@ def _run(
     ]
 
     try:
-        results = evaluate(test_cases=test_cases, metrics=metrics, run_async=False, print_results=False)
+        results = evaluate(
+            test_cases=test_cases,
+            metrics=metrics,
+            run_async=False,
+            print_results=False,
+        )
         _persist_results(results, user_id, module_id)
-        _log.info("Eval complete — %d test cases evaluated", len(test_cases))
+        _log.info("Eval complete — %d test cases, judge=%s", len(test_cases), judge.get_model_name())
     except Exception as exc:
         _log.warning("DeepEval evaluate() failed: %s", exc)
 
 
+# ---------------------------------------------------------------------------
+# Build test cases from chat history
+# ---------------------------------------------------------------------------
+
 def _build_test_cases(chat_history: list[dict], source_text: str) -> list[Any]:
-    """Extract slide + Q&A turns from chat history into DeepEval test cases."""
+    """Extract slide + Q&A turns from chat history into DeepEval LLMTestCase objects."""
     try:
         from deepeval.test_case import LLMTestCase
     except ImportError:
@@ -101,7 +117,6 @@ def _build_test_cases(chat_history: list[dict], source_text: str) -> list[Any]:
 
         if role == "slide":
             current_slide = msg
-            # Eval: does the transcript explain the concept (topic as input)?
             cases.append(
                 LLMTestCase(
                     input=f"Explain the concept: {msg.get('concept', '')}",
@@ -111,43 +126,64 @@ def _build_test_cases(chat_history: list[dict], source_text: str) -> list[Any]:
             )
 
         elif role == "tutor" and current_slide:
-            question_text = msg.get("content", "")
-            if question_text and not question_text.startswith("Hint:") and not question_text.startswith("Let me break"):
-                # Eval: is the tutor question relevant to the slide concept?
+            content = msg.get("content", "")
+            # Skip hints and simplifications — only eval substantive tutor turns
+            if content and not content.startswith("Hint:") and not content.startswith("Let me break"):
                 cases.append(
                     LLMTestCase(
                         input=f"Ask a question about: {current_slide.get('concept', '')}",
-                        actual_output=question_text,
+                        actual_output=content,
                         retrieval_context=[current_slide.get("transcript", "")],
                     )
                 )
 
-    return cases[:10]  # cap at 10 to limit judge LLM cost
+    return cases[:10]  # cap to limit judge LLM cost
 
 
 # ---------------------------------------------------------------------------
-# Anthropic judge adapter for DeepEval
+# LLMFactory judge — proper DeepEvalBaseLLM subclass
 # ---------------------------------------------------------------------------
 
-class _AnthropicJudge:
-    """Minimal DeepEval LLM interface backed by our Anthropic LLMFactory."""
+class LLMFactoryJudge:
+    """DeepEval judge that delegates to the project's LLMFactory.
 
-    def generate(self, prompt: str) -> str:
+    Uses whichever provider/model is active in the app (Anthropic, Portkey,
+    or Ollama) — no separate eval API key needed. The provider and model are
+    captured at construction time from the caller (tutor_room passes them
+    from session_state before the background thread starts).
+    """
+
+    def __init__(self, provider: str | None = None, model: str | None = None) -> None:
+        self._provider = provider or os.environ.get("AI_TUTOR_LLM_PROVIDER", "anthropic")
+        self._model = model  # None → factory picks from env / defaults
+
+    def load_model(self) -> "LLMFactoryJudge":
+        return self
+
+    def generate(self, prompt: str, *args, **kwargs) -> str:
         try:
             from backend.core.llm_client import LLMFactory
-            llm = LLMFactory.create()
+            kwargs_for_factory = {}
+            if self._model:
+                kwargs_for_factory["model"] = self._model
+            llm = LLMFactory.create(provider=self._provider, **kwargs_for_factory)
             result = llm.generate(prompt=prompt)
             return result if isinstance(result, str) else str(result)
         except Exception as exc:
             _log.warning("Judge LLM call failed: %s", exc)
             return ""
 
-    def get_model_name(self) -> str:
-        return "anthropic-claude-judge"
-
-    # DeepEval calls a_generate for async; fall back to sync
-    async def a_generate(self, prompt: str) -> str:
+    async def a_generate(self, prompt: str, *args, **kwargs) -> str:
         return self.generate(prompt)
+
+    def get_model_name(self) -> str:
+        model_part = self._model or "default"
+        return f"{self._provider}/{model_part}"
+
+    # DeepEval checks for this attribute on the model object
+    @property
+    def name(self) -> str:
+        return self.get_model_name()
 
 
 # ---------------------------------------------------------------------------
@@ -155,22 +191,21 @@ class _AnthropicJudge:
 # ---------------------------------------------------------------------------
 
 def _persist_results(results: Any, user_id: str, module_id: str) -> None:
-    """Write eval metric scores to the eval_results table."""
+    """Write metric scores to the eval_results table."""
     try:
         from backend.analytics.db import get_db
         db = get_db()
         _ensure_eval_table(db)
 
         scores: list[dict] = []
-        # deepeval EvaluationResult has .test_results list
         for tr in getattr(results, "test_results", []) or []:
-            for metric_data in getattr(tr, "metrics_metadata", []) or []:
+            for md in getattr(tr, "metrics_metadata", []) or []:
                 scores.append({
-                    "metric": getattr(metric_data, "metric", "unknown"),
-                    "score": getattr(metric_data, "score", None),
-                    "threshold": getattr(metric_data, "threshold", None),
-                    "passed": getattr(metric_data, "success", None),
-                    "reason": getattr(metric_data, "reason", ""),
+                    "metric": getattr(md, "metric", "unknown"),
+                    "score": getattr(md, "score", None),
+                    "threshold": getattr(md, "threshold", None),
+                    "passed": getattr(md, "success", None),
+                    "reason": getattr(md, "reason", ""),
                 })
 
         db.execute(

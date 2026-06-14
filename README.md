@@ -1,35 +1,37 @@
 # AI Tutor
 
-A web application that transforms PDF documents into interactive, adaptive learning modules. Uses a direct LLM pipeline for content generation and a LangGraph state machine for real-time adaptive tutoring.
+A web application that transforms PDF documents into interactive, adaptive learning modules. Uses a direct LLM pipeline for content generation and a LangGraph state machine for personalised real-time adaptive tutoring.
 
 ## Features
 
 - **PDF Ingestion** — Upload a PDF and extract structured content with heading-aware section splitting.
-- **Multi-LLM Support** — Switch between Anthropic Claude, Portkey, or Ollama via environment config.
-- **Just-in-Time Content** — Upload a PDF and start learning within ~30 seconds. Topics are delivered as they're enriched; remaining content generates in the background.
-- **Adaptive Tutor** — LangGraph state machine (5 nodes, conditional routing) adjusts difficulty, provides targeted hints, and simplifies concepts for struggling students.
+- **Multi-LLM Support** — Switch between Anthropic Claude, Portkey, or Ollama via sidebar or `.env`.
+- **Just-in-Time Content** — Upload and start learning within ~30 seconds. Topics are delivered as they are enriched; the rest generates in the background.
+- **Personalised Adaptive Tutor** — LangGraph state machine (diagnostic quiz → depth-adapted slide → Q&A loop). Depth preference and topic mastery persist across sessions per username.
+- **Diagram-Aware Audio** — Each topic slide includes TTS narration (edge-tts) that first describes the diagram, then explains the concept.
 - **MCP Tool Servers** — Document parsing, assessment validation, and storage exposed as standalone MCP servers.
 - **ChromaDB Vector Store** — Semantic search over document chunks using `all-MiniLM-L6-v2` embeddings.
-- **Audio Narration** — Each topic includes a TTS audio player (edge-tts, Microsoft voices) so users can listen while reading.
-- **Mandatory Diagrams** — Every topic gets a Mermaid concept map or flowchart showing how ideas relate.
 - **Inline Questions** — Reinforcement questions embedded within each sub-topic for active learning.
-- **Quizzes** — End-of-module quizzes with selectable difficulty, randomized questions, and explanations.
+- **Quizzes** — End-of-module quizzes with selectable difficulty, randomised questions, and explanations.
 - **Performance Analytics** — Score tracking with cohort comparison (min/max/avg) across all participants.
+- **LLM Observability** — OTEL traces sent to local Arize Phoenix; DeepEval quality metrics run after each session using the active LLM as judge. Toggle both on/off in the sidebar.
 
 ## Tech Stack
 
 | Layer | Technology |
 |---|---|
 | Frontend | Streamlit (multi-page) |
-| Content Generation | Direct LLM pipeline (decompose → enrich → diagrams → quiz) |
-| Adaptive Tutor | LangGraph (5-node state machine) |
+| Content Generation | Direct LLM pipeline (decompose → enrich → diagrams → audio → quiz) |
+| Adaptive Tutor | LangGraph (diagnostic + 5-node state machine) |
 | LLM Providers | Anthropic SDK, Portkey, Ollama (OpenAI-compat) |
-| Tool Protocol | MCP (Model Context Protocol) |
+| Tool Protocol | MCP (Model Context Protocol) — 3 standalone servers |
 | Vector Store | ChromaDB + sentence-transformers (`all-MiniLM-L6-v2`) |
 | Database | SQLite |
 | Document Parsing | PyMuPDF |
 | Audio TTS | edge-tts (Microsoft Edge voices) |
 | Diagrams | Mermaid (via `streamlit-mermaid`) |
+| Tracing | Arize Phoenix (local OTLP) + openinference auto-instrumentation |
+| Eval Metrics | DeepEval (faithfulness, relevancy, clarity) |
 | Package Manager | [uv](https://docs.astral.sh/uv/) |
 | Python | 3.14+ |
 
@@ -57,7 +59,7 @@ The app supports three LLM backends. Set `AI_TUTOR_LLM_PROVIDER` in `.env` to sw
 
 ### Option A: Portkey → Vertex AI Claude (recommended for this project)
 
-Portkey acts as a gateway that routes requests to Google Vertex AI (which hosts Claude). This is the setup used in `api_check.py`. The Anthropic SDK talks to Portkey's endpoint, which forwards to Vertex AI — no direct Anthropic API key needed.
+Portkey acts as a gateway that routes requests to Google Vertex AI (which hosts Claude). The Anthropic SDK talks to Portkey's endpoint, which forwards to Vertex AI — no direct Anthropic API key needed.
 
 ```bash
 # .env
@@ -65,8 +67,6 @@ AI_TUTOR_LLM_PROVIDER=portkey
 AI_TUTOR_LLM_MODEL=@vertexai-global/anthropic.claude-sonnet-4-6
 PORTKEY_API_KEY=your-portkey-api-key       # from https://app.portkey.ai/
 ```
-
-**How it works:** The adapter creates an Anthropic SDK client with `base_url=https://api.portkey.ai` and passes `PORTKEY_API_KEY` as a header. Portkey routes the request to whichever backend you configured in the Portkey dashboard (Vertex AI, direct Anthropic, Azure, etc.).
 
 **Steps:**
 1. Sign up at [app.portkey.ai](https://app.portkey.ai/)
@@ -81,8 +81,6 @@ PYTHONPATH=. uv run python api_check.py
 
 ### Option B: Anthropic (direct API)
 
-Use Anthropic's API directly with your own API key.
-
 ```bash
 # .env
 AI_TUTOR_LLM_PROVIDER=anthropic
@@ -92,16 +90,14 @@ AI_TUTOR_LLM_MODEL=claude-sonnet-4-6
 
 ### Option C: Ollama (local, free)
 
-Run models locally. No API key needed, but requires [Ollama](https://ollama.com/) installed.
-
 ```bash
 # 1. Install Ollama
 curl -fsSL https://ollama.com/install.sh | sh
 
-# 2. Pull a model (llama3.2 supports tool use; llama3 does NOT)
+# 2. Pull a model that supports tool use
 ollama pull llama3.2
 
-# 3. Start the server (if not already running)
+# 3. Start the server
 ollama serve
 
 # 4. Configure .env
@@ -110,7 +106,42 @@ AI_TUTOR_LLM_MODEL=llama3.2
 AI_TUTOR_OLLAMA_BASE_URL=http://localhost:11434/v1
 ```
 
-**Important:** Use a model that supports **tool use / function calling** (e.g., `llama3.2`, `qwen2.5`). Models without tool support (e.g., `llama3`) will fail on structured output calls used by the content pipeline.
+**Important:** Use a model that supports **tool use / function calling** (e.g., `llama3.2`, `qwen2.5`). Models without tool support will fail on structured output calls.
+
+## LLM Observability and Tracing
+
+AI Tutor instruments every LLM call with OpenTelemetry and sends traces to a local **Arize Phoenix** server — no account or internet access required.
+
+### Seeing traces in Phoenix
+
+```bash
+# Terminal 1 — start Phoenix (keeps running while you use the app)
+PYTHONPATH=. uv run phoenix serve
+
+# Terminal 2 — start the AI Tutor app
+PYTHONPATH=. uv run streamlit run app.py
+```
+
+Open **http://localhost:6006** to see the Phoenix trace UI. Every Anthropic SDK call, LangGraph node execution, and pipeline step (enrich / diagram / audio) appears as a named span.
+
+### Enabling tracing and evals in the app
+
+The sidebar has two toggles under **Observability**:
+
+- **Tracing (Phoenix)** — on by default. Routes OTEL spans to Phoenix at `:6006`. Turn off if Phoenix is not running.
+- **Evals (DeepEval)** — off by default (adds LLM calls after each session). Enable to run `AnswerRelevancy`, `Faithfulness`, and `ExplanationClarity` metrics. The **active provider/model** (e.g. Portkey → Claude) is used as the eval judge — no separate API key needed.
+
+### Optional: LangSmith (cloud, secondary)
+
+Add to `.env` to also send LangGraph traces to LangSmith:
+
+```bash
+LANGCHAIN_TRACING_V2=true
+LANGCHAIN_API_KEY=ls-...          # from https://smith.langchain.com/
+LANGCHAIN_PROJECT=ai-tutor
+```
+
+No new package is required — LangGraph picks this up automatically.
 
 ## Environment Variables
 
@@ -123,21 +154,26 @@ AI_TUTOR_OLLAMA_BASE_URL=http://localhost:11434/v1
 | `AI_TUTOR_OLLAMA_BASE_URL` | `ollama` | Ollama endpoint | `http://localhost:11434/v1` |
 | `AI_TUTOR_DB_PATH` | — | SQLite database path | `data/ai_tutor.db` |
 | `AI_TUTOR_CHROMA_DIR` | — | ChromaDB storage directory | `data/chroma` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | — | Phoenix OTLP endpoint | `http://localhost:6006/v1/traces` |
+| `LANGCHAIN_TRACING_V2` | — | Enable LangSmith tracing | — |
+| `LANGCHAIN_API_KEY` | LangSmith | LangSmith API key | — |
+| `LANGCHAIN_PROJECT` | LangSmith | LangSmith project name | `default` |
 
 ## Project Structure
 
 ```
 course_project/
-├── app.py                          # Streamlit entry point
+├── app.py                          # Streamlit entry point + sidebar
 ├── backend/
 │   ├── core/
 │   │   ├── llm_client/             # LLM factory + adapters (Anthropic, Portkey, Ollama)
 │   │   └── mcp_client.py           # MCP tool dispatcher
-│   ├── interactive_tutor/          # LangGraph state machine (5 nodes)
+│   ├── interactive_tutor/          # LangGraph state machine
 │   ├── ingestion/                  # PDF parsing → Document model
-│   ├── content/                    # Models + classic LLM pipeline
+│   ├── content/                    # Enricher, diagram generator, audio, questions
 │   ├── quiz/                       # Question bank, assembly, scoring
-│   └── analytics/                  # SQLite persistence & cohort stats
+│   ├── analytics/                  # SQLite persistence & cohort stats
+│   └── observability/              # OTEL tracing setup + DeepEval runner
 ├── mcp_servers/
 │   ├── document_server/            # extract_text_from_pdf, parse_images
 │   ├── assessment_server/          # evaluate_taxonomy, validate_json_schema
@@ -148,9 +184,8 @@ course_project/
 │   ├── module_viewer.py            # Topic viewer + inline questions
 │   ├── quiz_page.py                # Quiz with difficulty selector
 │   ├── results_page.py             # Score + cohort analytics
-│   ├── tutor_room.py               # Adaptive tutor chat UI
-│   └── demo_mode.py                # Demo without LLM
-├── tests/                          # 42 unit tests
+│   └── tutor_room.py               # Adaptive tutor UI (LangGraph-driven)
+├── tests/                          # Unit tests
 ├── SPEC.md                         # System specification
 ├── ARCHITECTURE.md                 # Architecture diagrams (Mermaid)
 └── references.md                   # Technology references
@@ -161,8 +196,6 @@ course_project/
 ```bash
 PYTHONPATH=. uv run pytest -v
 ```
-
-Expected: **42 passed**.
 
 ## Architecture
 

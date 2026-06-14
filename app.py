@@ -55,6 +55,27 @@ def _render_sidebar() -> None:
 
         st.markdown("---")
 
+        st.markdown("### Observability")
+        tracing_on = st.toggle(
+            "Tracing (Phoenix)",
+            value=st.session_state.get("tracing_enabled", True),
+            help="Send OTEL spans to local Arize Phoenix at http://localhost:6006",
+            key="_tracing_toggle",
+        )
+        evals_on = st.toggle(
+            "Evals (DeepEval)",
+            value=st.session_state.get("evals_enabled", False),
+            help="Run quality metrics after each session using the active LLM as judge",
+            key="_evals_toggle",
+        )
+        st.session_state["tracing_enabled"] = tracing_on
+        st.session_state["evals_enabled"] = evals_on
+
+        if tracing_on:
+            st.caption("Traces → [localhost:6006](http://localhost:6006)")
+
+        st.markdown("---")
+
         if st.button("New Module"):
             st.session_state["page"] = "upload"
             st.rerun()

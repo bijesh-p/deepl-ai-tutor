@@ -1,6 +1,6 @@
 # AI Tutor — Architecture
 
-> **Version:** 1.0 | **Updated:** 2026-06-14
+> **Version:** 1.1 | **Updated:** 2026-06-14
 > Companion to [SPEC.md](SPEC.md).
 
 ---
@@ -210,9 +210,62 @@ All LLM calls go through a single factory. Callers use Anthropic-format tool sch
 | `PortkeyAdapter` | Portkey → Vertex AI | Same caching; routes via Portkey gateway |
 | `OllamaAdapter` | Ollama (local) | Translates tool schema to OpenAI function format |
 
+The same factory is used by the **DeepEval judge** — eval metrics use whichever provider is selected in the sidebar, with no separate API key.
+
 ---
 
-## 7. Database Schema
+## 7. MCP Tool Servers
+
+Three standalone MCP servers expose storage, document parsing, and assessment tools. All backend code accesses these capabilities exclusively through `MCPClient` — no direct imports of `chromadb`, `fitz`, or SQLite outside the servers.
+
+```mermaid
+---
+title: MCP Tool Servers
+---
+flowchart LR
+    subgraph Callers
+        PIPE[Pipeline Steps]
+        TUTOR[LangGraph Nodes]
+    end
+
+    MC[MCPClient]
+
+    subgraph document_server
+        T1[extract_text_from_pdf]
+        T2[parse_images]
+    end
+
+    subgraph assessment_server
+        T3[validate_json_schema]
+        T4[evaluate_taxonomy]
+    end
+
+    subgraph storage_server
+        T5[save_module_to_db]
+        T6[upsert_to_vector_db]
+        T7[query_vector_db]
+    end
+
+    PIPE & TUTOR --> MC
+    MC --> document_server & assessment_server & storage_server
+    document_server --> PyMuPDF[PyMuPDF]
+    storage_server --> SQLite[(SQLite)]
+    storage_server --> ChromaDB[(ChromaDB)]
+```
+
+**Server responsibilities:**
+
+| Server | Tools | Dependency |
+|---|---|---|
+| `document_server` | `extract_text_from_pdf`, `parse_images` | PyMuPDF |
+| `assessment_server` | `validate_json_schema`, `evaluate_taxonomy` | Pure Python |
+| `storage_server` | `save_module_to_db`, `upsert_to_vector_db`, `query_vector_db` | SQLite, ChromaDB, sentence-transformers |
+
+MCP servers run as child processes started by `MCPClient`. They communicate over stdio using the MCP protocol. This means the storage layer can be replaced or scaled independently without touching pipeline or tutor code.
+
+---
+
+## 8. Database Schema
 
 ```mermaid
 ---
@@ -235,7 +288,7 @@ erDiagram
 
 ---
 
-## 8. Page Navigation
+## 9. Page Navigation
 
 ```mermaid
 ---
@@ -254,7 +307,7 @@ flowchart LR
 
 ---
 
-## 9. LLM Observability and Evaluation
+## 10. LLM Observability and Evaluation
 
 Every LLM call in the system is traced via OpenTelemetry. Traces are sent to a local **Arize Phoenix** server (no account required). After each tutoring session, **DeepEval** runs automated quality metrics. **LangSmith** receives LangGraph traces as a secondary destination via env vars.
 
