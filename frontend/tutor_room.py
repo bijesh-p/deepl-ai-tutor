@@ -1,6 +1,7 @@
 """Streamlit page for the LangGraph adaptive tutor with diagnostic quiz and slide presentation."""
 from __future__ import annotations
 
+import time
 from dataclasses import asdict
 
 import streamlit as st
@@ -46,6 +47,14 @@ def render_tutor_room() -> None:
         st.metric("Progress", f"{len(mastered)}/{total}")
         depth = state.get("presentation_depth", "—")
         st.caption(f"Level: **{depth}**")
+        # Wait time tracking
+        wait_total = st.session_state.get("total_wait_seconds", 0)
+        if phase == "waiting":
+            current_wait = int(time.monotonic() - st.session_state.get("waiting_since", time.monotonic()))
+        else:
+            current_wait = 0
+        if wait_total + current_wait > 0:
+            st.caption(f"Wait: {wait_total + current_wait}s")
         if st.button("End Session"):
             _end_session(state)
             st.rerun()
@@ -99,16 +108,45 @@ def render_tutor_room() -> None:
                     st.rerun()
 
         elif phase == "waiting":
+            # Start tracking how long the student has been waiting
+            if "waiting_since" not in st.session_state:
+                st.session_state["waiting_since"] = time.monotonic()
+
             remaining = state.get("remaining_concepts", [])
             next_concept = remaining[0] if remaining else ""
             content_map = st.session_state.get("tutor_content_map", {})
             _inject_enriched_topic()
-            if next_concept and next_concept in content_map:
+
+            # Check if next topic is now enriched (non-stub)
+            progress_info = st.session_state.get("pipeline_progress", {})
+            enriched_list = progress_info.get("enriched_topics", [])
+            next_enriched = next(
+                (e for e in enriched_list if e.topic.title == next_concept and e.content_md),
+                None,
+            )
+
+            if next_enriched:
                 _advance_to_next(state, graph, content_map)
+                st.session_state.pop("waiting_since", None)
                 st.rerun()
             else:
-                st.info(f"Waiting for **{next_concept}** to finish generating...")
+                wait_elapsed = int(time.monotonic() - st.session_state["waiting_since"])
+                topics_done = progress_info.get("topics_enriched", 0)
+                topics_total = progress_info.get("total_topics", 0)
+
+                st.info(f"Preparing **{next_concept}**... ({wait_elapsed}s)")
+                if topics_total > 0:
+                    st.progress(
+                        topics_done / topics_total,
+                        text=f"Background enrichment: {topics_done}/{topics_total} topics ready",
+                    )
+
                 _render_chat_history(state.get("chat_history", []))
+
+                # After 10s of waiting, show a bridge review activity
+                if wait_elapsed >= 10:
+                    _render_bridge_activity(state)
+
                 if st.button("Check again"):
                     _refresh_content_map(module)
                     st.rerun()
@@ -265,7 +303,12 @@ def _init_tutor_state(module) -> None:
 
 
 def _inject_enriched_topic() -> None:
-    """Copy the matching EnrichedTopic from pipeline progress into tutor state."""
+    """Copy the matching EnrichedTopic from pipeline progress into tutor state.
+
+    Skips stub topics (content_md == "") — stubs are placeholders created
+    immediately after decompose so the tutor room can start without waiting
+    for full enrichment.
+    """
     state = st.session_state.get("tutor_state")
     if not state:
         return
@@ -273,14 +316,21 @@ def _inject_enriched_topic() -> None:
     enriched_list = progress.get("enriched_topics", [])
     current = state.get("current_concept", "")
     for et in enriched_list:
-        if et.topic.title == current:
+        if et.topic.title == current and et.content_md:  # skip stubs
             state["enriched_topic"] = asdict(et)
-            # Also update content + summary from enriched
             state["concept_content"] = et.content_md
             return
 
 
 def _advance_to_next(state: dict, graph, content_map: dict) -> None:
+    # Accumulate wait time before clearing the timer
+    if "waiting_since" in st.session_state:
+        waited = int(time.monotonic() - st.session_state["waiting_since"])
+        st.session_state["total_wait_seconds"] = (
+            st.session_state.get("total_wait_seconds", 0) + waited
+        )
+        st.session_state.pop("waiting_since", None)
+
     _run_node(graph, state, "advance_concept")
     # Update content and summary for the new concept
     concept = state.get("current_concept", "")
@@ -292,6 +342,30 @@ def _advance_to_next(state: dict, graph, content_map: dict) -> None:
     state["enriched_topic"] = None
     _inject_enriched_topic()
     st.session_state["tutor_phase"] = "diagnostic"
+
+
+def _render_bridge_activity(state: dict) -> None:
+    """Show a review question from an already-enriched mastered topic while student waits."""
+    mastered = state.get("mastered_concepts", [])
+    progress = st.session_state.get("pipeline_progress", {})
+    enriched_list = progress.get("enriched_topics", [])
+
+    for et in enriched_list:
+        if et.topic.title in mastered and et.inline_questions:
+            q = et.inline_questions[0]
+            st.markdown("---")
+            st.markdown("**While you wait — review question from a topic you covered:**")
+            st.markdown(f"*{q.question_text}*")
+            for i, opt in enumerate(q.options):
+                st.markdown(f"{i + 1}. {opt}")
+            with st.expander("See answer"):
+                correct_idx = q.correct_answers[0] if q.correct_answers else 0
+                st.markdown(f"**{q.options[correct_idx]}**")
+                if q.explanation:
+                    st.markdown(q.explanation)
+            return
+
+    st.markdown("_Content is being prepared — it will appear shortly._")
 
 
 def _refresh_content_map(module) -> None:

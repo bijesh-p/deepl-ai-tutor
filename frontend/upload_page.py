@@ -140,9 +140,11 @@ def _run_pipeline_bg(
             progress["state"] = "aborted"
             return
 
+        # Decompose using a 500-word excerpt — produces topic titles+summaries fast
         progress["detail"] = "Identifying learning topics..."
+        fast_text = _truncate_doc_text(doc, max_words=500)
         cached_blocks = llm.make_cached_document_blocks(_format_sections(doc))
-        topics = decompose(doc, llm)
+        topics = decompose(doc, llm, source_text=fast_text)
         progress["topics"] = topics
         progress["total_topics"] = len(topics)
         progress["detail"] = f"{len(topics)} topic(s) identified"
@@ -151,10 +153,21 @@ def _run_pipeline_bg(
             progress["state"] = "aborted"
             return
 
-        # Enrich topics in parallel — up to 4 at once, publish as each completes
+        # Create stubs immediately and redirect student to tutor room.
+        # Stubs have content_md="" — tutor room detects this and uses the
+        # fallback LLM slide path until real enrichment arrives.
+        from backend.content.models import EnrichedTopic as _ET
+        stubs = [
+            _ET(topic=t, content_md="", key_takeaways=[], diagrams=[],
+                inline_questions=[], top_concepts=[], audio_path="")
+            for t in topics
+        ]
+        enriched_slots: list = list(stubs)
+        progress["enriched_topics"] = list(enriched_slots)
         progress["state"] = "enriching"
-        enriched_topics: list = [None] * len(topics)
+        progress["ready"] = True   # redirect fires NOW — enrichment continues behind
 
+        # Enrich topics in parallel using full document context
         with ThreadPoolExecutor(max_workers=min(4, len(topics))) as ex:
             future_to_idx = {
                 ex.submit(
@@ -169,23 +182,22 @@ def _run_pipeline_bg(
                 idx = future_to_idx[future]
                 result = future.result()
                 if result is not None:
-                    enriched_topics[idx] = result
-                    completed = [e for e in enriched_topics if e is not None]
-                    progress["enriched_topics"] = completed
-                    progress["topics_enriched"] = len(completed)
+                    enriched_slots[idx] = result
+                    progress["enriched_topics"] = list(enriched_slots)
+                    progress["topics_enriched"] = sum(
+                        1 for e in enriched_slots if e.content_md
+                    )
                     progress["current_topic"] = result.topic.title
                     progress["detail"] = (
-                        f"Enriched {len(completed)}/{len(topics)}: {result.topic.title}"
+                        f"Enriched {progress['topics_enriched']}/{len(topics)}: {result.topic.title}"
                     )
-                    if idx == 0:
-                        progress["ready"] = True
 
         if abort_event.is_set():
             progress["state"] = "aborted"
             return
 
-        # Drop any slots that failed (None) — preserve order of successes
-        enriched_topics = [e for e in enriched_topics if e is not None]
+        # Keep only fully enriched topics for the final module save
+        enriched_topics = [e for e in enriched_slots if e.content_md]
 
         if abort_event.is_set():
             progress["state"] = "aborted"
@@ -238,6 +250,21 @@ def _run_pipeline_bg(
     finally:
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
+
+
+def _truncate_doc_text(doc, max_words: int = 500) -> str:
+    """Return the first max_words words of doc content for fast decomposition."""
+    from backend.content.topic_decomposer import _format_sections
+    parts = [f"Document: {doc.title}\n"]
+    remaining = max_words
+    for s in doc.sections:
+        words = s.body.split()
+        taken = words[:remaining]
+        parts.append(f"## {s.title}\n{' '.join(taken)}")
+        remaining -= len(taken)
+        if remaining <= 0:
+            break
+    return "\n\n".join(parts)
 
 
 def _enrich_topic(topic, idx, doc, llm, cached_blocks, tracer, abort_event):

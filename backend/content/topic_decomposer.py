@@ -39,9 +39,13 @@ _SYSTEM = (
 )
 
 
-def decompose(doc: Document, llm: LLMClient) -> list[Topic]:
-    """Break a Document into an ordered list of learning Topics."""
-    section_text = _format_sections(doc)
+def decompose(doc: Document, llm: LLMClient, source_text: str | None = None) -> list[Topic]:
+    """Break a Document into an ordered list of learning Topics.
+
+    Pass source_text to use a truncated version of the document for faster
+    decomposition — the full text is still used for per-topic enrichment.
+    """
+    section_text = source_text if source_text is not None else _format_sections(doc)
     cached_blocks = llm.make_cached_document_blocks(section_text)
 
     prompt = (

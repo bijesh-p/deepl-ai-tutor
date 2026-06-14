@@ -70,7 +70,7 @@ _DIAGNOSTIC_SCHEMA = {
             "questions": {
                 "type": "array",
                 "minItems": 3,
-                "maxItems": 5,
+                "maxItems": 3,
                 "items": {
                     "type": "object",
                     "properties": {
