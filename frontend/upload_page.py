@@ -6,6 +6,7 @@ import tempfile
 import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict
 from datetime import datetime, timezone
 
@@ -108,10 +109,6 @@ def _run_pipeline_bg(
     abort_event: threading.Event,
 ) -> None:
     try:
-        from backend.content.audio_generator import generate_audio
-        from backend.content.content_enricher import enrich
-        from backend.content.diagram_generator import generate_diagrams
-        from backend.content.inline_question_gen import generate_inline_questions
         from backend.content.models import LearningModule
         from backend.content.topic_decomposer import decompose, _format_sections
         from backend.ingestion.pdf_parser import parse_pdf
@@ -154,71 +151,41 @@ def _run_pipeline_bg(
             progress["state"] = "aborted"
             return
 
-        # Enrich each topic — publish incrementally
+        # Enrich topics in parallel — up to 4 at once, publish as each completes
         progress["state"] = "enriching"
-        enriched_topics = []
-        for i, topic in enumerate(topics, 1):
-            if abort_event.is_set():
-                progress["state"] = "aborted"
-                return
+        enriched_topics: list = [None] * len(topics)
 
-            progress["current_topic"] = topic.title
-            progress["detail"] = f"Enriching topic {i}/{len(topics)}: {topic.title}"
-
-            source_text = "\n\n".join(
-                s.body
-                for s in doc.sections
-                if s.section_id in set(topic.source_section_ids)
-            )
-
-            with tracer.start_as_current_span(
-                "pipeline.enrich_topic",
-                attributes={"topic.title": topic.title, "topic.index": i},
-            ):
-                enriched = enrich(topic, source_text, llm, cached_blocks=cached_blocks)
-
-            if abort_event.is_set():
-                progress["state"] = "aborted"
-                return
-
-            with tracer.start_as_current_span(
-                "pipeline.generate_diagram",
-                attributes={"topic.title": topic.title},
-            ):
-                enriched.diagrams = generate_diagrams(enriched, llm)
-
-            if abort_event.is_set():
-                progress["state"] = "aborted"
-                return
-
-            with tracer.start_as_current_span(
-                "pipeline.generate_questions",
-                attributes={"topic.title": topic.title},
-            ):
-                enriched.inline_questions = generate_inline_questions(enriched, llm)
-
-            progress["detail"] = f"Generating audio for {topic.title}..."
-            try:
-                diagram = enriched.diagrams[0] if enriched.diagrams else None
-                with tracer.start_as_current_span(
-                    "pipeline.generate_audio",
-                    attributes={"topic.title": topic.title},
-                ):
-                    enriched.audio_path = generate_audio(
-                        enriched.content_md,
-                        topic.topic_id,
-                        diagram_caption=diagram.caption if diagram else "",
-                        diagram_mermaid=diagram.content if diagram else "",
+        with ThreadPoolExecutor(max_workers=min(4, len(topics))) as ex:
+            future_to_idx = {
+                ex.submit(
+                    _enrich_topic,
+                    topic, i, doc, llm, cached_blocks, tracer, abort_event,
+                ): i
+                for i, topic in enumerate(topics)
+            }
+            for future in as_completed(future_to_idx):
+                if abort_event.is_set():
+                    break
+                idx = future_to_idx[future]
+                result = future.result()
+                if result is not None:
+                    enriched_topics[idx] = result
+                    completed = [e for e in enriched_topics if e is not None]
+                    progress["enriched_topics"] = completed
+                    progress["topics_enriched"] = len(completed)
+                    progress["current_topic"] = result.topic.title
+                    progress["detail"] = (
+                        f"Enriched {len(completed)}/{len(topics)}: {result.topic.title}"
                     )
-            except Exception:
-                enriched.audio_path = ""
+                    if idx == 0:
+                        progress["ready"] = True
 
-            enriched_topics.append(enriched)
-            progress["enriched_topics"] = list(enriched_topics)
-            progress["topics_enriched"] = i
+        if abort_event.is_set():
+            progress["state"] = "aborted"
+            return
 
-            if i == 1:
-                progress["ready"] = True
+        # Drop any slots that failed (None) — preserve order of successes
+        enriched_topics = [e for e in enriched_topics if e is not None]
 
         if abort_event.is_set():
             progress["state"] = "aborted"
@@ -271,6 +238,63 @@ def _run_pipeline_bg(
     finally:
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
+
+
+def _enrich_topic(topic, idx, doc, llm, cached_blocks, tracer, abort_event):
+    """Enrich a single topic with diagrams, questions, and audio. Thread-safe."""
+    from backend.content.audio_generator import generate_audio
+    from backend.content.content_enricher import enrich
+    from backend.content.diagram_generator import generate_diagrams
+    from backend.content.inline_question_gen import generate_inline_questions
+
+    if abort_event.is_set():
+        return None
+
+    source_text = "\n\n".join(
+        s.body for s in doc.sections if s.section_id in set(topic.source_section_ids)
+    )
+
+    with tracer.start_as_current_span(
+        "pipeline.enrich_topic",
+        attributes={"topic.title": topic.title, "topic.index": idx},
+    ):
+        enriched = enrich(topic, source_text, llm, cached_blocks=cached_blocks)
+
+    if abort_event.is_set():
+        return None
+
+    # Diagram and inline questions are independent — run in parallel
+    with ThreadPoolExecutor(max_workers=2) as inner:
+        fut_diag = inner.submit(generate_diagrams, enriched, llm)
+        fut_qs = inner.submit(generate_inline_questions, enriched, llm)
+        try:
+            enriched.diagrams = fut_diag.result()
+        except Exception:
+            enriched.diagrams = []
+        try:
+            enriched.inline_questions = fut_qs.result()
+        except Exception:
+            enriched.inline_questions = []
+
+    if abort_event.is_set():
+        return None
+
+    try:
+        diagram = enriched.diagrams[0] if enriched.diagrams else None
+        with tracer.start_as_current_span(
+            "pipeline.generate_audio",
+            attributes={"topic.title": topic.title},
+        ):
+            enriched.audio_path = generate_audio(
+                enriched.content_md,
+                topic.topic_id,
+                diagram_caption=diagram.caption if diagram else "",
+                diagram_mermaid=diagram.content if diagram else "",
+            )
+    except Exception:
+        enriched.audio_path = ""
+
+    return enriched
 
 
 @st.fragment(run_every=2)
