@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from backend.content.llm_client import LLMClient
+from backend.core.llm_client import BaseLLMClient as LLMClient
 from backend.content.models import Diagram, EnrichedTopic
 
 _TOOL_SCHEMA = {

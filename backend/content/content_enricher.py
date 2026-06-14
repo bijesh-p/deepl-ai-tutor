@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from backend.content.llm_client import LLMClient
+from backend.core.llm_client import BaseLLMClient as LLMClient
 from backend.content.models import EnrichedTopic, Topic
 from backend.ingestion.models import Document
 
