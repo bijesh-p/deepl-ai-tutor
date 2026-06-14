@@ -379,8 +379,35 @@ def _end_session(state: dict | None = None) -> None:
             except Exception:
                 pass  # profile save is best-effort
 
-    # 3. Clean up tutor session state
+    # 3. Run DeepEval quality metrics asynchronously (fire-and-forget)
+    if state:
+        _trigger_evals(state)
+
+    # 4. Clean up tutor session state
     for key in ("tutor_state", "tutor_phase", "tutor_graph", "tutor_content_map", "tutor_summary_map"):
         st.session_state.pop(key, None)
 
     st.session_state["page"] = "module_library"
+
+
+def _trigger_evals(state: dict) -> None:
+    """Start DeepEval quality checks in a background thread."""
+    try:
+        from backend.observability.eval_runner import run_session_evals_async
+
+        # Collect source text from pipeline progress for faithfulness checks
+        progress = st.session_state.get("pipeline_progress", {})
+        enriched_list = progress.get("enriched_topics", [])
+        source_chunks = []
+        for et in enriched_list:
+            source_chunks.append(et.content_md)
+        source_text = "\n\n".join(source_chunks)
+
+        run_session_evals_async(
+            chat_history=state.get("chat_history", []),
+            source_text=source_text,
+            user_id=state.get("user_id", ""),
+            module_id=state.get("module_id", ""),
+        )
+    except Exception:
+        pass  # evals are best-effort — never crash the UI

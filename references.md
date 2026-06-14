@@ -36,6 +36,15 @@
 
 - [edge-tts](https://github.com/rany2/edge-tts) — Python library for Microsoft Edge's TTS API; used in `backend/content/audio_generator.py` for topic narration.
 
+## LLM Observability and Evaluation
+
+- [Arize Phoenix](https://arize.com/docs/phoenix/) — Local OTEL-native LLM trace server; receives spans at `http://localhost:6006/v1/traces`. Start with `uv run phoenix serve`.
+- [openinference-instrumentation-anthropic](https://github.com/Arize-ai/openinference/tree/main/python/instrumentation/openinference-instrumentation-anthropic) — Auto-patches the Anthropic SDK to emit OTEL spans for every `messages.create()` call.
+- [openinference-instrumentation-langchain](https://github.com/Arize-ai/openinference/tree/main/python/instrumentation/openinference-instrumentation-langchain) — Auto-patches LangGraph node execution to emit OTEL spans.
+- [OpenTelemetry Python SDK](https://opentelemetry.io/docs/languages/python/) — OTEL tracer provider, batch span processor, OTLP HTTP exporter.
+- [DeepEval](https://deepeval.com/docs/getting-started) — LLM evaluation framework; provides `AnswerRelevancyMetric`, `FaithfulnessMetric`, `GEval`; runs after each tutoring session in `backend/observability/eval_runner.py`.
+- [LangSmith](https://docs.smith.langchain.com/) — Secondary trace destination for LangGraph; activated via `LANGCHAIN_TRACING_V2=true` env var (no new package required).
+
 ## Frontend
 
 - [Streamlit Documentation](https://docs.streamlit.io/) — Python web framework powering all UI pages.

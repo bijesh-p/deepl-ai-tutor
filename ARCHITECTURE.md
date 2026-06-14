@@ -1,6 +1,6 @@
 # AI Tutor — Architecture
 
-> **Version:** 0.9 | **Updated:** 2026-06-14
+> **Version:** 1.0 | **Updated:** 2026-06-14
 > Companion to [SPEC.md](SPEC.md).
 
 ---
@@ -251,3 +251,92 @@ flowchart LR
     QUIZ --> RESULTS[Results]
     RESULTS --> LIB
 ```
+
+---
+
+## 9. LLM Observability and Evaluation
+
+Every LLM call in the system is traced via OpenTelemetry. Traces are sent to a local **Arize Phoenix** server (no account required). After each tutoring session, **DeepEval** runs automated quality metrics. **LangSmith** receives LangGraph traces as a secondary destination via env vars.
+
+### Tool Choices
+
+| Tool | Package | Role |
+|---|---|---|
+| **Arize Phoenix** | `arize-phoenix` | Local OTLP trace server — UI at `http://localhost:6006` |
+| **openinference-instrumentation-anthropic** | `openinference-instrumentation-anthropic` | Auto-patches Anthropic SDK — every `messages.create()` emits a span |
+| **openinference-instrumentation-langchain** | `openinference-instrumentation-langchain` | Auto-patches LangGraph node calls |
+| **opentelemetry-sdk** | `opentelemetry-sdk` | OTEL tracer provider + context propagation |
+| **opentelemetry-exporter-otlp-proto-http** | `opentelemetry-exporter-otlp-proto-http` | HTTP exporter → Phoenix OTLP endpoint |
+| **DeepEval** | `deepeval` | Programmatic eval metrics: faithfulness, answer relevancy, contextual precision |
+| **LangSmith** | (env vars only, no new package) | Secondary trace destination for LangGraph — `LANGCHAIN_TRACING_V2=true` |
+
+### Trace Flow
+
+```mermaid
+---
+title: Observability Data Flow
+---
+flowchart LR
+    APP[AI Tutor\nPython process] -->|OTEL spans| EXPORTER[OTLP HTTP\nexporter]
+    EXPORTER -->|http://localhost:6006/v1/traces| PHOENIX[Arize Phoenix\nlocal server]
+    APP -->|LANGCHAIN_TRACING_V2=true| LANGSMITH[LangSmith\ncloud optional]
+    PHOENIX --> UI[Phoenix UI\nhttp://localhost:6006]
+
+    APP -->|after session| EVAL[DeepEval\nevaluate]
+    EVAL -->|judge LLM calls| JUDGE[Anthropic Claude\nas eval judge]
+    EVAL -->|metrics JSON| DB[(SQLite\neval_results)]
+    EVAL --> UI
+```
+
+### What Gets Traced
+
+| Span | Source | Key attributes |
+|---|---|---|
+| `anthropic.messages.create` | openinference auto-patch | model, prompt tokens, completion tokens, latency |
+| LangGraph node execution | openinference auto-patch | node name, state diff, duration |
+| Pipeline step (enrich / diagram / audio) | manual span via `tracer.start_as_current_span()` | topic title, step name |
+| DeepEval eval run | deepeval built-in | metric scores, test case input/output |
+
+### Eval Metrics (DeepEval)
+
+Run after each tutoring session against the slide transcripts and Q&A turns:
+
+| Metric | What it checks |
+|---|---|
+| `AnswerRelevancyMetric` | Tutor's explanation actually answers the topic (not off-topic) |
+| `FaithfulnessMetric` | Transcript content is faithful to the source document (no hallucination) |
+| `ContextualRecallMetric` | Key concepts from source appear in the enriched output |
+| `GEval` (custom) | Diagnostic question quality — are questions fair for the stated topic? |
+
+### Running Phoenix Locally
+
+```bash
+# Start Phoenix trace server (keeps running in background)
+uv run python -m phoenix.server.main serve
+
+# Or via the installed CLI
+uv run phoenix serve
+```
+
+Phoenix UI is then available at `http://localhost:6006`.
+
+### Environment Variables
+
+| Variable | Value | Purpose |
+|---|---|---|
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:6006/v1/traces` | Route OTEL spans to local Phoenix |
+| `LANGCHAIN_TRACING_V2` | `true` | Enable LangSmith tracing (optional) |
+| `LANGCHAIN_API_KEY` | `ls-...` | LangSmith API key (optional) |
+| `LANGCHAIN_PROJECT` | `ai-tutor` | LangSmith project name (optional) |
+
+### Code Organisation
+
+```
+backend/
+└── observability/
+    ├── __init__.py        # setup_tracing() — call once at app startup
+    ├── tracer.py          # get_tracer() helper used across pipeline steps
+    └── eval_runner.py     # run_session_evals() — called by tutor_room on End Session
+```
+
+`setup_tracing()` is called from `app.py` before any LLM calls. It registers the OTLP exporter, instruments the Anthropic SDK, and optionally enables LangSmith.

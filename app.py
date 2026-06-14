@@ -8,6 +8,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import streamlit as st
+from backend.observability import setup_tracing
+setup_tracing()
 
 st.set_page_config(
     page_title="AI Tutor",

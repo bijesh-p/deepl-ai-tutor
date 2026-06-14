@@ -113,7 +113,9 @@ def _run_pipeline_bg(
         from backend.content.models import LearningModule
         from backend.content.topic_decomposer import decompose, _format_sections
         from backend.ingestion.pdf_parser import parse_pdf
+        from backend.observability.tracer import get_tracer
         from backend.quiz.question_bank import generate_question_bank
+        tracer = get_tracer()
 
         # Parse PDF
         progress["state"] = "parsing"
@@ -167,29 +169,45 @@ def _run_pipeline_bg(
                 if s.section_id in set(topic.source_section_ids)
             )
 
-            enriched = enrich(topic, source_text, llm, cached_blocks=cached_blocks)
+            with tracer.start_as_current_span(
+                "pipeline.enrich_topic",
+                attributes={"topic.title": topic.title, "topic.index": i},
+            ):
+                enriched = enrich(topic, source_text, llm, cached_blocks=cached_blocks)
 
             if abort_event.is_set():
                 progress["state"] = "aborted"
                 return
 
-            enriched.diagrams = generate_diagrams(enriched, llm)
+            with tracer.start_as_current_span(
+                "pipeline.generate_diagram",
+                attributes={"topic.title": topic.title},
+            ):
+                enriched.diagrams = generate_diagrams(enriched, llm)
 
             if abort_event.is_set():
                 progress["state"] = "aborted"
                 return
 
-            enriched.inline_questions = generate_inline_questions(enriched, llm)
+            with tracer.start_as_current_span(
+                "pipeline.generate_questions",
+                attributes={"topic.title": topic.title},
+            ):
+                enriched.inline_questions = generate_inline_questions(enriched, llm)
 
             progress["detail"] = f"Generating audio for {topic.title}..."
             try:
                 diagram = enriched.diagrams[0] if enriched.diagrams else None
-                enriched.audio_path = generate_audio(
-                    enriched.content_md,
-                    topic.topic_id,
-                    diagram_caption=diagram.caption if diagram else "",
-                    diagram_mermaid=diagram.content if diagram else "",
-                )
+                with tracer.start_as_current_span(
+                    "pipeline.generate_audio",
+                    attributes={"topic.title": topic.title},
+                ):
+                    enriched.audio_path = generate_audio(
+                        enriched.content_md,
+                        topic.topic_id,
+                        diagram_caption=diagram.caption if diagram else "",
+                        diagram_mermaid=diagram.content if diagram else "",
+                    )
             except Exception:
                 enriched.audio_path = ""
 
