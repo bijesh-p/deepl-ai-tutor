@@ -1,107 +1,167 @@
 # plan.md — AI Tutor Implementation
 
-> **Goal:** Deliver a fully working AI Tutor with just-in-time content delivery and adaptive tutoring.
-> **Spec:** SPEC.md v0.6
+> **Goal:** Deliver a fully working AI Tutor with adaptive tutoring, observability, and admin-curated module sharing.
+> **Spec:** SPEC.md v0.7
 > **Last updated:** 2026-06-14
 
 ---
 
-## Status of Original Phases (Phases 1–16) ✅ COMPLETE
+## Phase 1 — PDF POC ✅ COMPLETE (main branch)
 
-All original phases are committed. The application is fully functional for the PDF → LLM → Quiz flow with role-based access and module library.
-
----
-
-## Phase 1–7 — Codebase Restructure ✅ COMPLETE
-
-Migrated from flat structure to layered `backend/` + `frontend/` + `mcp_servers/` architecture.
-
-## Phase 8 — Remove CrewAI ✅ COMPLETE
-
-Removed all CrewAI references from code, docs, and dependencies.
-
-## Phase 9 — Background Pipeline + Progress Tracking ✅ COMPLETE
-
-Moved pipeline to background daemon thread. Added `@st.fragment(run_every=2)` status poller, abort support, and tab-switch resilience.
-
-## Phase 26 — Diagram-First Slide Generation
-
-**Goal:** Flip the slide creation order — generate the visual anchor (diagram or bullet fallback) first, then write the explanation text anchored to it. Every slide explanation must reference only what's in the anchor.
-
-**Phases:**
-
-### Phase 26a — `diagram_generator.py`: accept raw source text (not EnrichedTopic)
-
-Currently `generate_diagrams(enriched, llm)` requires a fully enriched topic.
-Change signature to `generate_slide_anchor(source_text, topic, llm) -> SlideAnchor`.
-
-- Input: raw source text + `Topic` (title + summary)
-- Attempts Mermaid diagram generation
-- If diagram is empty/invalid → calls `_generate_key_bullets(source_text, topic, llm)`
-  to produce 4-6 bulleted key points
-- Returns `SlideAnchor(diagram: Diagram | None, bullets: list[str])`
-
-**Files:** `backend/content/diagram_generator.py`
+All original Phases 1–16 committed to `main`. Full end-to-end flow: PDF → LLM → module → quiz → analytics.
 
 ---
 
-### Phase 26b — `content_enricher.py`: accept SlideAnchor as context
+## Phase 2 — Functional Skeleton (this branch: `changes-to-use-langgraph-evals-audio`)
 
-Change `enrich(topic, source_text, llm)` → `enrich(topic, source_text, anchor, llm)`.
+Goal: build a working skeleton for every planned capability. Rough edges allowed — Phase 3 polishes.
 
-- If `anchor.diagram`: system prompt instructs "walk through this diagram"
-- If `anchor.bullets`: system prompt instructs "expand on these bullet points"
-- The enricher must not introduce concepts not in the anchor
+### Completed sub-phases
 
-**Files:** `backend/content/content_enricher.py`
+| Phase | Description | Status |
+|---|---|---|
+| Phase 17 | Parallelise content pipeline (concurrent topic enrichment) | ✅ Done |
+| Phase 18 | Fast redirect + progressive enrichment + wait engagement | ✅ Done |
+| Phase 19 | Sliding-window decomposition: 500-word assess, publish immediately | ✅ Done |
+| Phase 20 | Fix sliding pipeline: lower threshold, add force-publish fallbacks | ✅ Done |
+| Phase 21 | Per-user DB, per-user LLM preferences, file memory on retry | ✅ Done |
+| Phase 22 | Separate login page, redirect bug fix, model dropdown from env | ✅ Done |
+| Phase 23 | Hide sidebar on login, slide transition, 60s auto-advance, LLM prefs in DB | ✅ Done |
+| Phase 24 | Cleanup: remove redundant files, update .gitignore, add .env.copy template | ✅ Done |
+| Phase 25 | Consolidate LLM helpers into `backend/core/` | ✅ Done |
+| Phase 26 | Diagram-first slide generation: anchor (Mermaid or bullet fallback) before explanation | ✅ Done |
+| Phase 27 | Fix audio latency; sync slide timer to audio duration | ✅ Done |
+| Phase 28 | Fix repeated diagnostic audio on slide 1; add audio toggle | ✅ Done |
+
+### Remaining Phase 2 work
+
+#### Phase 29 — ChromaDB end-to-end wiring
+
+Wire the `storage_server` MCP tool into the content pipeline so enriched topics are actually stored in ChromaDB after generation. Verify `query_vector_db` returns correct chunks.
+
+**Files:**
+- `mcp_servers/storage_server/` — ensure `upsert_to_vector_db` and `query_vector_db` tools are complete
+- `backend/content/sliding_pipeline.py` — call `storage_server.upsert_to_vector_db` after each topic enrichment
+- `backend/core/mcp_client.py` — verify MCP client can call storage_server in subprocess mode
 
 ---
 
-### Phase 26c — `sliding_pipeline._enrich_one`: reorder steps
+#### Phase 30 — MCPClient pipeline integration
 
-New order:
-1. `generate_slide_anchor(source_text, topic, llm)` — diagram or bullets
-2. `enrich(topic, source_text, anchor, llm)` — text anchored to the visual
-3. `generate_inline_questions(enriched, llm)` — questions from enriched content
-4. `generate_audio(...)` — TTS narration
+Replace the remaining direct function calls in the content pipeline with `mcp_client.call()` dispatches. The document parsing step should call `document_server.extract_text_from_pdf`.
 
-**Files:** `backend/content/sliding_pipeline.py`
-
----
-
-### Phase 26d — Update tests
-
-- `test_pipeline.py`: mock `generate_slide_anchor`; verify anchor is passed to `enrich`
-- `test_topic_decomposer.py`: no change (tests `_assess` / `_make_topic`)
-- Add `test_diagram_generator.py` tests for bullet fallback path
-
-**Files:** `tests/test_content/test_pipeline.py`, `tests/test_content/test_diagram_generator.py`
+**Files:**
+- `backend/core/mcp_client.py`
+- `backend/content/sliding_pipeline.py`
+- `mcp_servers/document_server/`
 
 ---
 
-**Files affected:**
+#### Phase 31 — Portkey + Ollama end-to-end validation
 
+Run a full upload → module → tutor session against Portkey and Ollama. Fix any adapter bugs surfaced. Add a brief validation matrix to `references.md`.
+
+**Files:**
+- `backend/core/llm_client/adapters/portkey_adapter.py`
+- `backend/core/llm_client/adapters/ollama_adapter.py`
+- `frontend/login_page.py` (provider selection tested)
+
+---
+
+## Phase 3 — Refined Platform 🔲 Planned
+
+Goal: production-quality polish and the admin module library feature.
+
+### Phase 32 — Admin mode: published module library
+
+Add `is_published` flag to modules. Admin user can publish/unpublish a module, making it visible to all users without them generating it themselves.
+
+**Scope:**
+- DB migration: add `is_published INTEGER DEFAULT 0` to `modules` table
+- `backend/analytics/persistence.py` — `publish_module(module_id)`, `unpublish_module(module_id)`, `get_published_modules()`
+- `frontend/module_library_page.py` — show published modules to all users; show publish/unpublish controls only to admin
+- Admin is identified by a configured admin username (or existing password mechanism from Phase 1)
+- Personal modules remain private to the generating user unless published
+
+**Files:**
 | File | Change |
 |---|---|
-| `backend/content/diagram_generator.py` | New `generate_slide_anchor()` + bullet fallback |
-| `backend/content/content_enricher.py` | Accept `SlideAnchor` as context |
-| `backend/content/sliding_pipeline.py` | Reorder steps in `_enrich_one` |
-| `tests/test_content/test_pipeline.py` | Update mocks for new order |
-| `tests/test_content/test_diagram_generator.py` | New — test bullet fallback |
+| `backend/analytics/db.py` | Add `is_published` column migration |
+| `backend/analytics/persistence.py` | `publish_module`, `unpublish_module`, `get_published_modules` |
+| `frontend/module_library_page.py` | Published section visible to all; admin controls |
+| `frontend/app.py` | Propagate `is_admin` flag into session state |
+| `backend/content/models.py` | Add `is_published: bool = False` to `LearningModule` |
 
 ---
 
-## Phase 10 — Just-in-Time Content Delivery ✅ COMPLETE
+### Phase 33 — LangGraph mastery persistence + mastery report
 
-Restructured the pipeline for incremental delivery:
+Wire `SqliteSaver` as the LangGraph checkpointer so sessions resume after page refresh. Add a mastery report page.
 
-| Sub-phase | Description | Files Modified |
-|-----------|-------------|----------------|
-| 1 | Incremental pipeline — publish each enriched topic as it completes, redirect after topic 1 | `frontend/upload_page.py` |
-| 2 | Partial module viewer with `@st.fragment(run_every=3)` live polling | `frontend/module_viewer.py` |
-| 3 | Tutor room handles not-yet-enriched topics gracefully | `frontend/tutor_room.py` |
-| 4 | Deferred quiz — button disabled until quiz bank ready | `frontend/module_viewer.py` |
-| 5 | Save completed module to DB after quiz generation | `frontend/upload_page.py` |
-| 6 | Updated global banner for new pipeline states | `app.py` |
+**Files:**
+- `backend/interactive_tutor/graph.py` — add `SqliteSaver` checkpointer
+- `backend/analytics/db.py` — `topic_mastery` table (see SPEC §7.5)
+- `backend/analytics/stats.py` — `get_mastery_report`, `get_cohort_mastery`
+- `frontend/` — new `mastery_report_page.py` (or section in results)
 
-**Key change:** Users start learning within ~30 seconds (after topic 1 enrichment) instead of waiting 2-5 minutes for full generation. Remaining topics and quiz generate in the background.
+---
+
+### Phase 34 — ChromaDB wired into LangGraph tutor
+
+Replace `concept_content` injection from session state with a ChromaDB `query_vector_db` call inside `present_concept`. Wire `provide_hint` to retrieve additional context chunks.
+
+**Files:**
+- `backend/interactive_tutor/nodes.py` — `present_concept` calls `storage_server.query_vector_db`
+- `backend/interactive_tutor/nodes.py` — `provide_hint` retrieves supporting chunks from ChromaDB
+
+---
+
+### Phase 35 — PPTX + DOCX parsing
+
+Implement `pptx_parser.py` and `docx_parser.py`. Update upload page to accept `.pptx` and `.docx`. Output must conform to the same `Document` / `Section` contracts as the PDF parser.
+
+**Files:**
+- `backend/ingestion/pptx_parser.py`
+- `backend/ingestion/docx_parser.py`
+- `frontend/upload_page.py` — expand file type filter
+- `mcp_servers/document_server/` — add `extract_text_from_pptx`, `extract_text_from_docx` tools
+
+---
+
+### Phase 36 — Error handling and UX polish
+
+Structured, user-actionable error messages at each pipeline step. Retry buttons. Partial-failure recovery (save topics that succeeded even if later steps fail).
+
+**Files:**
+- `backend/content/sliding_pipeline.py` — per-step error capture and publish
+- `frontend/upload_page.py` — surface step-specific errors with retry controls
+- `frontend/tutor_room.py` — graph error → reset session with checkpoint restore offer
+
+---
+
+### Phase 37 — Observability dashboard
+
+Expose Arize Phoenix and DeepEval results in a dedicated Streamlit page. Link to Phoenix UI, show per-session eval summary, trend charts.
+
+**Files:**
+- `frontend/observability_page.py` (new)
+- `backend/observability/eval_runner.py` — add `get_eval_results(user_id)` query
+- `frontend/app.py` — add page to router
+
+---
+
+### Phase 38 — Test coverage
+
+Integration tests for MCP servers, LLM factory adapters, and the LangGraph graph (dry-run with mock LLM responses).
+
+**Files:**
+- `tests/test_mcp/` — test each MCP server tool in subprocess mode
+- `tests/test_llm_client/` — test all three adapters against a mock endpoint
+- `tests/test_tutor/` — test graph compilation and node state transitions
+
+---
+
+## Commit convention
+
+Format: `[Phase N] <short description>`
+Use the `/git-commit` skill after each phase — never run `git commit` directly.
