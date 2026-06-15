@@ -58,6 +58,29 @@ def _get_llm():
     return LLMFactory.create()
 
 
+def _retrieve_context(module_id: str, query_text: str, n_results: int = 2) -> str:
+    """Best-effort retrieval of supporting chunks from ChromaDB via storage_server.
+
+    Non-fatal: semantic search is a supporting feature, so any failure here
+    must not break the tutor flow.
+    """
+    try:
+        from backend.core.mcp_client import get_client
+
+        raw = get_client("storage_server").call(
+            "query_vector_db",
+            query_text=query_text,
+            n_results=n_results,
+            where_filter={"module_id": module_id},
+        )
+        documents = json.loads(raw).get("documents", [])
+        if documents and documents[0]:
+            return "\n\n".join(documents[0])
+    except Exception:
+        pass
+    return ""
+
+
 # ---------------------------------------------------------------------------
 # Diagnostic nodes
 # ---------------------------------------------------------------------------
@@ -207,6 +230,18 @@ def present_concept(state: GraphState) -> dict:
     concept = state["current_concept"]
     depth = state.get("presentation_depth", "intermediate")
     enriched = state.get("enriched_topic")
+
+    # Pipeline hasn't enriched this topic yet (or session was resumed without
+    # state) — fall back to ChromaDB-retrieved content for this concept.
+    if not enriched or not enriched.get("content_md"):
+        retrieved = _retrieve_context(state["module_id"], concept, n_results=1)
+        if retrieved:
+            enriched = {
+                **(enriched or {}),
+                "content_md": retrieved,
+                "diagrams": (enriched or {}).get("diagrams", []),
+                "top_concepts": (enriched or {}).get("top_concepts", []),
+            }
 
     # If the pipeline already finished enriching this topic, use its assets directly
     if enriched:
@@ -461,6 +496,10 @@ def provide_hint(state: GraphState) -> dict:
         "points them toward the right thinking without giving the answer, "
         "and uses a different analogy or example than before."
     )
+
+    context = _retrieve_context(state["module_id"], feedback or concept)
+    if context:
+        prompt = f"Relevant material:\n{context}\n\n{prompt}"
 
     hint = llm.generate(prompt, system="You are a patient tutor giving a helpful hint.")
     history = list(state.get("chat_history", []))

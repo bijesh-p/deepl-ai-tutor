@@ -105,13 +105,13 @@ Wire `SqliteSaver` as the LangGraph checkpointer so sessions resume after page r
 
 ---
 
-### Phase 34 — ChromaDB wired into LangGraph tutor
+### Phase 34 — ChromaDB wired into LangGraph tutor ✅ Done
 
-Replace `concept_content` injection from session state with a ChromaDB `query_vector_db` call inside `present_concept`. Wire `provide_hint` to retrieve additional context chunks.
+Added `_retrieve_context(module_id, query_text, n_results)` to `graph.py`: calls `storage_server.query_vector_db` via `mcp_client` (filtered by `module_id`), joins the returned chunks, and returns `""` on any error (non-fatal, same pattern as `_store_in_vector_db`). `provide_hint` prepends retrieved context (queried with the student's feedback, or the concept title if no feedback) to its prompt. `present_concept` calls `_retrieve_context` with the concept title only when `enriched_topic`/`concept_content` is empty in state, and feeds the result into the existing pipeline-enriched fast path (so depth-adaptation/audio logic is unchanged).
 
 **Files:**
-- `backend/interactive_tutor/nodes.py` — `present_concept` calls `storage_server.query_vector_db`
-- `backend/interactive_tutor/nodes.py` — `provide_hint` retrieves supporting chunks from ChromaDB
+- `backend/interactive_tutor/graph.py` — `_retrieve_context`, wired into `provide_hint` and `present_concept`
+- `tests/test_tutor/__init__.py`, `tests/test_tutor/test_graph_chromadb.py` (new) — retrieval-grounded hint, fallback slide content, non-fatal error handling
 
 ---
 

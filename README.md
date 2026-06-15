@@ -6,7 +6,7 @@ A web application that transforms PDF documents into interactive, adaptive learn
 
 - **Phase 1 (PDF POC):** ✅ Complete
 - **Phase 2 (Functional Skeleton):** ✅ Complete — LLM factory, MCP tool servers, LangGraph adaptive tutor, JIT content pipeline, audio narration, ChromaDB vector store, and observability (Phoenix + DeepEval) are all implemented and tested.
-- **Phase 3 (Refined Platform):** 🔄 In Progress — admin-curated module library ✅, full ChromaDB wiring into the tutor, PPTX/DOCX ingestion, live Portkey/Ollama end-to-end validation.
+- **Phase 3 (Refined Platform):** 🔄 In Progress — admin-curated module library ✅, ChromaDB wired into the LangGraph tutor ✅, PPTX/DOCX ingestion, live Portkey/Ollama end-to-end validation.
 
 See [SPEC.md](SPEC.md) for the full phase breakdown and definitions of done.
 
@@ -18,7 +18,7 @@ See [SPEC.md](SPEC.md) for the full phase breakdown and definitions of done.
 - **Personalised Adaptive Tutor** — LangGraph state machine (diagnostic quiz → depth-adapted slide → Q&A loop). Depth preference and topic mastery persist across sessions per username.
 - **Diagram-Aware Audio** — Each topic slide includes TTS narration (edge-tts) that first describes the diagram, then explains the concept.
 - **MCP Tool Servers** — Document parsing, assessment validation, and storage exposed as standalone MCP servers, dispatched via `backend/core/mcp_client.py`.
-- **ChromaDB Vector Store** — Each enriched topic is upserted into ChromaDB (`all-MiniLM-L6-v2` embeddings) during generation via `storage_server.upsert_to_vector_db`, enabling semantic search over document chunks in `data/chroma/`.
+- **ChromaDB Vector Store** — Each enriched topic is upserted into ChromaDB (`all-MiniLM-L6-v2` embeddings) during generation via `storage_server.upsert_to_vector_db`, enabling semantic search over document chunks in `data/chroma/`. The LangGraph tutor queries this store via `storage_server.query_vector_db`: `provide_hint` grounds hints in retrieved chunks, and `present_concept` falls back to retrieved content when pipeline-enriched content isn't yet available in session state — both non-fatal on error.
 - **Inline Questions** — Reinforcement questions embedded within each sub-topic for active learning.
 - **Quizzes** — End-of-module quizzes with selectable difficulty, randomised questions, and explanations.
 - **Performance Analytics** — Score tracking with cohort comparison (min/max/avg) across all participants.
