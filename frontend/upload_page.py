@@ -134,15 +134,19 @@ def _run_pipeline_bg(
     try:
         from backend.content.models import LearningModule
         from backend.content.sliding_pipeline import run_sliding_pipeline
-        from backend.ingestion.pdf_parser import parse_pdf
+        from backend.core.mcp_client import get_client
+        from backend.ingestion.models import Document
         from backend.observability.tracer import get_tracer
         from backend.quiz.question_bank import generate_question_bank
         tracer = get_tracer() if progress.get("tracing_enabled", True) else _noop_tracer()
 
-        # Parse PDF
+        # Parse PDF via the document_server MCP tool
         progress["state"] = "parsing"
         progress["detail"] = "Reading PDF..."
-        doc = parse_pdf(tmp_path, max_pages=4)
+        doc_json = get_client("document_server").call(
+            "extract_text_from_pdf", file_path=tmp_path, max_pages=4
+        )
+        doc = Document.from_json(doc_json)
         progress["doc_title"] = doc.title
         progress["doc_id"] = doc.doc_id
         progress["detail"] = (

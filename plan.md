@@ -47,14 +47,14 @@ Created `backend/core/mcp_client.py`: a synchronous `MCPClient` wrapping the `mc
 
 ---
 
-#### Phase 30 — MCPClient pipeline integration
+#### Phase 30 — MCPClient pipeline integration ✅ Done
 
-Make `document_server.extract_text_from_pdf` delegate to `backend.ingestion.pdf_parser.parse_pdf` and return `Document.to_json()` (schema parity with `Document.from_json`). Replace the direct `parse_pdf()` call in the upload pipeline with `get_client("document_server").call("extract_text_from_pdf", ...)`.
+Made `document_server.extract_text_from_pdf` delegate to `backend.ingestion.pdf_parser.parse_pdf` and return `Document.to_json()` (schema parity with `Document.from_json`). Replaced the direct `parse_pdf()` call in `upload_page._run_pipeline_bg` with `get_client("document_server").call("extract_text_from_pdf", ...)` → `Document.from_json(...)`.
 
 **Files:**
-- `mcp_servers/document_server/server.py`
-- `frontend/upload_page.py`
-- `tests/test_mcp/test_document_server.py` (new)
+- `mcp_servers/document_server/server.py` — now a thin wrapper over `parse_pdf`
+- `frontend/upload_page.py` — PDF parsing routed through `mcp_client`
+- `tests/test_mcp/test_document_server.py` (new) — verifies MCP output matches direct `parse_pdf()` output
 
 ---
 

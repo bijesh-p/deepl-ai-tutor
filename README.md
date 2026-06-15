@@ -4,7 +4,7 @@ A web application that transforms PDF documents into interactive, adaptive learn
 
 ## Features
 
-- **PDF Ingestion** — Upload a PDF and extract structured content with heading-aware section splitting.
+- **PDF Ingestion** — Upload a PDF and extract structured content with heading-aware section splitting, via the `document_server` MCP tool (`extract_text_from_pdf`).
 - **Multi-LLM Support** — Switch between Anthropic Claude, Portkey, or Ollama via sidebar or `.env`.
 - **Just-in-Time Content** — Upload and start learning within ~30 seconds. Topics are delivered as they are enriched; the rest generates in the background.
 - **Personalised Adaptive Tutor** — LangGraph state machine (diagnostic quiz → depth-adapted slide → Q&A loop). Depth preference and topic mastery persist across sessions per username.

@@ -59,7 +59,7 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
 | Arize Phoenix tracing | OTEL spans sent to local Phoenix instance; LangChain + Anthropic SDK instrumented | ✅ Done |
 | ChromaDB integration | `mcp_client.py` (Phase 29) calls `storage_server.upsert_to_vector_db` after each topic enrichment; `query_vector_db` verified by test | ✅ Done |
 | Portkey / Ollama testing | Adapters implemented; end-to-end validation pending | ⬜ Pending |
-| MCPClient wired to pipeline | MCP servers exist; direct integration into content pipeline pending | ⬜ Pending |
+| MCPClient wired to pipeline | PDF parsing now dispatched via `mcp_client` → `document_server.extract_text_from_pdf` (Phase 30) | ✅ Done |
 
 **Definition of done for Phase 2:**
 - [x] `LLMFactory.create("portkey" | "ollama" | "anthropic")` returns a working client
@@ -69,7 +69,7 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
 - [x] Audio narration plays per slide with auto-advance timer
 - [x] DeepEval evals run asynchronously at end of session
 - [x] ChromaDB stores and retrieves chunks by semantic similarity (enriched topics upserted in `sliding_pipeline.py`; round-trip verified in `tests/test_mcp/test_storage_server.py`. Querying *during* a LangGraph tutor session remains Phase 3 / Phase 34.)
-- [ ] `mcp_client.py` is used by the content pipeline (not just standalone)
+- [x] `mcp_client.py` is used by the content pipeline (not just standalone) — PDF parsing in `upload_page.py` now calls `document_server.extract_text_from_pdf` via `mcp_client.get_client()`. Full replacement of all direct pipeline calls remains Phase 3 / Phase 30 follow-on (see Phase 3 scope).
 - [ ] Portkey and Ollama adapters validated end-to-end
 
 ---
