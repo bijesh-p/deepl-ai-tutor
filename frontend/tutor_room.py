@@ -8,7 +8,13 @@ from dataclasses import asdict
 import streamlit as st
 
 from backend.analytics.db import get_db
-from backend.analytics.persistence import save_user_profile
+from backend.analytics.persistence import (
+    delete_tutor_session,
+    load_tutor_session,
+    save_topic_mastery,
+    save_tutor_session,
+    save_user_profile,
+)
 from backend.interactive_tutor import build_tutor_graph
 
 try:
@@ -31,7 +37,7 @@ def render_tutor_room() -> None:
     st.caption(f"Module: **{module.title}**")
 
     if "tutor_state" not in st.session_state:
-        _init_tutor_state(module)
+        _maybe_resume_session(module)
     else:
         _refresh_content_map(module)
         _inject_enriched_topic()
@@ -39,6 +45,23 @@ def render_tutor_room() -> None:
     state = st.session_state["tutor_state"]
     phase = st.session_state["tutor_phase"]
     graph = st.session_state["tutor_graph"]
+
+    if st.session_state.get("_resumed_session") and phase != "done":
+        col_info, col_restart = st.columns([4, 1])
+        with col_info:
+            st.info("Resuming your previous session on this module.")
+        with col_restart:
+            if st.button("Restart from scratch"):
+                user_id = state.get("user_id", "") or st.session_state.get("user_id", "")
+                db = get_db(st.session_state.get("db_path"))
+                try:
+                    delete_tutor_session(user_id, module.module_id, db=db)
+                finally:
+                    db.close()
+                for key in ("tutor_state", "tutor_phase", "tutor_graph", "_resumed_session"):
+                    st.session_state.pop(key, None)
+                st.rerun()
+        st.markdown("---")
 
     # Progress + end session in sidebar-style column
     col_main, col_meta = st.columns([4, 1])
@@ -88,6 +111,7 @@ def render_tutor_room() -> None:
                     _run_node(graph, state, "evaluate_response")
 
                     if state.get("concept_mastered", False):
+                        _record_topic_mastery(state, state["current_concept"], mastered=True)
                         remaining = state.get("remaining_concepts", [])
                         if remaining:
                             next_concept = remaining[0]
@@ -161,6 +185,8 @@ def render_tutor_room() -> None:
             if st.button("Back to Module Library"):
                 _end_session(state)
                 st.rerun()
+
+    _persist_session(state, st.session_state["tutor_phase"])
 
 
 # ---------------------------------------------------------------------------
@@ -305,6 +331,7 @@ def _do_advance_from_slide(state: dict, graph) -> None:
         mastered.append(concept)
     state["mastered_concepts"] = mastered
     state["concept_mastered"] = True
+    _record_topic_mastery(state, concept, mastered=True)
 
     remaining = state.get("remaining_concepts", [])
     content_map = st.session_state.get("tutor_content_map", {})
@@ -374,6 +401,64 @@ def _init_tutor_state(module) -> None:
     st.session_state["tutor_summary_map"] = summary_map
     st.session_state["tutor_phase"] = "diagnostic"
     st.session_state["tutor_graph"] = build_tutor_graph()
+
+
+def _maybe_resume_session(module) -> None:
+    """Restore a saved tutor session for this user/module, or start fresh."""
+    user_id = st.session_state.get("user_id", "")
+    db = get_db(st.session_state.get("db_path"))
+    try:
+        saved = load_tutor_session(user_id, module.module_id, db=db) if user_id else None
+    finally:
+        db.close()
+
+    if saved and saved["phase"] != "done":
+        topics = module.topics
+        st.session_state["tutor_content_map"] = {t.topic.title: t.content_md for t in topics}
+        st.session_state["tutor_summary_map"] = {t.topic.title: t.topic.summary for t in topics}
+        st.session_state["tutor_state"] = saved["state"]
+        st.session_state["tutor_phase"] = saved["phase"]
+        st.session_state["tutor_graph"] = build_tutor_graph()
+        st.session_state["_resumed_session"] = True
+        _refresh_content_map(module)
+        _inject_enriched_topic()
+    else:
+        _init_tutor_state(module)
+
+
+def _persist_session(state: dict, phase: str) -> None:
+    """Save (or clear, once done) the tutor session for resume support."""
+    user_id = state.get("user_id") or st.session_state.get("user_id", "")
+    module_id = state.get("module_id")
+    if not user_id or not module_id:
+        return
+    db = get_db(st.session_state.get("db_path"))
+    try:
+        if phase == "done":
+            delete_tutor_session(user_id, module_id, db=db)
+        else:
+            save_tutor_session(user_id, module_id, state, phase, db=db)
+    finally:
+        db.close()
+
+
+def _record_topic_mastery(state: dict, topic_id: str, mastered: bool) -> None:
+    """Persist per-topic mastery status (mastered flag, depth, attempt count)."""
+    user_id = state.get("user_id") or st.session_state.get("user_id", "")
+    module_id = state.get("module_id")
+    if not user_id or not module_id or not topic_id:
+        return
+    db = get_db(st.session_state.get("db_path"))
+    try:
+        save_topic_mastery(
+            user_id, module_id, topic_id,
+            mastered=mastered,
+            difficulty=state.get("presentation_depth", "intermediate"),
+            attempts=state.get("attempts", 0),
+            db=db,
+        )
+    finally:
+        db.close()
 
 
 def _inject_enriched_topic() -> None:
@@ -545,6 +630,22 @@ def _end_session(state: dict | None = None) -> None:
                 st.session_state["user_profile"] = profile
             except Exception:
                 pass  # profile save is best-effort
+
+            # Record an "in progress" mastery row if the session ended mid-concept
+            if (
+                not state.get("concept_mastered")
+                and state.get("attempts", 0) > 0
+                and state.get("current_concept")
+            ):
+                _record_topic_mastery(state, state["current_concept"], mastered=False)
+
+            # Clear any resumable session row now that the session has ended
+            if module_id:
+                db = get_db(st.session_state.get("db_path"))
+                try:
+                    delete_tutor_session(user_id, module_id, db=db)
+                finally:
+                    db.close()
 
     # 3. Run DeepEval quality metrics asynchronously (fire-and-forget)
     if state:

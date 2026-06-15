@@ -5,6 +5,8 @@ from backend.analytics.persistence import (
     save_user, save_attempt, save_module, load_module,
     list_modules, delete_module, get_user_attempts,
     publish_module, unpublish_module, get_published_modules, load_published_module,
+    save_tutor_session, load_tutor_session, delete_tutor_session,
+    save_topic_mastery, get_topic_mastery,
 )
 from backend.analytics.stats import get_module_stats
 from backend.quiz.models import QuizResult, AnswerResult
@@ -159,3 +161,47 @@ def test_unpublish_module_removes_from_shared_db(db, shared_db):
 def test_publish_module_not_found_raises(db, shared_db):
     with pytest.raises(ValueError):
         publish_module("missing-mod", db=db, shared_db=shared_db)
+
+
+def test_save_load_delete_tutor_session(db):
+    uid = save_user("alice", db=db)
+
+    assert load_tutor_session(uid, "mod-1", db=db) is None
+
+    state = {"current_concept": "Intro", "attempts": 1, "chat_history": []}
+    save_tutor_session(uid, "mod-1", state, "answer", db=db)
+
+    saved = load_tutor_session(uid, "mod-1", db=db)
+    assert saved["state"] == state
+    assert saved["phase"] == "answer"
+    assert saved["updated_at"]
+
+    # Upsert overwrites the existing row
+    state["attempts"] = 2
+    save_tutor_session(uid, "mod-1", state, "slide", db=db)
+    saved = load_tutor_session(uid, "mod-1", db=db)
+    assert saved["state"]["attempts"] == 2
+    assert saved["phase"] == "slide"
+
+    delete_tutor_session(uid, "mod-1", db=db)
+    assert load_tutor_session(uid, "mod-1", db=db) is None
+
+
+def test_save_and_get_topic_mastery(db):
+    uid = save_user("alice", db=db)
+
+    save_topic_mastery(uid, "mod-1", "Intro", mastered=True, difficulty="intermediate", attempts=2, db=db)
+    save_topic_mastery(uid, "mod-1", "Loops", mastered=False, difficulty="beginner", attempts=1, db=db)
+
+    rows = {r["topic_id"]: r for r in get_topic_mastery(uid, "mod-1", db=db)}
+    assert rows["Intro"]["mastered"] == 1
+    assert rows["Intro"]["difficulty"] == "intermediate"
+    assert rows["Intro"]["attempts"] == 2
+    assert rows["Loops"]["mastered"] == 0
+
+    # Upsert overwrites the existing row
+    save_topic_mastery(uid, "mod-1", "Loops", mastered=True, difficulty="beginner", attempts=3, db=db)
+    rows = {r["topic_id"]: r for r in get_topic_mastery(uid, "mod-1", db=db)}
+    assert rows["Loops"]["mastered"] == 1
+    assert rows["Loops"]["attempts"] == 3
+    assert len(rows) == 2

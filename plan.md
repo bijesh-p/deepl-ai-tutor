@@ -93,15 +93,29 @@ Two-mode login: the login page has separate **"User Login"** and **"Admin Login"
 
 ---
 
-### Phase 33 — LangGraph mastery persistence + mastery report
+### Phase 33 — Tutor session resume + per-topic mastery persistence 🔄 In Progress
 
-Wire `SqliteSaver` as the LangGraph checkpointer so sessions resume after page refresh. Add a mastery report page.
+`tutor_room.py` invokes graph nodes manually via `_run_node()`, never `graph.invoke(state, config=...)`, so a real `SqliteSaver` checkpointer doesn't fit without rewriting the tutor's control flow (see SPEC.md §2, superseded resolution). Instead: a new `tutor_sessions` table stores the serialized `GraphState` dict + UI phase, keyed by `(user_id, module_id)`. On entering the tutor room, if a non-"done" saved session exists for this user/module, restore it and show a "Resuming your previous session" banner with a "Restart from scratch" option; otherwise initialize fresh as before. After every settled render, upsert the current state/phase (or delete the row once `phase == "done"`). Separately, the existing-but-unused `topic_mastery` table (`user_id, module_id, topic_id, mastered, difficulty, attempts, last_updated`) is now written to incrementally — once per concept when it's mastered (slide auto-advance or Q&A success), and as an "in progress" (`mastered=0`) row if the session ends mid-concept.
 
 **Files:**
-- `backend/interactive_tutor/graph.py` — add `SqliteSaver` checkpointer
-- `backend/analytics/db.py` — `topic_mastery` table (see SPEC §7.5)
+- `backend/analytics/db.py` — new `tutor_sessions` table
+- `backend/analytics/persistence.py` — `save_tutor_session`, `load_tutor_session`, `delete_tutor_session`, `save_topic_mastery`, `get_topic_mastery`
+- `frontend/tutor_room.py` — resume-on-entry, `_persist_session`, `_record_topic_mastery` helpers wired into the slide/Q&A/end-session flows
+- `tests/test_analytics/test_persistence.py` — round-trip tests for the new functions
+
+---
+
+### Phase 40 — Mastery report page + cohort mastery analytics
+
+New standalone page showing a user's per-topic mastery (mastered / in progress / not started, difficulty reached, attempts) for a module, plus a cohort comparison (% of all users who mastered each topic), reachable via a "Mastery Report" button per module in the Module Library — viewable any time, not tied to quiz completion.
+
+**Files:**
+- `backend/analytics/models.py` — `TopicMasteryRow`, `MasteryReport`, `CohortTopicMastery`, `CohortMastery` dataclasses
 - `backend/analytics/stats.py` — `get_mastery_report`, `get_cohort_mastery`
-- `frontend/` — new `mastery_report_page.py` (or section in results)
+- `frontend/mastery_report_page.py` (new) — per-topic badges + cohort bar chart, following `results_page.py`'s layout conventions
+- `frontend/module_library_page.py` — "Mastery Report" button per module
+- `app.py` — new `mastery_report` page route
+- `tests/test_analytics/test_stats.py` — tests for the new mastery stats functions
 
 ---
 

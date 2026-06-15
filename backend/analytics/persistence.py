@@ -248,3 +248,103 @@ def save_user_profile(
          final_provider, final_model),
     )
     conn.commit()
+
+
+def save_tutor_session(
+    user_id: str,
+    module_id: str,
+    state: dict,
+    phase: str,
+    db: sqlite3.Connection | None = None,
+) -> None:
+    """Upsert the serialized tutor GraphState + UI phase for resume support."""
+    conn = db or get_db()
+    conn.execute(
+        """
+        INSERT INTO tutor_sessions (user_id, module_id, state_json, phase, updated_at)
+        VALUES (?, ?, ?, ?, datetime('now'))
+        ON CONFLICT(user_id, module_id) DO UPDATE SET
+            state_json = excluded.state_json,
+            phase      = excluded.phase,
+            updated_at = excluded.updated_at
+        """,
+        (user_id, module_id, json.dumps(state), phase),
+    )
+    conn.commit()
+
+
+def load_tutor_session(
+    user_id: str,
+    module_id: str,
+    db: sqlite3.Connection | None = None,
+) -> dict | None:
+    """Return {"state": ..., "phase": ..., "updated_at": ...} for a saved session, or None."""
+    conn = db or get_db()
+    row = conn.execute(
+        "SELECT state_json, phase, updated_at FROM tutor_sessions WHERE user_id = ? AND module_id = ?",
+        (user_id, module_id),
+    ).fetchone()
+    if row is None:
+        return None
+    return {
+        "state": json.loads(row["state_json"]),
+        "phase": row["phase"],
+        "updated_at": row["updated_at"],
+    }
+
+
+def delete_tutor_session(
+    user_id: str,
+    module_id: str,
+    db: sqlite3.Connection | None = None,
+) -> None:
+    """Remove a saved tutor session (called once a session completes or ends)."""
+    conn = db or get_db()
+    conn.execute(
+        "DELETE FROM tutor_sessions WHERE user_id = ? AND module_id = ?",
+        (user_id, module_id),
+    )
+    conn.commit()
+
+
+def save_topic_mastery(
+    user_id: str,
+    module_id: str,
+    topic_id: str,
+    mastered: bool,
+    difficulty: str,
+    attempts: int,
+    db: sqlite3.Connection | None = None,
+) -> None:
+    """Upsert per-topic mastery status for a user/module."""
+    conn = db or get_db()
+    conn.execute(
+        """
+        INSERT INTO topic_mastery (user_id, module_id, topic_id, mastered, difficulty, attempts, last_updated)
+        VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+        ON CONFLICT(user_id, module_id, topic_id) DO UPDATE SET
+            mastered     = excluded.mastered,
+            difficulty   = excluded.difficulty,
+            attempts     = excluded.attempts,
+            last_updated = excluded.last_updated
+        """,
+        (user_id, module_id, topic_id, int(mastered), difficulty, attempts),
+    )
+    conn.commit()
+
+
+def get_topic_mastery(
+    user_id: str,
+    module_id: str,
+    db: sqlite3.Connection | None = None,
+) -> list[dict]:
+    """Return per-topic mastery rows for a user/module."""
+    conn = db or get_db()
+    rows = conn.execute(
+        """
+        SELECT topic_id, mastered, difficulty, attempts, last_updated
+        FROM topic_mastery WHERE user_id = ? AND module_id = ?
+        """,
+        (user_id, module_id),
+    ).fetchall()
+    return [dict(r) for r in rows]
