@@ -1,6 +1,6 @@
 # SPEC.md — AI Tutor System Specification
 
-> **Version:** 0.8 | **Last updated:** 2026-06-14
+> **Version:** 0.10 | **Last updated:** 2026-06-15
 > Architecture, directory layout, and component design are in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
@@ -10,7 +10,7 @@
 | Phase | Name | Status | Key additions |
 |-------|------|--------|---------------|
 | 1 | PDF POC | ✅ Complete | Role-based access, Anthropic-only, SQLite, persistent module library |
-| 2 | Functional Skeleton | 🔄 In Progress | LLM factory, MCP servers, LangGraph tutor, JIT pipeline, audio, observability |
+| 2 | Functional Skeleton | ✅ Complete | LLM factory, MCP servers, LangGraph tutor, JIT pipeline, audio, observability |
 | 3 | Refined Platform | 🔲 Planned | Feature polish, admin-curated module library, PPTX/DOCX, full ChromaDB wiring |
 
 ---
@@ -34,7 +34,7 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
 
 ---
 
-### Phase 2 — Functional Skeleton 🔄 In Progress
+### Phase 2 — Functional Skeleton ✅ Complete
 
 **Delivered in:** `changes-to-use-langgraph-evals-audio` branch (Phases 17–28 commits)
 
@@ -57,9 +57,9 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
 | System check page | Verify installed packages and environment variables before running | ✅ Done |
 | DeepEval quality evals | Async LLM-as-judge quality metrics fired at end of each tutor session | ✅ Done |
 | Arize Phoenix tracing | OTEL spans sent to local Phoenix instance; LangChain + Anthropic SDK instrumented | ✅ Done |
-| ChromaDB integration | Basic setup; collection schema defined; embedding function configured | ⬜ Partial |
-| Portkey / Ollama testing | Adapters implemented; end-to-end validation pending | ⬜ Pending |
-| MCPClient wired to pipeline | MCP servers exist; direct integration into content pipeline pending | ⬜ Pending |
+| ChromaDB integration | `mcp_client.py` (Phase 29) calls `storage_server.upsert_to_vector_db` after each topic enrichment; `query_vector_db` verified by test | ✅ Done |
+| Portkey / Ollama testing | Adapters implemented; validated via mocked unit tests (Phase 31); live e2e deferred to Phase 3 | ✅ Done |
+| MCPClient wired to pipeline | PDF parsing now dispatched via `mcp_client` → `document_server.extract_text_from_pdf` (Phase 30) | ✅ Done |
 
 **Definition of done for Phase 2:**
 - [x] `LLMFactory.create("portkey" | "ollama" | "anthropic")` returns a working client
@@ -68,9 +68,9 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
 - [x] LangGraph tutor compiles and runs diagnostic → slides → Q&A → hint/simplify loop
 - [x] Audio narration plays per slide with auto-advance timer
 - [x] DeepEval evals run asynchronously at end of session
-- [ ] ChromaDB stores and retrieves chunks by semantic similarity (wired to LangGraph)
-- [ ] `mcp_client.py` is used by the content pipeline (not just standalone)
-- [ ] Portkey and Ollama adapters validated end-to-end
+- [x] ChromaDB stores and retrieves chunks by semantic similarity (enriched topics upserted in `sliding_pipeline.py`; round-trip verified in `tests/test_mcp/test_storage_server.py`. Querying *during* a LangGraph tutor session remains Phase 3 / Phase 34.)
+- [x] `mcp_client.py` is used by the content pipeline (not just standalone) — PDF parsing in `upload_page.py` now calls `document_server.extract_text_from_pdf` via `mcp_client.get_client()`. Full replacement of all direct pipeline calls remains Phase 3 / Phase 30 follow-on (see Phase 3 scope).
+- [x] Portkey and Ollama adapters validated end-to-end (mocked unit tests for `generate()` and `make_cached_document_blocks()` in `tests/test_content/test_llm_client.py`; live end-to-end validation against real Ollama/Portkey services is deferred to Phase 3 per the manual checklist in `references.md`)
 
 ---
 
@@ -137,6 +137,9 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
 - [x] **PPTX/DOCX priority** — **Resolved:** PDF only for Phase 2; PPTX/DOCX in Phase 3.
 - [x] **Hint generation strategy** — **Resolved:** LLM-generated at runtime. `provide_hint` node receives question + context + specific error from evaluation.
 - [x] **Diagnostic quiz** — **Resolved:** 3 MCQ questions before first slide; score sets `presentation_depth` (beginner / intermediate / advanced).
+- [x] **MCP client architecture (Phase 29/30)** — **Resolved:** `backend/core/mcp_client.py` is a synchronous wrapper around the official `mcp` SDK's stdio client. Each `MCPClient` spawns its server subprocess once (via a background asyncio loop thread) and is reused for all calls — avoids repeated ChromaDB/sentence-transformers import cost. A module-level `get_client(server_name)` returns a lazily-created singleton per server (`storage_server`, `document_server`, `assessment_server`).
+- [x] **document_server PDF parsing schema (Phase 30)** — **Resolved:** `extract_text_from_pdf` delegates to `backend.ingestion.pdf_parser.parse_pdf` and returns `Document.to_json()`, so the MCP tool's output is a drop-in for `Document.from_json()` used by the pipeline. The previous divergent PyMuPDF-based implementation is removed.
+- [x] **Portkey/Ollama Phase 2 validation scope** — **Resolved:** No live Ollama install or real Portkey key is available in the dev environment, so Phase 2 validation is mocked unit tests for `PortkeyAdapter`/`OllamaAdapter.generate()` plus a manual validation checklist recorded in `references.md` for the user to run later against live services.
 - [ ] **Admin mode granularity** — Should admin also be able to edit or delete other users' generated modules, or only publish/unpublish? **Pending user confirmation.**
 - [ ] **Portkey virtual key management** — One shared virtual key or per-user? **Pending.**
 

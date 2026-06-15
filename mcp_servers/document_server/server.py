@@ -5,7 +5,6 @@ Run standalone: PYTHONPATH=. uv run python -m mcp_servers.document_server.server
 """
 from __future__ import annotations
 
-import json
 from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("document_server")
@@ -15,36 +14,13 @@ mcp = FastMCP("document_server")
 def extract_text_from_pdf(file_path: str, max_pages: int = 4) -> str:
     """Extract structured text from a PDF file.
 
-    Returns JSON with title, sections, and metadata.
+    Returns the JSON-encoded `Document` model (see backend.ingestion.models),
+    i.e. the same shape produced by `backend.ingestion.pdf_parser.parse_pdf`.
     """
-    import fitz
+    from backend.ingestion.pdf_parser import parse_pdf
 
-    doc = fitz.open(file_path)
-    pages_to_read = min(max_pages, len(doc))
-
-    sections = []
-    for page_num in range(pages_to_read):
-        page = doc[page_num]
-        text = page.get_text("text").strip()
-        if text:
-            sections.append({
-                "section_id": f"page-{page_num + 1}",
-                "heading": f"Page {page_num + 1}",
-                "body": text,
-                "page_number": page_num + 1,
-            })
-
-    title = doc.metadata.get("title", "") or (
-        sections[0]["body"].split("\n")[0][:100] if sections else "Untitled"
-    )
-
-    result = {
-        "title": title,
-        "total_pages": pages_to_read,
-        "sections": sections,
-    }
-    doc.close()
-    return json.dumps(result)
+    doc = parse_pdf(file_path, max_pages=max_pages)
+    return doc.to_json()
 
 
 @mcp.tool()

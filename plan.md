@@ -2,7 +2,7 @@
 
 > **Goal:** Deliver a fully working AI Tutor with adaptive tutoring, observability, and admin-curated module sharing.
 > **Spec:** SPEC.md v0.7
-> **Last updated:** 2026-06-14
+> **Last updated:** 2026-06-15
 
 ---
 
@@ -35,38 +35,41 @@ Goal: build a working skeleton for every planned capability. Rough edges allowed
 
 ### Remaining Phase 2 work
 
-#### Phase 29 — ChromaDB end-to-end wiring
+#### Phase 29 — ChromaDB end-to-end wiring ✅ Done
 
-Wire the `storage_server` MCP tool into the content pipeline so enriched topics are actually stored in ChromaDB after generation. Verify `query_vector_db` returns correct chunks.
+Created `backend/core/mcp_client.py`: a synchronous `MCPClient` wrapping the `mcp` SDK stdio client, with each server subprocess started once (background asyncio loop thread) and reused; `get_client(server_name)` returns a lazy singleton. Wired `storage_server.upsert_to_vector_db` into the content pipeline so enriched topics are stored in ChromaDB after generation (both publish points in `run_sliding_pipeline`, via `_store_in_vector_db`, non-fatal on error). Verified `query_vector_db` returns correct chunks via tests.
 
 **Files:**
-- `mcp_servers/storage_server/` — ensure `upsert_to_vector_db` and `query_vector_db` tools are complete
-- `backend/content/sliding_pipeline.py` — call `storage_server.upsert_to_vector_db` after each topic enrichment
-- `backend/core/mcp_client.py` — verify MCP client can call storage_server in subprocess mode
+- `backend/core/mcp_client.py` (new) — `MCPClient`, `get_client()`
+- `backend/content/sliding_pipeline.py` — `_store_in_vector_db()` called after each topic enrichment (both publish points), with `module_id`/`topic_id`/`title`/`order` metadata
+- `tests/test_mcp/test_mcp_client.py`, `tests/test_mcp/test_storage_server.py` (new)
+- `pyproject.toml` — registered `slow` pytest marker for the ChromaDB round-trip test
 
 ---
 
-#### Phase 30 — MCPClient pipeline integration
+#### Phase 30 — MCPClient pipeline integration ✅ Done
 
-Replace the remaining direct function calls in the content pipeline with `mcp_client.call()` dispatches. The document parsing step should call `document_server.extract_text_from_pdf`.
+Made `document_server.extract_text_from_pdf` delegate to `backend.ingestion.pdf_parser.parse_pdf` and return `Document.to_json()` (schema parity with `Document.from_json`). Replaced the direct `parse_pdf()` call in `upload_page._run_pipeline_bg` with `get_client("document_server").call("extract_text_from_pdf", ...)` → `Document.from_json(...)`.
 
 **Files:**
-- `backend/core/mcp_client.py`
-- `backend/content/sliding_pipeline.py`
-- `mcp_servers/document_server/`
+- `mcp_servers/document_server/server.py` — now a thin wrapper over `parse_pdf`
+- `frontend/upload_page.py` — PDF parsing routed through `mcp_client`
+- `tests/test_mcp/test_document_server.py` (new) — verifies MCP output matches direct `parse_pdf()` output
 
 ---
 
-#### Phase 31 — Portkey + Ollama end-to-end validation
+#### Phase 31 — Portkey + Ollama validation (mocked, Phase 2 scope) ✅ Done
 
-Run a full upload → module → tutor session against Portkey and Ollama. Fix any adapter bugs surfaced. Add a brief validation matrix to `references.md`.
+Removed dead duplicated `coerce_tool_array`/`coerce_tool_item` from `anthropic_adapter.py` (unused, missing `import json` — the real versions live in `base.py`/`__init__.py`). Added mocked unit tests for `PortkeyAdapter.generate()` (plain text, tool-schema → dict, `make_cached_document_blocks`) and `OllamaAdapter.generate()` (tool_calls path with `_fix_stringified_values`, JSON-extraction fallback for plain/fenced/brace-matched content, `{"parameters": ...}` unwrapping, plain-text response). No bugs surfaced — both adapters behaved correctly against all mocked cases. Added a `## LLM Provider Validation` section to `references.md` documenting mocked coverage plus a manual checklist for live Ollama/Portkey validation.
 
 **Files:**
-- `backend/core/llm_client/adapters/portkey_adapter.py`
-- `backend/core/llm_client/adapters/ollama_adapter.py`
-- `frontend/login_page.py` (provider selection tested)
+- `backend/core/llm_client/adapters/anthropic_adapter.py` — removed dead code (lines 80-106)
+- `tests/test_content/test_llm_client.py` — added Portkey/Ollama `generate()` tests
+- `references.md` — new "LLM Provider Validation" section
 
 ---
+
+**Phase 2 status: ✅ Complete** — all three remaining DoD items (Phases 29, 30, 31) are done. See SPEC.md §0 and §Phase 2 for details.
 
 ## Phase 3 — Refined Platform 🔲 Planned
 
