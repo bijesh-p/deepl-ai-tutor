@@ -71,29 +71,25 @@ Removed dead duplicated `coerce_tool_array`/`coerce_tool_item` from `anthropic_a
 
 **Phase 2 status: ✅ Complete** — all three remaining DoD items (Phases 29, 30, 31) are done. See SPEC.md §0 and §Phase 2 for details.
 
-## Phase 3 — Refined Platform 🔲 Planned
+## Phase 3 — Refined Platform 🔄 In Progress
 
 Goal: production-quality polish and the admin module library feature.
 
-### Phase 32 — Admin mode: published module library
+### Phase 32 — Admin mode: published module library ✅ Done
 
-Add `is_published` flag to modules. Admin user can publish/unpublish a module, making it visible to all users without them generating it themselves.
-
-**Scope:**
-- DB migration: add `is_published INTEGER DEFAULT 0` to `modules` table
-- `backend/analytics/persistence.py` — `publish_module(module_id)`, `unpublish_module(module_id)`, `get_published_modules()`
-- `frontend/module_library_page.py` — show published modules to all users; show publish/unpublish controls only to admin
-- Admin is identified by a configured admin username (or existing password mechanism from Phase 1)
-- Personal modules remain private to the generating user unless published
+Two-mode login: the login page has separate **"User Login"** and **"Admin Login"** tabs, each with their own username field. The User Login tab's password field is disabled (greyed out, "Not required for regular users") — submitting it logs in as a regular user with no admin checks, regardless of whether the username happens to be in `AI_TUTOR_ADMIN_USERNAMES`. The Admin Login tab has an enabled, required password field; submitting validates `is_admin_username(name)` ("This username is not registered as an admin." if not) and `check_admin_password(password)` ("Incorrect admin password." if not) — on success `st.session_state["is_admin"] = True`. Both tabs share a `_do_login(name, is_admin)` helper for the common DB lookup/creation, session-state population, and redirect. Admins can publish/unpublish their own modules — `publish_module` copies the module+question-bank JSON into a new shared DB (`data/shared/ai_tutor.db`, table `published_modules`) and sets `is_published=1` on the personal `modules` row; `unpublish_module` reverses both. The Module Library page now has two sections: "My Modules" (with a Published badge and, for admins, Publish/Unpublish buttons) and "Shared Library" (all published modules, with a "Learn" button that loads directly from the shared DB). The sidebar shows "(Admin)" next to the username when `is_admin` is set.
 
 **Files:**
 | File | Change |
 |---|---|
-| `backend/analytics/db.py` | Add `is_published` column migration |
-| `backend/analytics/persistence.py` | `publish_module`, `unpublish_module`, `get_published_modules` |
-| `frontend/module_library_page.py` | Published section visible to all; admin controls |
-| `frontend/app.py` | Propagate `is_admin` flag into session state |
-| `backend/content/models.py` | Add `is_published: bool = False` to `LearningModule` |
+| `backend/analytics/db.py` | `is_published` column migration on `modules`; new `get_shared_db()` opening `data/shared/ai_tutor.db` (`AI_TUTOR_SHARED_DB_PATH` override) with `published_modules` table |
+| `backend/analytics/auth.py` (new) | `is_admin_username()`, `check_admin_password()` against `AI_TUTOR_ADMIN_USERNAMES`/`AI_TUTOR_ADMIN_PASSWORD` |
+| `backend/analytics/persistence.py` | `publish_module`, `unpublish_module`, `get_published_modules`, `load_published_module`; `list_modules` now returns `is_published` |
+| `frontend/login_page.py` | Two-tab login ("User Login" / "Admin Login") with shared `_do_login()` helper; admin-gate logic via `backend.analytics.auth` |
+| `frontend/module_library_page.py` | "My Modules" (badge + admin publish/unpublish) + "Shared Library" sections |
+| `app.py` | Sidebar shows "(Admin)" when `st.session_state["is_admin"]` |
+| `.env`, `.env.copy` | New `AI_TUTOR_ADMIN_USERNAMES`, `AI_TUTOR_ADMIN_PASSWORD`, `AI_TUTOR_SHARED_DB_PATH` |
+| `tests/test_analytics/test_persistence.py`, `tests/test_analytics/test_auth.py` (new) | Publish/unpublish round-trip + admin auth helper tests |
 
 ---
 
@@ -109,13 +105,13 @@ Wire `SqliteSaver` as the LangGraph checkpointer so sessions resume after page r
 
 ---
 
-### Phase 34 — ChromaDB wired into LangGraph tutor
+### Phase 34 — ChromaDB wired into LangGraph tutor ✅ Done
 
-Replace `concept_content` injection from session state with a ChromaDB `query_vector_db` call inside `present_concept`. Wire `provide_hint` to retrieve additional context chunks.
+Added `_retrieve_context(module_id, query_text, n_results)` to `graph.py`: calls `storage_server.query_vector_db` via `mcp_client` (filtered by `module_id`), joins the returned chunks, and returns `""` on any error (non-fatal, same pattern as `_store_in_vector_db`). `provide_hint` prepends retrieved context (queried with the student's feedback, or the concept title if no feedback) to its prompt. `present_concept` calls `_retrieve_context` with the concept title only when `enriched_topic`/`concept_content` is empty in state, and feeds the result into the existing pipeline-enriched fast path (so depth-adaptation/audio logic is unchanged).
 
 **Files:**
-- `backend/interactive_tutor/nodes.py` — `present_concept` calls `storage_server.query_vector_db`
-- `backend/interactive_tutor/nodes.py` — `provide_hint` retrieves supporting chunks from ChromaDB
+- `backend/interactive_tutor/graph.py` — `_retrieve_context`, wired into `provide_hint` and `present_concept`
+- `tests/test_tutor/__init__.py`, `tests/test_tutor/test_graph_chromadb.py` (new) — retrieval-grounded hint, fallback slide content, non-fatal error handling
 
 ---
 
@@ -161,6 +157,17 @@ Integration tests for MCP servers, LLM factory adapters, and the LangGraph graph
 - `tests/test_mcp/` — test each MCP server tool in subprocess mode
 - `tests/test_llm_client/` — test all three adapters against a mock endpoint
 - `tests/test_tutor/` — test graph compilation and node state transitions
+
+---
+
+### Phase 39 — MCPClient pipeline integration: save_module_to_db ✅ Done
+
+`storage_server.save_module_to_db` gained an optional `db_path` param and now delegates to `backend.analytics.db.get_db(db_path)` + `backend.analytics.persistence.save_module(...)` (same delegation pattern as Phase 30's `extract_text_from_pdf` → `parse_pdf`), so the per-user DB's schema and migrations are applied. The dead `_get_db`/`_DB_PATH` helpers (previously raw `INSERT OR REPLACE` SQL against a fixed `AI_TUTOR_DB_PATH`) were removed. `frontend/upload_page.py`'s save-to-database step now calls `mcp_client.get_client("storage_server").call("save_module_to_db", ..., db_path=db_path)` instead of importing `persistence.save_module`/`db.get_db` directly.
+
+**Files:**
+- `mcp_servers/storage_server/server.py` — `save_module_to_db` delegates via `db_path` param; removed unused `_get_db`/`_DB_PATH`
+- `frontend/upload_page.py` — save step routed through `mcp_client`; removed unused `save_module`/`get_db` imports
+- `tests/test_mcp/test_storage_server_persistence.py` (new) — round-trips a module through the MCP tool and `persistence.load_module`
 
 ---
 

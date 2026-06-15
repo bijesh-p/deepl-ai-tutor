@@ -1,9 +1,10 @@
 import pytest
 import sqlite3
-from backend.analytics.db import get_db
+from backend.analytics.db import get_db, get_shared_db
 from backend.analytics.persistence import (
     save_user, save_attempt, save_module, load_module,
     list_modules, delete_module, get_user_attempts,
+    publish_module, unpublish_module, get_published_modules, load_published_module,
 )
 from backend.analytics.stats import get_module_stats
 from backend.quiz.models import QuizResult, AnswerResult
@@ -12,6 +13,13 @@ from backend.quiz.models import QuizResult, AnswerResult
 @pytest.fixture
 def db():
     conn = get_db(":memory:")
+    yield conn
+    conn.close()
+
+
+@pytest.fixture
+def shared_db():
+    conn = get_shared_db(":memory:")
     yield conn
     conn.close()
 
@@ -115,3 +123,39 @@ def test_get_user_attempts(db):
         save_attempt(r, "easy", db=db)
     attempts = get_user_attempts(uid, "mod-1", db=db)
     assert len(attempts) == 3
+
+
+def test_publish_module_copies_to_shared_db(db, shared_db):
+    uid = save_user("admin", db=db)
+    _save_test_module("mod-1", uid, db)
+
+    publish_module("mod-1", db=db, shared_db=shared_db)
+
+    published = get_published_modules(shared_db)
+    assert len(published) == 1
+    assert published[0]["module_id"] == "mod-1"
+    assert published[0]["created_by"] == uid
+
+    loaded = load_published_module("mod-1", shared_db=shared_db)
+    assert loaded is not None
+    assert loaded["module_json"] == '{"module_id": "mod-1"}'
+
+    modules = list_modules(db=db)
+    assert modules[0]["is_published"] == 1
+
+
+def test_unpublish_module_removes_from_shared_db(db, shared_db):
+    uid = save_user("admin", db=db)
+    _save_test_module("mod-1", uid, db)
+    publish_module("mod-1", db=db, shared_db=shared_db)
+
+    unpublish_module("mod-1", db=db, shared_db=shared_db)
+
+    assert get_published_modules(shared_db) == []
+    modules = list_modules(db=db)
+    assert modules[0]["is_published"] == 0
+
+
+def test_publish_module_not_found_raises(db, shared_db):
+    with pytest.raises(ValueError):
+        publish_module("missing-mod", db=db, shared_db=shared_db)

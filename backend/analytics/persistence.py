@@ -64,7 +64,7 @@ def list_modules(db: sqlite3.Connection | None = None) -> list[dict]:
     """Return all modules ordered by creation date (newest first)."""
     conn = db or get_db()
     rows = conn.execute(
-        "SELECT module_id, title, source_filename, created_by, created_at FROM modules ORDER BY created_at DESC"
+        "SELECT module_id, title, source_filename, created_by, created_at, is_published FROM modules ORDER BY created_at DESC"
     ).fetchall()
     return [dict(r) for r in rows]
 
@@ -75,6 +75,67 @@ def delete_module(module_id: str, db: sqlite3.Connection | None = None) -> None:
     conn.execute("DELETE FROM quiz_attempts WHERE module_id = ?", (module_id,))
     conn.execute("DELETE FROM modules WHERE module_id = ?", (module_id,))
     conn.commit()
+
+
+def publish_module(
+    module_id: str,
+    db: sqlite3.Connection,
+    shared_db: sqlite3.Connection,
+) -> None:
+    """Copy a module into the shared library and mark it as published."""
+    row = load_module(module_id, db=db)
+    if row is None:
+        raise ValueError(f"Module {module_id} not found")
+
+    shared_db.execute(
+        """
+        INSERT OR REPLACE INTO published_modules
+            (module_id, title, source_filename, module_json, question_bank_json, created_by, published_at)
+        VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+        """,
+        (
+            row["module_id"],
+            row["title"],
+            row["source_filename"],
+            row["module_json"],
+            row["question_bank_json"],
+            row["created_by"],
+        ),
+    )
+    shared_db.commit()
+
+    db.execute("UPDATE modules SET is_published = 1 WHERE module_id = ?", (module_id,))
+    db.commit()
+
+
+def unpublish_module(
+    module_id: str,
+    db: sqlite3.Connection,
+    shared_db: sqlite3.Connection,
+) -> None:
+    """Remove a module from the shared library and clear its published flag."""
+    shared_db.execute("DELETE FROM published_modules WHERE module_id = ?", (module_id,))
+    shared_db.commit()
+
+    db.execute("UPDATE modules SET is_published = 0 WHERE module_id = ?", (module_id,))
+    db.commit()
+
+
+def get_published_modules(shared_db: sqlite3.Connection) -> list[dict]:
+    """Return all published modules ordered by publish date (newest first)."""
+    rows = shared_db.execute(
+        "SELECT module_id, title, source_filename, created_by, published_at "
+        "FROM published_modules ORDER BY published_at DESC"
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def load_published_module(module_id: str, shared_db: sqlite3.Connection) -> dict | None:
+    """Load raw JSON strings for a published module. Returns None if not found."""
+    row = shared_db.execute(
+        "SELECT * FROM published_modules WHERE module_id = ?", (module_id,)
+    ).fetchone()
+    return dict(row) if row else None
 
 
 def save_attempt(

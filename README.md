@@ -6,7 +6,7 @@ A web application that transforms PDF documents into interactive, adaptive learn
 
 - **Phase 1 (PDF POC):** ✅ Complete
 - **Phase 2 (Functional Skeleton):** ✅ Complete — LLM factory, MCP tool servers, LangGraph adaptive tutor, JIT content pipeline, audio narration, ChromaDB vector store, and observability (Phoenix + DeepEval) are all implemented and tested.
-- **Phase 3 (Refined Platform):** 🔲 Planned — admin-curated module library, full ChromaDB wiring into the tutor, PPTX/DOCX ingestion, live Portkey/Ollama end-to-end validation.
+- **Phase 3 (Refined Platform):** 🔄 In Progress — admin-curated module library ✅, ChromaDB wired into the LangGraph tutor ✅, PPTX/DOCX ingestion, live Portkey/Ollama end-to-end validation.
 
 See [SPEC.md](SPEC.md) for the full phase breakdown and definitions of done.
 
@@ -17,12 +17,13 @@ See [SPEC.md](SPEC.md) for the full phase breakdown and definitions of done.
 - **Just-in-Time Content** — Upload and start learning within ~30 seconds. Topics are delivered as they are enriched; the rest generates in the background.
 - **Personalised Adaptive Tutor** — LangGraph state machine (diagnostic quiz → depth-adapted slide → Q&A loop). Depth preference and topic mastery persist across sessions per username.
 - **Diagram-Aware Audio** — Each topic slide includes TTS narration (edge-tts) that first describes the diagram, then explains the concept.
-- **MCP Tool Servers** — Document parsing, assessment validation, and storage exposed as standalone MCP servers, dispatched via `backend/core/mcp_client.py`.
-- **ChromaDB Vector Store** — Each enriched topic is upserted into ChromaDB (`all-MiniLM-L6-v2` embeddings) during generation via `storage_server.upsert_to_vector_db`, enabling semantic search over document chunks in `data/chroma/`.
+- **MCP Tool Servers** — Document parsing, assessment validation, and storage exposed as standalone MCP servers, dispatched via `backend/core/mcp_client.py`. The content pipeline routes PDF parsing (`extract_text_from_pdf`), vector-store upserts (`upsert_to_vector_db`), and module persistence (`save_module_to_db`) through `mcp_client` rather than calling backend functions directly.
+- **ChromaDB Vector Store** — Each enriched topic is upserted into ChromaDB (`all-MiniLM-L6-v2` embeddings) during generation via `storage_server.upsert_to_vector_db`, enabling semantic search over document chunks in `data/chroma/`. The LangGraph tutor queries this store via `storage_server.query_vector_db`: `provide_hint` grounds hints in retrieved chunks, and `present_concept` falls back to retrieved content when pipeline-enriched content isn't yet available in session state — both non-fatal on error.
 - **Inline Questions** — Reinforcement questions embedded within each sub-topic for active learning.
 - **Quizzes** — End-of-module quizzes with selectable difficulty, randomised questions, and explanations.
 - **Performance Analytics** — Score tracking with cohort comparison (min/max/avg) across all participants.
 - **LLM Observability** — OTEL traces sent to local Arize Phoenix; DeepEval quality metrics run after each session using the active LLM as judge. Toggle both on/off in the sidebar.
+- **Admin Mode & Shared Library** — The login page has separate "User Login" and "Admin Login" tabs. User Login has no password (regular login, even for admin-listed usernames). Admin Login requires a username from `AI_TUTOR_ADMIN_USERNAMES` plus `AI_TUTOR_ADMIN_PASSWORD` (sidebar shows "(Admin)" on success). Admins can publish/unpublish their own modules to a shared library (`data/shared/ai_tutor.db`), visible to every user in the Module Library's "Shared Library" section.
 
 ## Tech Stack
 
@@ -161,6 +162,10 @@ No new package is required — LangGraph picks this up automatically.
 | `PORTKEY_API_KEY` | `portkey` | Portkey API key | — |
 | `AI_TUTOR_OLLAMA_BASE_URL` | `ollama` | Ollama endpoint | `http://localhost:11434/v1` |
 | `AI_TUTOR_DB_PATH` | — | SQLite database path | `data/ai_tutor.db` |
+| `AI_TUTOR_DB_DIR` | — | Per-user DB directory (`<dir>/<username>/ai_tutor.db`) | `data` |
+| `AI_TUTOR_SHARED_DB_PATH` | — | Shared DB for admin-published modules | `data/shared/ai_tutor.db` |
+| `AI_TUTOR_ADMIN_USERNAMES` | Admin mode | Comma-separated admin usernames | — |
+| `AI_TUTOR_ADMIN_PASSWORD` | Admin mode | Password required for admin usernames | — |
 | `AI_TUTOR_CHROMA_DIR` | — | ChromaDB storage directory | `data/chroma` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | — | Phoenix OTLP endpoint | `http://localhost:6006/v1/traces` |
 | `LANGCHAIN_TRACING_V2` | — | Enable LangSmith tracing | — |

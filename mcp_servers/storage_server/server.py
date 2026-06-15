@@ -7,24 +7,13 @@ from __future__ import annotations
 
 import json
 import os
-import sqlite3
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("storage_server")
 
-_DB_PATH = os.environ.get("AI_TUTOR_DB_PATH", "data/ai_tutor.db")
 _CHROMA_DIR = os.environ.get("AI_TUTOR_CHROMA_DIR", "data/chroma")
-
-
-def _get_db() -> sqlite3.Connection:
-    path = _DB_PATH
-    if path != ":memory:":
-        Path(path).parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path)
-    conn.row_factory = sqlite3.Row
-    return conn
 
 
 def _get_chroma_collection():
@@ -48,19 +37,30 @@ def save_module_to_db(
     module_json: str,
     question_bank_json: str,
     created_by: str,
+    db_path: str | None = None,
 ) -> str:
-    """Save a learning module and its question bank to SQLite."""
-    conn = _get_db()
-    conn.execute(
-        """
-        INSERT OR REPLACE INTO modules
-            (module_id, title, source_filename, module_json, question_bank_json, created_by)
-        VALUES (?, ?, ?, ?, ?, ?)
-        """,
-        (module_id, title, source_filename, module_json, question_bank_json, created_by),
-    )
-    conn.commit()
-    conn.close()
+    """Save a learning module and its question bank to SQLite.
+
+    Delegates to backend.analytics.persistence.save_module via
+    backend.analytics.db.get_db, so the per-user DB's schema and
+    migrations are applied (db_path defaults to AI_TUTOR_DB_PATH).
+    """
+    from backend.analytics.db import get_db
+    from backend.analytics.persistence import save_module
+
+    conn = get_db(db_path)
+    try:
+        save_module(
+            module_id=module_id,
+            title=title,
+            source_filename=source_filename,
+            module_json=module_json,
+            question_bank_json=question_bank_json,
+            created_by=created_by,
+            db=conn,
+        )
+    finally:
+        conn.close()
     return json.dumps({"status": "ok", "module_id": module_id})
 
 
