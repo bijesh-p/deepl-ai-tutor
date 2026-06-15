@@ -23,7 +23,7 @@ See [SPEC.md](SPEC.md) for the full phase breakdown and definitions of done.
 - **Quizzes** — End-of-module quizzes with selectable difficulty, randomised questions, and explanations.
 - **Performance Analytics** — Score tracking with cohort comparison (min/max/avg) across all participants.
 - **LLM Observability** — OTEL traces sent to local Arize Phoenix; DeepEval quality metrics run after each session using the active LLM as judge. Toggle both on/off in the sidebar.
-- **Admin Mode & Shared Library** — Usernames listed in `AI_TUTOR_ADMIN_USERNAMES` require `AI_TUTOR_ADMIN_PASSWORD` at login to become admins (sidebar shows "(Admin)"). Admins can publish/unpublish their own modules to a shared library (`data/shared/ai_tutor.db`), visible to every user in the Module Library's "Shared Library" section.
+- **Admin Mode & Shared Library** — The login page has separate "User Login" and "Admin Login" tabs. User Login has no password (regular login, even for admin-listed usernames). Admin Login requires a username from `AI_TUTOR_ADMIN_USERNAMES` plus `AI_TUTOR_ADMIN_PASSWORD` (sidebar shows "(Admin)" on success). Admins can publish/unpublish their own modules to a shared library (`data/shared/ai_tutor.db`), visible to every user in the Module Library's "Shared Library" section.
 
 ## Tech Stack
 
