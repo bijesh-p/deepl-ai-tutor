@@ -6,7 +6,7 @@ A web application that transforms PDF documents into interactive, adaptive learn
 
 - **Phase 1 (PDF POC):** ✅ Complete
 - **Phase 2 (Functional Skeleton):** ✅ Complete — LLM factory, MCP tool servers, LangGraph adaptive tutor, JIT content pipeline, audio narration, ChromaDB vector store, and observability (Phoenix + DeepEval) are all implemented and tested.
-- **Phase 3 (Refined Platform):** 🔲 Planned — admin-curated module library, full ChromaDB wiring into the tutor, PPTX/DOCX ingestion, live Portkey/Ollama end-to-end validation.
+- **Phase 3 (Refined Platform):** 🔄 In Progress — admin-curated module library ✅, full ChromaDB wiring into the tutor, PPTX/DOCX ingestion, live Portkey/Ollama end-to-end validation.
 
 See [SPEC.md](SPEC.md) for the full phase breakdown and definitions of done.
 
@@ -23,6 +23,7 @@ See [SPEC.md](SPEC.md) for the full phase breakdown and definitions of done.
 - **Quizzes** — End-of-module quizzes with selectable difficulty, randomised questions, and explanations.
 - **Performance Analytics** — Score tracking with cohort comparison (min/max/avg) across all participants.
 - **LLM Observability** — OTEL traces sent to local Arize Phoenix; DeepEval quality metrics run after each session using the active LLM as judge. Toggle both on/off in the sidebar.
+- **Admin Mode & Shared Library** — Usernames listed in `AI_TUTOR_ADMIN_USERNAMES` require `AI_TUTOR_ADMIN_PASSWORD` at login to become admins (sidebar shows "(Admin)"). Admins can publish/unpublish their own modules to a shared library (`data/shared/ai_tutor.db`), visible to every user in the Module Library's "Shared Library" section.
 
 ## Tech Stack
 
@@ -161,6 +162,10 @@ No new package is required — LangGraph picks this up automatically.
 | `PORTKEY_API_KEY` | `portkey` | Portkey API key | — |
 | `AI_TUTOR_OLLAMA_BASE_URL` | `ollama` | Ollama endpoint | `http://localhost:11434/v1` |
 | `AI_TUTOR_DB_PATH` | — | SQLite database path | `data/ai_tutor.db` |
+| `AI_TUTOR_DB_DIR` | — | Per-user DB directory (`<dir>/<username>/ai_tutor.db`) | `data` |
+| `AI_TUTOR_SHARED_DB_PATH` | — | Shared DB for admin-published modules | `data/shared/ai_tutor.db` |
+| `AI_TUTOR_ADMIN_USERNAMES` | Admin mode | Comma-separated admin usernames | — |
+| `AI_TUTOR_ADMIN_PASSWORD` | Admin mode | Password required for admin usernames | — |
 | `AI_TUTOR_CHROMA_DIR` | — | ChromaDB storage directory | `data/chroma` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | — | Phoenix OTLP endpoint | `http://localhost:6006/v1/traces` |
 | `LANGCHAIN_TRACING_V2` | — | Enable LangSmith tracing | — |

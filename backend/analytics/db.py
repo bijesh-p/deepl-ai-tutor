@@ -6,6 +6,7 @@ from pathlib import Path
 
 _DEFAULT_DB = "data/ai_tutor.db"
 _DEFAULT_DB_DIR = "data"
+_DEFAULT_SHARED_DB = "data/shared/ai_tutor.db"
 
 
 def db_path_for_user(username: str) -> str:
@@ -38,7 +39,8 @@ CREATE TABLE IF NOT EXISTS modules (
     module_json        TEXT NOT NULL DEFAULT '',
     question_bank_json TEXT NOT NULL DEFAULT '',
     created_by         TEXT NOT NULL DEFAULT '',
-    created_at         TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at         TEXT NOT NULL DEFAULT (datetime('now')),
+    is_published       INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS quiz_attempts (
@@ -71,7 +73,20 @@ _MIGRATIONS = [
     "ALTER TABLE modules ADD COLUMN created_by TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE user_profiles ADD COLUMN llm_provider TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE user_profiles ADD COLUMN llm_model TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE modules ADD COLUMN is_published INTEGER NOT NULL DEFAULT 0",
 ]
+
+_SHARED_SCHEMA = """
+CREATE TABLE IF NOT EXISTS published_modules (
+    module_id          TEXT PRIMARY KEY,
+    title              TEXT NOT NULL,
+    source_filename    TEXT NOT NULL,
+    module_json        TEXT NOT NULL DEFAULT '',
+    question_bank_json TEXT NOT NULL DEFAULT '',
+    created_by         TEXT NOT NULL DEFAULT '',
+    published_at       TEXT NOT NULL DEFAULT (datetime('now'))
+);
+"""
 
 
 def get_db(db_path: str | None = None) -> sqlite3.Connection:
@@ -90,4 +105,16 @@ def get_db(db_path: str | None = None) -> sqlite3.Connection:
             conn.commit()
         except sqlite3.OperationalError:
             pass  # column already exists
+    return conn
+
+
+def get_shared_db(db_path: str | None = None) -> sqlite3.Connection:
+    """Return a connection to the shared DB of admin-published modules."""
+    path = db_path or os.environ.get("AI_TUTOR_SHARED_DB_PATH", _DEFAULT_SHARED_DB)
+    if path != ":memory:":
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(path)
+    conn.row_factory = sqlite3.Row
+    conn.executescript(_SHARED_SCHEMA)
+    conn.commit()
     return conn

@@ -71,29 +71,25 @@ Removed dead duplicated `coerce_tool_array`/`coerce_tool_item` from `anthropic_a
 
 **Phase 2 status: ✅ Complete** — all three remaining DoD items (Phases 29, 30, 31) are done. See SPEC.md §0 and §Phase 2 for details.
 
-## Phase 3 — Refined Platform 🔲 Planned
+## Phase 3 — Refined Platform 🔄 In Progress
 
 Goal: production-quality polish and the admin module library feature.
 
-### Phase 32 — Admin mode: published module library
+### Phase 32 — Admin mode: published module library ✅ Done
 
-Add `is_published` flag to modules. Admin user can publish/unpublish a module, making it visible to all users without them generating it themselves.
-
-**Scope:**
-- DB migration: add `is_published INTEGER DEFAULT 0` to `modules` table
-- `backend/analytics/persistence.py` — `publish_module(module_id)`, `unpublish_module(module_id)`, `get_published_modules()`
-- `frontend/module_library_page.py` — show published modules to all users; show publish/unpublish controls only to admin
-- Admin is identified by a configured admin username (or existing password mechanism from Phase 1)
-- Personal modules remain private to the generating user unless published
+Two-mode login: regular usernames log in as before (no password). Usernames in `AI_TUTOR_ADMIN_USERNAMES` must additionally provide a password matching `AI_TUTOR_ADMIN_PASSWORD`; on match `st.session_state["is_admin"] = True` and a wrong password rejects the login outright (no fallback to regular user). Admins can publish/unpublish their own modules — `publish_module` copies the module+question-bank JSON into a new shared DB (`data/shared/ai_tutor.db`, table `published_modules`) and sets `is_published=1` on the personal `modules` row; `unpublish_module` reverses both. The Module Library page now has two sections: "My Modules" (with a Published badge and, for admins, Publish/Unpublish buttons) and "Shared Library" (all published modules, with a "Learn" button that loads directly from the shared DB). The sidebar shows "(Admin)" next to the username when `is_admin` is set.
 
 **Files:**
 | File | Change |
 |---|---|
-| `backend/analytics/db.py` | Add `is_published` column migration |
-| `backend/analytics/persistence.py` | `publish_module`, `unpublish_module`, `get_published_modules` |
-| `frontend/module_library_page.py` | Published section visible to all; admin controls |
-| `frontend/app.py` | Propagate `is_admin` flag into session state |
-| `backend/content/models.py` | Add `is_published: bool = False` to `LearningModule` |
+| `backend/analytics/db.py` | `is_published` column migration on `modules`; new `get_shared_db()` opening `data/shared/ai_tutor.db` (`AI_TUTOR_SHARED_DB_PATH` override) with `published_modules` table |
+| `backend/analytics/auth.py` (new) | `is_admin_username()`, `check_admin_password()` against `AI_TUTOR_ADMIN_USERNAMES`/`AI_TUTOR_ADMIN_PASSWORD` |
+| `backend/analytics/persistence.py` | `publish_module`, `unpublish_module`, `get_published_modules`, `load_published_module`; `list_modules` now returns `is_published` |
+| `frontend/login_page.py` | Enabled password field; admin-gate logic via `backend.analytics.auth` |
+| `frontend/module_library_page.py` | "My Modules" (badge + admin publish/unpublish) + "Shared Library" sections |
+| `app.py` | Sidebar shows "(Admin)" when `st.session_state["is_admin"]` |
+| `.env`, `.env.copy` | New `AI_TUTOR_ADMIN_USERNAMES`, `AI_TUTOR_ADMIN_PASSWORD`, `AI_TUTOR_SHARED_DB_PATH` |
+| `tests/test_analytics/test_persistence.py`, `tests/test_analytics/test_auth.py` (new) | Publish/unpublish round-trip + admin auth helper tests |
 
 ---
 

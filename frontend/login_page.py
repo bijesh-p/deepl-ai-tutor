@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import streamlit as st
 
+from backend.analytics.auth import check_admin_password, is_admin_username
 from backend.analytics.db import db_path_for_user, get_db
 from backend.analytics.persistence import load_user_profile, save_user
 
@@ -28,12 +29,11 @@ def render_login_page() -> None:
                 placeholder="e.g. alice",
                 autocomplete="username",
             )
-            st.text_input(
+            password = st.text_input(
                 "Password",
                 type="password",
-                placeholder="(no authentication required)",
-                disabled=True,
-                help="Authentication is not enabled — your username is only used to keep your learning history.",
+                placeholder="(required for admin accounts only)",
+                help="Required for admin accounts only. Regular users can leave this blank.",
             )
             submitted = st.form_submit_button("Sign in", type="primary", use_container_width=True)
 
@@ -43,7 +43,15 @@ def render_login_page() -> None:
                 st.error("Please enter a username.")
                 return
 
+            is_admin = False
+            if is_admin_username(name):
+                if not check_admin_password(password):
+                    st.error("Incorrect admin password.")
+                    return
+                is_admin = True
+
             st.session_state["_last_username"] = name
+            st.session_state["is_admin"] = is_admin
 
             db_path = db_path_for_user(name)
             db = get_db(db_path)

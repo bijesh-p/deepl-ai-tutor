@@ -81,7 +81,8 @@ def _render_sidebar() -> None:
         # ── User badge ────────────────────────────────────────────────────────
         if logged_in:
             username = st.session_state["username"]
-            st.markdown(f"**{username}**")
+            badge = " (Admin)" if st.session_state.get("is_admin") else ""
+            st.markdown(f"**{username}**{badge}")
             if st.button("Sign out", key="_signout"):
                 for k in list(st.session_state.keys()):
                     del st.session_state[k]

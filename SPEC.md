@@ -1,6 +1,6 @@
 # SPEC.md — AI Tutor System Specification
 
-> **Version:** 0.10 | **Last updated:** 2026-06-15
+> **Version:** 0.11 | **Last updated:** 2026-06-15
 > Architecture, directory layout, and component design are in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
@@ -11,7 +11,7 @@
 |-------|------|--------|---------------|
 | 1 | PDF POC | ✅ Complete | Role-based access, Anthropic-only, SQLite, persistent module library |
 | 2 | Functional Skeleton | ✅ Complete | LLM factory, MCP servers, LangGraph tutor, JIT pipeline, audio, observability |
-| 3 | Refined Platform | 🔲 Planned | Feature polish, admin-curated module library, PPTX/DOCX, full ChromaDB wiring |
+| 3 | Refined Platform | 🔄 In Progress | Feature polish, admin-curated module library, PPTX/DOCX, full ChromaDB wiring |
 
 ---
 
@@ -74,29 +74,29 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
 
 ---
 
-### Phase 3 — Refined Platform 🔲 Planned
+### Phase 3 — Refined Platform 🔄 In Progress
 
 **Goal:** Polish all Phase 2 features to production quality, close the remaining integration gaps, and add admin-curated module sharing and broader document format support.
 
 **Scope:**
 
-| Task | Description |
-|---|---|
-| Admin mode | Admin-generated modules are published to a shared library visible to all users. Regular users can still generate personal modules. Adds `is_published` flag on modules and admin publish/unpublish controls. |
-| ChromaDB full wiring | Wire semantic retrieval into the LangGraph `present_concept` node to fetch topic content; wire into `provide_hint` for context-aware hints |
-| MCPClient pipeline integration | Replace direct function calls in content pipeline with `mcp_client.call()` dispatches to MCP servers |
-| Portkey / Ollama validation | End-to-end test matrix: all three providers × PDF upload → module → tutor session |
-| LangGraph tutor polish | Mastery persistence across sessions (`SqliteSaver` checkpointer); mastery report page; cohort mastery analytics |
-| PPTX / DOCX parsing | `pptx_parser.py`, `docx_parser.py` in `backend/ingestion/`; upload page accepts `.pptx` and `.docx` |
-| Audio improvements | Pre-generate audio for all topics (not just on-demand); cache invalidation on re-generation |
-| Observability dashboard | Expose Arize Phoenix and DeepEval results in a dedicated Streamlit page |
-| Error handling polish | Structured user-facing error messages at each pipeline step; retry buttons; partial-failure recovery |
-| Test coverage | Integration tests for MCP servers, LLM factory adapters, and LangGraph graph |
+| Task | Description | Status |
+|---|---|---|
+| Admin mode (Phase 32) | Two-mode login: regular usernames log in as today (no password); usernames in `AI_TUTOR_ADMIN_USERNAMES` must additionally match `AI_TUTOR_ADMIN_PASSWORD` to set `is_admin=True`. Admin-generated modules can be published (copied) to a shared `published_modules` table in `data/shared/ai_tutor.db`, visible to all users in a "Shared Library" section. Admin scope is publish/unpublish of their own modules only — no edit/delete rights over other users' personal modules. | ✅ Done |
+| ChromaDB tutor wiring (Phase 34) | `provide_hint` queries `storage_server.query_vector_db` (filtered by `module_id`) to ground hints in retrieved chunks, non-fatal on error. `present_concept` queries ChromaDB only as a fallback when `enriched_topic`/`concept_content` is empty in state, using the concept title as query text — avoids redundant queries on the normal (pipeline-enriched) fast path. | 🔲 Planned |
+| MCPClient pipeline integration (Phase 39) | Route `save_module_to_db` through `mcp_client` (storage_server gains an optional `db_path` param, delegates to `backend.analytics.db.get_db` + `persistence.save_module`, same pattern as Phase 30's `extract_text_from_pdf`). | 🔲 Planned |
+| Portkey / Ollama validation | End-to-end test matrix: all three providers × PDF upload → module → tutor session | 🔲 Planned |
+| LangGraph tutor polish | Mastery persistence across sessions (`SqliteSaver` checkpointer); mastery report page; cohort mastery analytics | 🔲 Planned |
+| PPTX / DOCX parsing | `pptx_parser.py`, `docx_parser.py` in `backend/ingestion/`; upload page accepts `.pptx` and `.docx` | 🔲 Planned |
+| Audio improvements | Pre-generate audio for all topics (not just on-demand); cache invalidation on re-generation | 🔲 Planned |
+| Observability dashboard | Expose Arize Phoenix and DeepEval results in a dedicated Streamlit page | 🔲 Planned |
+| Error handling polish | Structured user-facing error messages at each pipeline step; retry buttons; partial-failure recovery | 🔲 Planned |
+| Test coverage | Integration tests for MCP servers, LLM factory adapters, and LangGraph graph | 🔲 Planned |
 
 **Definition of done for Phase 3:**
-- [ ] Admin user can publish a module to the shared library; all other users see it in their module library without generating it themselves
-- [ ] LangGraph `present_concept` node retrieves content from ChromaDB (not from session state)
-- [ ] `mcp_client.py` is the sole integration point between pipeline steps and MCP servers
+- [x] Admin user can publish a module to the shared library; all other users see it in their module library without generating it themselves
+- [ ] `provide_hint` retrieves supporting context from ChromaDB; `present_concept` falls back to ChromaDB when pipeline-enriched content is unavailable in state
+- [ ] `save_module_to_db` is routed through `mcp_client` (PDF parsing and vector-store upsert already are, per Phase 29/30)
 - [ ] End-to-end test passes for Portkey and Ollama providers
 - [ ] Mastery state is persisted across sessions (user can resume a tutor session)
 - [ ] Upload page accepts `.pptx` and `.docx` in addition to `.pdf`
@@ -140,7 +140,9 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
 - [x] **MCP client architecture (Phase 29/30)** — **Resolved:** `backend/core/mcp_client.py` is a synchronous wrapper around the official `mcp` SDK's stdio client. Each `MCPClient` spawns its server subprocess once (via a background asyncio loop thread) and is reused for all calls — avoids repeated ChromaDB/sentence-transformers import cost. A module-level `get_client(server_name)` returns a lazily-created singleton per server (`storage_server`, `document_server`, `assessment_server`).
 - [x] **document_server PDF parsing schema (Phase 30)** — **Resolved:** `extract_text_from_pdf` delegates to `backend.ingestion.pdf_parser.parse_pdf` and returns `Document.to_json()`, so the MCP tool's output is a drop-in for `Document.from_json()` used by the pipeline. The previous divergent PyMuPDF-based implementation is removed.
 - [x] **Portkey/Ollama Phase 2 validation scope** — **Resolved:** No live Ollama install or real Portkey key is available in the dev environment, so Phase 2 validation is mocked unit tests for `PortkeyAdapter`/`OllamaAdapter.generate()` plus a manual validation checklist recorded in `references.md` for the user to run later against live services.
-- [ ] **Admin mode granularity** — Should admin also be able to edit or delete other users' generated modules, or only publish/unpublish? **Pending user confirmation.**
+- [x] **Admin mode granularity (Phase 32)** — **Resolved:** Admin can publish/unpublish their own generated modules only — no edit/delete rights over other users' personal modules. Admin identity: usernames in `AI_TUTOR_ADMIN_USERNAMES` must additionally provide `AI_TUTOR_ADMIN_PASSWORD` at login to set `is_admin=True`; non-admin usernames log in as before (no password). Published modules are copied into a new shared DB (`data/shared/ai_tutor.db`, table `published_modules`); personal per-user `modules` rows get an `is_published` flag for UI badge state.
+- [x] **ChromaDB tutor-wiring scope (Phase 34)** — **Resolved:** `provide_hint` retrieves context via `query_vector_db` (filtered by `module_id`, query = student's feedback/struggle) to ground hints; non-fatal on error. `present_concept` queries ChromaDB only when `enriched_topic`/`concept_content` is empty in state (fallback path), using the concept title as query text — the normal pipeline-enriched fast path is unchanged.
+- [x] **save_module_to_db MCP routing (Phase 39)** — **Resolved:** `storage_server.save_module_to_db` gains an optional `db_path` param and delegates to `backend.analytics.db.get_db(db_path)` + `backend.analytics.persistence.save_module(...)` (same delegation pattern as Phase 30's `extract_text_from_pdf`). `frontend/upload_page.py` calls it via `mcp_client` instead of importing `persistence.save_module` directly.
 - [ ] **Portkey virtual key management** — One shared virtual key or per-user? **Pending.**
 
 ---
@@ -155,6 +157,10 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
 | `AI_TUTOR_PORTKEY_VIRTUAL_KEY` | Portkey virtual key | — |
 | `AI_TUTOR_OLLAMA_BASE_URL` | Ollama server URL | `http://localhost:11434` |
 | `AI_TUTOR_DB_PATH` | SQLite file path | `data/ai_tutor.db` |
+| `AI_TUTOR_DB_DIR` | Per-user DB directory (`<dir>/<username>/ai_tutor.db`) | `data` |
+| `AI_TUTOR_SHARED_DB_PATH` | Shared DB for published modules (Phase 32) | `data/shared/ai_tutor.db` |
+| `AI_TUTOR_ADMIN_USERNAMES` | Comma-separated admin usernames (Phase 32) | — |
+| `AI_TUTOR_ADMIN_PASSWORD` | Required password for admin usernames (Phase 32) | — |
 | `AI_TUTOR_UPLOAD_DIR` | Upload directory | `data/uploads` |
 | `AI_TUTOR_MAX_FILE_MB` | Max upload size | `50` |
 | `AI_TUTOR_CHROMA_PATH` | ChromaDB persistence directory | `data/chroma` |
