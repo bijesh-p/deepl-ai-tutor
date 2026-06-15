@@ -95,6 +95,7 @@ def run_sliding_pipeline(
     published: list[EnrichedTopic] = []
     idx = 0
     total_words = len(all_words)
+    module_id = progress.get("module_id", "")
 
     for start in range(0, total_words, chunk_words):
         if abort_event.is_set():
@@ -128,6 +129,7 @@ def run_sliding_pipeline(
             )
             if enriched is not None:
                 published.append(enriched)
+                _store_in_vector_db(enriched, module_id)
                 progress["enriched_topics"] = list(published)
                 progress["topics_enriched"] = len(published)
                 progress["current_topic"] = enriched.topic.title
@@ -161,6 +163,7 @@ def run_sliding_pipeline(
             )
             if enriched is not None:
                 published.append(enriched)
+                _store_in_vector_db(enriched, module_id)
                 progress["enriched_topics"] = list(published)
                 progress["topics_enriched"] = len(published)
                 if len(published) == 1:
@@ -173,6 +176,31 @@ def run_sliding_pipeline(
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+def _store_in_vector_db(enriched: EnrichedTopic, module_id: str) -> None:
+    """Upsert the enriched topic's content into ChromaDB via storage_server.
+
+    Non-fatal: semantic search is a supporting feature, so any failure here
+    must not break slide publishing.
+    """
+    try:
+        from backend.core.mcp_client import get_client
+
+        topic = enriched.topic
+        get_client("storage_server").call(
+            "upsert_to_vector_db",
+            documents=[enriched.content_md],
+            ids=[f"{module_id}:{topic.topic_id}"],
+            metadatas=[{
+                "module_id": module_id,
+                "topic_id": topic.topic_id,
+                "title": topic.title,
+                "order": topic.order,
+            }],
+        )
+    except Exception as exc:
+        print(f"[sliding_pipeline] _store_in_vector_db error ({type(exc).__name__}): {exc}")
+
 
 def _doc_words(doc: Document) -> list[tuple[str, str]]:
     """Return list of (word, section_id) from all sections in reading order."""

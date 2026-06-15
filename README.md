@@ -9,8 +9,8 @@ A web application that transforms PDF documents into interactive, adaptive learn
 - **Just-in-Time Content** — Upload and start learning within ~30 seconds. Topics are delivered as they are enriched; the rest generates in the background.
 - **Personalised Adaptive Tutor** — LangGraph state machine (diagnostic quiz → depth-adapted slide → Q&A loop). Depth preference and topic mastery persist across sessions per username.
 - **Diagram-Aware Audio** — Each topic slide includes TTS narration (edge-tts) that first describes the diagram, then explains the concept.
-- **MCP Tool Servers** — Document parsing, assessment validation, and storage exposed as standalone MCP servers.
-- **ChromaDB Vector Store** — Semantic search over document chunks using `all-MiniLM-L6-v2` embeddings.
+- **MCP Tool Servers** — Document parsing, assessment validation, and storage exposed as standalone MCP servers, dispatched via `backend/core/mcp_client.py`.
+- **ChromaDB Vector Store** — Each enriched topic is upserted into ChromaDB (`all-MiniLM-L6-v2` embeddings) during generation via `storage_server.upsert_to_vector_db`, enabling semantic search over document chunks in `data/chroma/`.
 - **Inline Questions** — Reinforcement questions embedded within each sub-topic for active learning.
 - **Quizzes** — End-of-module quizzes with selectable difficulty, randomised questions, and explanations.
 - **Performance Analytics** — Score tracking with cohort comparison (min/max/avg) across all participants.
@@ -195,6 +195,12 @@ course_project/
 
 ```bash
 PYTHONPATH=. uv run pytest -v
+```
+
+Tests under `tests/test_mcp/` spawn the MCP servers as real subprocesses. `test_storage_server.py` is marked `slow` (it downloads the `all-MiniLM-L6-v2` embedding model on first run); skip it with:
+
+```bash
+PYTHONPATH=. uv run pytest -m "not slow"
 ```
 
 ## Architecture
