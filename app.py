@@ -253,6 +253,14 @@ def main() -> None:
         from frontend.tutor_room import render_tutor_room
         render_tutor_room()
 
+    elif page == "mastery_report":
+        module = st.session_state.get("module")
+        if module is None:
+            st.session_state["page"] = "module_library"
+            st.rerun()
+        from frontend.mastery_report_page import render_mastery_report_page
+        render_mastery_report_page(module)
+
     else:
         st.session_state["page"] = "login"
         st.rerun()

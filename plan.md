@@ -93,7 +93,7 @@ Two-mode login: the login page has separate **"User Login"** and **"Admin Login"
 
 ---
 
-### Phase 33 — Tutor session resume + per-topic mastery persistence 🔄 In Progress
+### Phase 33 — Tutor session resume + per-topic mastery persistence ✅ Done
 
 `tutor_room.py` invokes graph nodes manually via `_run_node()`, never `graph.invoke(state, config=...)`, so a real `SqliteSaver` checkpointer doesn't fit without rewriting the tutor's control flow (see SPEC.md §2, superseded resolution). Instead: a new `tutor_sessions` table stores the serialized `GraphState` dict + UI phase, keyed by `(user_id, module_id)`. On entering the tutor room, if a non-"done" saved session exists for this user/module, restore it and show a "Resuming your previous session" banner with a "Restart from scratch" option; otherwise initialize fresh as before. After every settled render, upsert the current state/phase (or delete the row once `phase == "done"`). Separately, the existing-but-unused `topic_mastery` table (`user_id, module_id, topic_id, mastered, difficulty, attempts, last_updated`) is now written to incrementally — once per concept when it's mastered (slide auto-advance or Q&A success), and as an "in progress" (`mastered=0`) row if the session ends mid-concept.
 
@@ -105,7 +105,7 @@ Two-mode login: the login page has separate **"User Login"** and **"Admin Login"
 
 ---
 
-### Phase 40 — Mastery report page + cohort mastery analytics
+### Phase 40 — Mastery report page + cohort mastery analytics ✅ Done
 
 New standalone page showing a user's per-topic mastery (mastered / in progress / not started, difficulty reached, attempts) for a module, plus a cohort comparison (% of all users who mastered each topic), reachable via a "Mastery Report" button per module in the Module Library — viewable any time, not tied to quiz completion.
 
