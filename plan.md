@@ -58,18 +58,18 @@ Made `document_server.extract_text_from_pdf` delegate to `backend.ingestion.pdf_
 
 ---
 
-#### Phase 31 — Portkey + Ollama validation (mocked, Phase 2 scope)
+#### Phase 31 — Portkey + Ollama validation (mocked, Phase 2 scope) ✅ Done
 
-No live Ollama/Portkey available in dev env, so: add mocked unit tests for `PortkeyAdapter`/`OllamaAdapter.generate()` (tool-calling, plain text, JSON-extraction fallback), fix any bugs surfaced, remove dead duplicated `coerce_tool_array`/`coerce_tool_item` from `anthropic_adapter.py`, and add a manual live-validation checklist to `references.md` for later.
+Removed dead duplicated `coerce_tool_array`/`coerce_tool_item` from `anthropic_adapter.py` (unused, missing `import json` — the real versions live in `base.py`/`__init__.py`). Added mocked unit tests for `PortkeyAdapter.generate()` (plain text, tool-schema → dict, `make_cached_document_blocks`) and `OllamaAdapter.generate()` (tool_calls path with `_fix_stringified_values`, JSON-extraction fallback for plain/fenced/brace-matched content, `{"parameters": ...}` unwrapping, plain-text response). No bugs surfaced — both adapters behaved correctly against all mocked cases. Added a `## LLM Provider Validation` section to `references.md` documenting mocked coverage plus a manual checklist for live Ollama/Portkey validation.
 
 **Files:**
-- `backend/core/llm_client/adapters/anthropic_adapter.py` (remove dead code)
-- `backend/core/llm_client/adapters/portkey_adapter.py`
-- `backend/core/llm_client/adapters/ollama_adapter.py`
-- `tests/test_content/test_llm_client.py`
-- `references.md` (validation matrix)
+- `backend/core/llm_client/adapters/anthropic_adapter.py` — removed dead code (lines 80-106)
+- `tests/test_content/test_llm_client.py` — added Portkey/Ollama `generate()` tests
+- `references.md` — new "LLM Provider Validation" section
 
 ---
+
+**Phase 2 status: ✅ Complete** — all three remaining DoD items (Phases 29, 30, 31) are done. See SPEC.md §0 and §Phase 2 for details.
 
 ## Phase 3 — Refined Platform 🔲 Planned
 

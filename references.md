@@ -63,3 +63,31 @@
 ## Testing
 
 - [pytest Documentation](https://docs.pytest.org/) — Test framework used throughout `tests/`.
+
+## LLM Provider Validation
+
+**Automated (mocked) coverage** — `tests/test_content/test_llm_client.py`:
+
+- **AnthropicAdapter** — plain-text `generate()`, tool-schema `generate()` returns dict, `make_cached_document_blocks()` cache control.
+- **PortkeyAdapter** — same three cases as Anthropic, against a mocked `anthropic.Anthropic` client (Portkey reuses the Anthropic Messages API shape via its gateway).
+- **OllamaAdapter** — `generate()` against a mocked OpenAI `chat.completions.create`:
+  - `tool_calls` present → parsed function arguments returned as a dict, including `_fix_stringified_values` unwrapping nested JSON-as-string fields.
+  - no `tool_calls`, content contains JSON → `_extract_json` handles plain JSON, a ```` ```json ```` fenced block, and a JSON object embedded in prose; `{"parameters": {...}}` wrapper is unwrapped.
+  - plain-text response (no `tool_schema`) → returned as a string.
+- `OllamaAdapter._translate_tool_schema` — Anthropic tool schema → OpenAI function-calling format.
+
+These mocked tests do **not** exercise real network calls — they verify the adapters' request/response handling logic only.
+
+**Manual checklist for live validation** (run once Ollama is installed locally and/or a real `PORTKEY_API_KEY` is configured):
+
+1. **Ollama**
+   - Install Ollama and run `ollama pull llama3.2` (or another tool-calling-capable model).
+   - Set `AI_TUTOR_LLM_PROVIDER=ollama` in `.env`, start `ollama serve`.
+   - `PYTHONPATH=. uv run streamlit run app.py`, upload a PDF, confirm module generation completes and a tutor session runs end-to-end.
+   - Record pass/fail and any provider-specific quirks (e.g. malformed tool-call JSON from smaller models).
+2. **Portkey**
+   - Set `PORTKEY_API_KEY` to a real key and `AI_TUTOR_LLM_PROVIDER=portkey` in `.env`.
+   - Repeat the same upload → module generation → tutor session flow.
+   - Record pass/fail and any provider-specific quirks.
+
+Results of this manual checklist are tracked as part of Phase 3 / Phase 31 follow-on validation (see `SPEC.md` §0 Phase 3 "Portkey / Ollama validation").

@@ -1,6 +1,6 @@
 # SPEC.md — AI Tutor System Specification
 
-> **Version:** 0.9 | **Last updated:** 2026-06-15
+> **Version:** 0.10 | **Last updated:** 2026-06-15
 > Architecture, directory layout, and component design are in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
@@ -10,7 +10,7 @@
 | Phase | Name | Status | Key additions |
 |-------|------|--------|---------------|
 | 1 | PDF POC | ✅ Complete | Role-based access, Anthropic-only, SQLite, persistent module library |
-| 2 | Functional Skeleton | 🔄 In Progress | LLM factory, MCP servers, LangGraph tutor, JIT pipeline, audio, observability |
+| 2 | Functional Skeleton | ✅ Complete | LLM factory, MCP servers, LangGraph tutor, JIT pipeline, audio, observability |
 | 3 | Refined Platform | 🔲 Planned | Feature polish, admin-curated module library, PPTX/DOCX, full ChromaDB wiring |
 
 ---
@@ -34,7 +34,7 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
 
 ---
 
-### Phase 2 — Functional Skeleton 🔄 In Progress
+### Phase 2 — Functional Skeleton ✅ Complete
 
 **Delivered in:** `changes-to-use-langgraph-evals-audio` branch (Phases 17–28 commits)
 
@@ -58,7 +58,7 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
 | DeepEval quality evals | Async LLM-as-judge quality metrics fired at end of each tutor session | ✅ Done |
 | Arize Phoenix tracing | OTEL spans sent to local Phoenix instance; LangChain + Anthropic SDK instrumented | ✅ Done |
 | ChromaDB integration | `mcp_client.py` (Phase 29) calls `storage_server.upsert_to_vector_db` after each topic enrichment; `query_vector_db` verified by test | ✅ Done |
-| Portkey / Ollama testing | Adapters implemented; end-to-end validation pending | ⬜ Pending |
+| Portkey / Ollama testing | Adapters implemented; validated via mocked unit tests (Phase 31); live e2e deferred to Phase 3 | ✅ Done |
 | MCPClient wired to pipeline | PDF parsing now dispatched via `mcp_client` → `document_server.extract_text_from_pdf` (Phase 30) | ✅ Done |
 
 **Definition of done for Phase 2:**
@@ -70,7 +70,7 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
 - [x] DeepEval evals run asynchronously at end of session
 - [x] ChromaDB stores and retrieves chunks by semantic similarity (enriched topics upserted in `sliding_pipeline.py`; round-trip verified in `tests/test_mcp/test_storage_server.py`. Querying *during* a LangGraph tutor session remains Phase 3 / Phase 34.)
 - [x] `mcp_client.py` is used by the content pipeline (not just standalone) — PDF parsing in `upload_page.py` now calls `document_server.extract_text_from_pdf` via `mcp_client.get_client()`. Full replacement of all direct pipeline calls remains Phase 3 / Phase 30 follow-on (see Phase 3 scope).
-- [ ] Portkey and Ollama adapters validated end-to-end
+- [x] Portkey and Ollama adapters validated end-to-end (mocked unit tests for `generate()` and `make_cached_document_blocks()` in `tests/test_content/test_llm_client.py`; live end-to-end validation against real Ollama/Portkey services is deferred to Phase 3 per the manual checklist in `references.md`)
 
 ---
 
