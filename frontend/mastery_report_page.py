@@ -34,7 +34,7 @@ def _render_topic_list(report: MasteryReport) -> None:
     for row in report.topics:
         if row.mastered:
             badge = "✅ Mastered"
-        elif row.attempts > 0:
+        elif row.last_updated is not None:
             badge = "🔶 In progress"
         else:
             badge = "⬜ Not started"

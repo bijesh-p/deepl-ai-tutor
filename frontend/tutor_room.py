@@ -632,11 +632,7 @@ def _end_session(state: dict | None = None) -> None:
                 pass  # profile save is best-effort
 
             # Record an "in progress" mastery row if the session ended mid-concept
-            if (
-                not state.get("concept_mastered")
-                and state.get("attempts", 0) > 0
-                and state.get("current_concept")
-            ):
+            if not state.get("concept_mastered") and state.get("current_concept"):
                 _record_topic_mastery(state, state["current_concept"], mastered=False)
 
             # Clear any resumable session row now that the session has ended
