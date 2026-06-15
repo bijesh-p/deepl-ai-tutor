@@ -160,6 +160,17 @@ Integration tests for MCP servers, LLM factory adapters, and the LangGraph graph
 
 ---
 
+### Phase 39 — MCPClient pipeline integration: save_module_to_db ✅ Done
+
+`storage_server.save_module_to_db` gained an optional `db_path` param and now delegates to `backend.analytics.db.get_db(db_path)` + `backend.analytics.persistence.save_module(...)` (same delegation pattern as Phase 30's `extract_text_from_pdf` → `parse_pdf`), so the per-user DB's schema and migrations are applied. The dead `_get_db`/`_DB_PATH` helpers (previously raw `INSERT OR REPLACE` SQL against a fixed `AI_TUTOR_DB_PATH`) were removed. `frontend/upload_page.py`'s save-to-database step now calls `mcp_client.get_client("storage_server").call("save_module_to_db", ..., db_path=db_path)` instead of importing `persistence.save_module`/`db.get_db` directly.
+
+**Files:**
+- `mcp_servers/storage_server/server.py` — `save_module_to_db` delegates via `db_path` param; removed unused `_get_db`/`_DB_PATH`
+- `frontend/upload_page.py` — save step routed through `mcp_client`; removed unused `save_module`/`get_db` imports
+- `tests/test_mcp/test_storage_server_persistence.py` (new) — round-trips a module through the MCP tool and `persistence.load_module`
+
+---
+
 ## Commit convention
 
 Format: `[Phase N] <short description>`

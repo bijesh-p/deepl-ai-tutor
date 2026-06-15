@@ -12,8 +12,6 @@ from datetime import datetime, timezone
 
 import streamlit as st
 
-from backend.analytics.db import get_db
-from backend.analytics.persistence import save_module
 from backend.core.llm_client import LLMFactory
 
 
@@ -223,22 +221,19 @@ def _run_pipeline_bg(
             progress["state"] = "aborted"
             return
 
-        # Save to database
+        # Save to database via the storage_server MCP tool
         progress["state"] = "saving"
         progress["detail"] = "Saving module..."
-        db = get_db(db_path)
-        try:
-            save_module(
-                module_id=module.module_id,
-                title=module.title,
-                source_filename=doc.source_filename,
-                module_json=module.to_json(),
-                question_bank_json=json.dumps(_bank_to_dict(bank)),
-                created_by=user_id,
-                db=db,
-            )
-        finally:
-            db.close()
+        get_client("storage_server").call(
+            "save_module_to_db",
+            module_id=module.module_id,
+            title=module.title,
+            source_filename=doc.source_filename,
+            module_json=module.to_json(),
+            question_bank_json=json.dumps(_bank_to_dict(bank)),
+            created_by=user_id,
+            db_path=db_path,
+        )
 
         progress["module"] = module
         progress["state"] = "completed"
