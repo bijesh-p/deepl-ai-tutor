@@ -2,10 +2,18 @@
 
 A web application that transforms PDF documents into interactive, adaptive learning modules. Uses a direct LLM pipeline for content generation and a LangGraph state machine for personalised real-time adaptive tutoring.
 
+## Project Status
+
+- **Phase 1 (PDF POC):** ✅ Complete
+- **Phase 2 (Functional Skeleton):** ✅ Complete — LLM factory, MCP tool servers, LangGraph adaptive tutor, JIT content pipeline, audio narration, ChromaDB vector store, and observability (Phoenix + DeepEval) are all implemented and tested.
+- **Phase 3 (Refined Platform):** 🔲 Planned — admin-curated module library, full ChromaDB wiring into the tutor, PPTX/DOCX ingestion, live Portkey/Ollama end-to-end validation.
+
+See [SPEC.md](SPEC.md) for the full phase breakdown and definitions of done.
+
 ## Features
 
 - **PDF Ingestion** — Upload a PDF and extract structured content with heading-aware section splitting, via the `document_server` MCP tool (`extract_text_from_pdf`).
-- **Multi-LLM Support** — Switch between Anthropic Claude, Portkey, or Ollama via sidebar or `.env`.
+- **Multi-LLM Support** — Switch between Anthropic Claude, Portkey, or Ollama via sidebar or `.env`. All three adapters are covered by mocked unit tests (`tests/test_content/test_llm_client.py`); see `references.md` for the live Portkey/Ollama validation checklist.
 - **Just-in-Time Content** — Upload and start learning within ~30 seconds. Topics are delivered as they are enriched; the rest generates in the background.
 - **Personalised Adaptive Tutor** — LangGraph state machine (diagnostic quiz → depth-adapted slide → Q&A loop). Depth preference and topic mastery persist across sessions per username.
 - **Diagram-Aware Audio** — Each topic slide includes TTS narration (edge-tts) that first describes the diagram, then explains the concept.
