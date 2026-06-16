@@ -151,6 +151,7 @@ Structured, user-actionable error messages at each pipeline step. Retry buttons.
 **Files:**
 - `backend/content/sliding_pipeline.py` — `_enrich_one`: guard `enrich()` with try/except so a single bad topic is skipped (returns `None`) rather than killing the pipeline
 - `frontend/upload_page.py` — `_fail()` helper; per-step try/except in `_run_pipeline_bg` (parse, LLM connect, enrich, quiz, save); `progress["module"]` set early after enrichment; failed-state UI with step label, collapsible technical expander, and "Learn with N topic(s) / Retry from scratch" two-column recovery buttons
+- `frontend/tutor_room.py` — `_run_node` catches graph exceptions, stores `tutor_error` in session state, and calls `st.rerun()` to abort the button handler; new `_render_tutor_error` shows a user-readable message + technical expander + "Try again" / "Reset session" buttons
 
 ---
 

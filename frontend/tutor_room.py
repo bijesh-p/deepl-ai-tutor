@@ -46,6 +46,10 @@ def render_tutor_room() -> None:
     phase = st.session_state["tutor_phase"]
     graph = st.session_state["tutor_graph"]
 
+    if st.session_state.get("tutor_error"):
+        _render_tutor_error(module)
+        return
+
     if st.session_state.get("_resumed_session") and phase != "done":
         col_info, col_restart = st.columns([4, 1])
         with col_info:
@@ -561,6 +565,35 @@ def _refresh_content_map(module) -> None:
     st.session_state["tutor_summary_map"] = summary_map
 
 
+def _render_tutor_error(module) -> None:
+    err = st.session_state.get("tutor_error", {})
+    node = err.get("node", "unknown")
+    detail = err.get("detail", "")
+
+    st.error(f"Something went wrong while the tutor was processing: **{node}**")
+    if detail:
+        with st.expander("Technical details"):
+            st.code(detail, language=None)
+
+    col_retry, col_reset = st.columns(2)
+    with col_retry:
+        if st.button("Try again", type="primary", key="_tutor_retry"):
+            st.session_state.pop("tutor_error", None)
+            st.rerun()
+    with col_reset:
+        if st.button("Reset session", type="secondary", key="_tutor_reset"):
+            user_id = st.session_state.get("user_id", "")
+            db = get_db(st.session_state.get("db_path"))
+            try:
+                delete_tutor_session(user_id, module.module_id, db=db)
+            finally:
+                db.close()
+            for key in ("tutor_state", "tutor_phase", "tutor_graph", "tutor_content_map",
+                        "tutor_summary_map", "_resumed_session", "tutor_error"):
+                st.session_state.pop(key, None)
+            st.rerun()
+
+
 def _run_node(graph, state: dict, node_name: str) -> None:
     from backend.interactive_tutor.graph import (
         generate_diagnostic, evaluate_diagnostic,
@@ -579,8 +612,12 @@ def _run_node(graph, state: dict, node_name: str) -> None:
         "advance_concept": _advance_concept,
         "session_complete": _session_complete,
     }
-    updates = node_map[node_name](state)
-    state.update(updates)
+    try:
+        updates = node_map[node_name](state)
+        state.update(updates)
+    except Exception as exc:
+        st.session_state["tutor_error"] = {"node": node_name, "detail": str(exc)}
+        st.rerun()  # abort rest of button handler; next render shows error UI
 
 
 def _render_chat_history(history: list[dict]) -> None:
