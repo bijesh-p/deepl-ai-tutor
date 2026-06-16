@@ -144,14 +144,13 @@ Added `_retrieve_context(module_id, query_text, n_results)` to `graph.py`: calls
 
 ---
 
-### Phase 36 — Error handling and UX polish
+### Phase 36 — Error handling and UX polish ✅ Done
 
 Structured, user-actionable error messages at each pipeline step. Retry buttons. Partial-failure recovery (save topics that succeeded even if later steps fail).
 
 **Files:**
-- `backend/content/sliding_pipeline.py` — per-step error capture and publish
-- `frontend/upload_page.py` — surface step-specific errors with retry controls
-- `frontend/tutor_room.py` — graph error → reset session with checkpoint restore offer
+- `backend/content/sliding_pipeline.py` — `_enrich_one`: guard `enrich()` with try/except so a single bad topic is skipped (returns `None`) rather than killing the pipeline
+- `frontend/upload_page.py` — `_fail()` helper; per-step try/except in `_run_pipeline_bg` (parse, LLM connect, enrich, quiz, save); `progress["module"]` set early after enrichment; failed-state UI with step label, collapsible technical expander, and "Learn with N topic(s) / Retry from scratch" two-column recovery buttons
 
 ---
 
