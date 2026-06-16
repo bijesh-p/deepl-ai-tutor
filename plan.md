@@ -155,14 +155,15 @@ Structured, user-actionable error messages at each pipeline step. Retry buttons.
 
 ---
 
-### Phase 37 — Observability dashboard
+### Phase 37 — Observability dashboard ✅ Done
 
-Expose Arize Phoenix and DeepEval results in a dedicated Streamlit page. Link to Phoenix UI, show per-session eval summary, trend charts.
+Dedicated page (`frontend/observability_page.py`) with two sections: (1) Phoenix trace explorer with `st.link_button` to open the Phoenix UI (base URL derived from `OTEL_EXPORTER_OTLP_ENDPOINT`); (2) DeepEval quality metrics — per-session table + avg score bar chart, queried via `get_eval_results()` in `backend/analytics/stats.py` (LEFT JOIN modules for module title). Navigation added to sidebar ("Observability" button) and module library home page ("📊 Observability" button in header row).
 
 **Files:**
-- `frontend/observability_page.py` (new)
-- `backend/observability/eval_runner.py` — add `get_eval_results(user_id)` query
-- `frontend/app.py` — add page to router
+- `frontend/observability_page.py` (new) — Phoenix section + DeepEval section
+- `backend/analytics/stats.py` — `get_eval_results(user_id, limit, db)` (note: placed in stats.py, not eval_runner.py, for consistency with other query functions)
+- `app.py` — sidebar button + router case
+- `frontend/module_library_page.py` — "📊 Observability" button in header
 
 ---
 

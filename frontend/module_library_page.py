@@ -22,8 +22,12 @@ def render_module_library_page() -> None:
     st.title("Module Library")
     st.caption(f"Welcome, **{st.session_state.get('username', '')}**")
 
-    col1, col2 = st.columns([6, 1])
+    col1, col2, col3 = st.columns([5, 2, 1])
     with col2:
+        if st.button("📊 Observability", key="obs_nav_lib"):
+            st.session_state["page"] = "observability"
+            st.rerun()
+    with col3:
         if st.button("+ New Module"):
             st.session_state["page"] = "upload"
             st.rerun()

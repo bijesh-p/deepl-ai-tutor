@@ -6,7 +6,7 @@ A web application that transforms PDF documents into interactive, adaptive learn
 
 - **Phase 1 (PDF POC):** ✅ Complete
 - **Phase 2 (Functional Skeleton):** ✅ Complete — LLM factory, MCP tool servers, LangGraph adaptive tutor, JIT content pipeline, audio narration, ChromaDB vector store, and observability (Phoenix + DeepEval) are all implemented and tested.
-- **Phase 3 (Refined Platform):** 🔄 In Progress — admin-curated module library ✅, ChromaDB wired into the LangGraph tutor ✅, PPTX/DOCX ingestion ✅, live Portkey/Ollama end-to-end validation.
+- **Phase 3 (Refined Platform):** 🔄 In Progress — admin-curated module library ✅, ChromaDB wired into the LangGraph tutor ✅, PPTX/DOCX ingestion ✅, observability dashboard ✅, live Portkey/Ollama end-to-end validation.
 
 See [SPEC.md](SPEC.md) for the full phase breakdown and definitions of done.
 
@@ -22,7 +22,7 @@ See [SPEC.md](SPEC.md) for the full phase breakdown and definitions of done.
 - **Inline Questions** — Reinforcement questions embedded within each sub-topic for active learning.
 - **Quizzes** — End-of-module quizzes with selectable difficulty, randomised questions, and explanations.
 - **Performance Analytics** — Score tracking with cohort comparison (min/max/avg) across all participants.
-- **LLM Observability** — OTEL traces sent to local Arize Phoenix; DeepEval quality metrics run after each session using the active LLM as judge. Toggle both on/off in the sidebar.
+- **LLM Observability** — OTEL traces sent to local Arize Phoenix; DeepEval quality metrics (AnswerRelevancy, Faithfulness, ExplanationClarity) run after each tutor session using the active LLM as judge. Toggle both on/off in the sidebar. A dedicated **Observability Dashboard** page (reachable from the sidebar or the "📊 Observability" button on the Module Library) shows a Phoenix UI link and a per-session DeepEval results table with average score bar chart.
 - **Admin Mode & Shared Library** — The login page has separate "User Login" and "Admin Login" tabs. User Login has no password (regular login, even for admin-listed usernames). Admin Login requires a username from `AI_TUTOR_ADMIN_USERNAMES` plus `AI_TUTOR_ADMIN_PASSWORD` (sidebar shows "(Admin)" on success). Admins can publish/unpublish their own modules to a shared library (`data/shared/ai_tutor.db`), visible to every user in the Module Library's "Shared Library" section.
 - **Mastery Report** — Click "Mastery Report" on any module in the Module Library to see your per-topic progress (mastered / in progress / not started, difficulty reached, attempts) plus a cohort comparison showing the % of all users who have mastered each topic — viewable any time, not tied to quiz completion.
 

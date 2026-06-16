@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from backend.analytics.db import get_db
 from backend.analytics.models import (
@@ -160,3 +161,47 @@ def get_cohort_mastery(
             )
 
     return CohortMastery(module_id=module_id, topics=topics)
+
+
+def get_eval_results(
+    user_id: str,
+    limit: int = 20,
+    db: sqlite3.Connection | None = None,
+) -> list[dict]:
+    """Return recent DeepEval session results for a user, most recent first.
+
+    Each entry: {"module_id", "title", "evaluated_at", "scores": [{"metric", "score", "threshold", "passed", "reason"}]}
+    """
+    conn = db or get_db()
+    # eval_results is created lazily by eval_runner — ensure it exists so we
+    # can query it safely before any evals have been run.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS eval_results (
+            result_id    TEXT PRIMARY KEY,
+            user_id      TEXT NOT NULL,
+            module_id    TEXT NOT NULL,
+            scores_json  TEXT NOT NULL,
+            evaluated_at TEXT NOT NULL
+        )
+    """)
+    rows = conn.execute(
+        """
+        SELECT e.module_id, COALESCE(m.title, '') AS title,
+               e.scores_json, e.evaluated_at
+        FROM eval_results e
+        LEFT JOIN modules m ON e.module_id = m.module_id
+        WHERE e.user_id = ?
+        ORDER BY e.evaluated_at DESC
+        LIMIT ?
+        """,
+        (user_id, limit),
+    ).fetchall()
+    return [
+        {
+            "module_id": r["module_id"],
+            "title": r["title"],
+            "evaluated_at": r["evaluated_at"],
+            "scores": json.loads(r["scores_json"]),
+        }
+        for r in rows
+    ]

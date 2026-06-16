@@ -173,6 +173,9 @@ def _render_sidebar() -> None:
             if st.button("System Check"):
                 st.session_state["page"] = "system_check"
                 st.rerun()
+            if st.button("Observability"):
+                st.session_state["page"] = "observability"
+                st.rerun()
 
     # Active model caption below sidebar (shown in main area header row)
     if logged_in:
@@ -260,6 +263,10 @@ def main() -> None:
             st.rerun()
         from frontend.mastery_report_page import render_mastery_report_page
         render_mastery_report_page(module)
+
+    elif page == "observability":
+        from frontend.observability_page import render_observability_page
+        render_observability_page()
 
     else:
         st.session_state["page"] = "login"
