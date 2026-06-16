@@ -9,10 +9,17 @@ import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict
 from datetime import datetime, timezone
+from pathlib import Path
 
 import streamlit as st
 
 from backend.core.llm_client import LLMFactory
+
+_TOOL_FOR_EXT: dict[str, str] = {
+    ".pdf": "extract_text_from_pdf",
+    ".pptx": "extract_text_from_pptx",
+    ".docx": "extract_text_from_docx",
+}
 
 
 def render_upload_page() -> None:
@@ -40,13 +47,13 @@ def render_upload_page() -> None:
 
     # ── Upload form ───────────────────────────────────────────────────────────
     st.title("New Module")
-    st.caption("Upload a PDF to create an interactive learning module.")
+    st.caption("Upload a document to create an interactive learning module.")
 
     with st.form("upload_form"):
         uploaded = st.file_uploader(
-            "PDF document",
-            type=["pdf"],
-            help="The document will be converted into slides, diagrams, audio, and quizzes.",
+            "Document",
+            type=["pdf", "pptx", "docx"],
+            help="PDF, PowerPoint (.pptx), or Word (.docx) — converted into slides, diagrams, audio, and quizzes.",
         )
         cached_name = st.session_state.get("_cached_upload_name")
         if cached_name:
@@ -59,23 +66,29 @@ def render_upload_page() -> None:
     if uploaded is None:
         cached = st.session_state.get("_cached_upload_bytes")
         if cached is None:
-            st.error("Please upload a PDF.")
+            st.error("Please upload a PDF, PPTX, or DOCX file.")
             return
         uploaded_bytes = cached
+        file_ext = Path(st.session_state.get("_cached_upload_name", ".pdf")).suffix.lower()
     else:
         uploaded_bytes = uploaded.read()
+        file_ext = Path(uploaded.name).suffix.lower()
         st.session_state["_cached_upload_bytes"] = uploaded_bytes
         st.session_state["_cached_upload_name"] = uploaded.name
 
-    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+    if file_ext not in _TOOL_FOR_EXT:
+        st.error(f"Unsupported file type: {file_ext!r}. Please upload a PDF, PPTX, or DOCX.")
+        return
+
+    with tempfile.NamedTemporaryFile(suffix=file_ext, delete=False) as tmp:
         tmp.write(uploaded_bytes)
         tmp_path = tmp.name
 
-    _start_pipeline(tmp_path, user_id, username, db_path)
+    _start_pipeline(tmp_path, file_ext, user_id, username, db_path)
     st.rerun()
 
 
-def _start_pipeline(tmp_path: str, user_id: str, username: str, db_path: str) -> None:
+def _start_pipeline(tmp_path: str, file_ext: str, user_id: str, username: str, db_path: str) -> None:
     provider = st.session_state.get("llm_provider", "anthropic")
     model = st.session_state.get("llm_model", "claude-sonnet-4-6")
     tracing_enabled = st.session_state.get("tracing_enabled", True)
@@ -112,7 +125,7 @@ def _start_pipeline(tmp_path: str, user_id: str, username: str, db_path: str) ->
 
     thread = threading.Thread(
         target=_run_pipeline_bg,
-        args=(tmp_path, user_id, username, provider, model, db_path, progress, abort_event),
+        args=(tmp_path, file_ext, user_id, username, provider, model, db_path, progress, abort_event),
         daemon=True,
         name="pipeline-worker",
     )
@@ -121,6 +134,7 @@ def _start_pipeline(tmp_path: str, user_id: str, username: str, db_path: str) ->
 
 def _run_pipeline_bg(
     tmp_path: str,
+    file_ext: str,
     user_id: str,
     username: str,
     provider: str,
@@ -138,12 +152,11 @@ def _run_pipeline_bg(
         from backend.quiz.question_bank import generate_question_bank
         tracer = get_tracer() if progress.get("tracing_enabled", True) else _noop_tracer()
 
-        # Parse PDF via the document_server MCP tool
+        # Parse document via the document_server MCP tool
         progress["state"] = "parsing"
-        progress["detail"] = "Reading PDF..."
-        doc_json = get_client("document_server").call(
-            "extract_text_from_pdf", file_path=tmp_path, max_pages=4
-        )
+        progress["detail"] = "Reading document..."
+        tool_name = _TOOL_FOR_EXT[file_ext]
+        doc_json = get_client("document_server").call(tool_name, file_path=tmp_path)
         doc = Document.from_json(doc_json)
         progress["doc_title"] = doc.title
         progress["doc_id"] = doc.doc_id

@@ -129,15 +129,18 @@ Added `_retrieve_context(module_id, query_text, n_results)` to `graph.py`: calls
 
 ---
 
-### Phase 35 — PPTX + DOCX parsing
+### Phase 35 — PPTX + DOCX parsing ✅ Done
 
-Implement `pptx_parser.py` and `docx_parser.py`. Update upload page to accept `.pptx` and `.docx`. Output must conform to the same `Document` / `Section` contracts as the PDF parser.
+`parse_pptx` (max 16 slides, title from `core_properties` or filename stem, each slide body from non-title placeholder text, blank-body slides skipped) and `parse_docx` (max 16 sections, groups paragraphs by heading style, falls back to one section if no headings). MCP `document_server` exposes `extract_text_from_pptx`/`extract_text_from_docx` delegating to the new parsers. `upload_page.py` accepts `["pdf", "pptx", "docx"]` and routes to the right MCP tool via `_TOOL_FOR_EXT`.
 
 **Files:**
-- `backend/ingestion/pptx_parser.py`
-- `backend/ingestion/docx_parser.py`
-- `frontend/upload_page.py` — expand file type filter
-- `mcp_servers/document_server/` — add `extract_text_from_pptx`, `extract_text_from_docx` tools
+- `backend/ingestion/pptx_parser.py` (new)
+- `backend/ingestion/docx_parser.py` (new)
+- `backend/ingestion/__init__.py` — export new parsers
+- `frontend/upload_page.py` — multi-format uploader + `_TOOL_FOR_EXT` routing
+- `mcp_servers/document_server/server.py` — add `extract_text_from_pptx`, `extract_text_from_docx`
+- `tests/test_ingestion/test_pptx_parser.py`, `tests/test_ingestion/test_docx_parser.py` (new)
+- `pyproject.toml` — added `python-pptx`, `python-docx`
 
 ---
 
