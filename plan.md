@@ -167,14 +167,19 @@ Dedicated page (`frontend/observability_page.py`) with two sections: (1) Phoenix
 
 ---
 
-### Phase 38 — Test coverage
+### Phase 38 — Test coverage ✅ Done
 
-Integration tests for MCP servers, LLM factory adapters, and the LangGraph graph (dry-run with mock LLM responses).
+Integration tests for MCP servers, LLM factory adapters, and the LangGraph graph (dry-run with mock LLM responses). 119 tests pass (up from 88).
 
-**Files:**
-- `tests/test_mcp/` — test each MCP server tool in subprocess mode
-- `tests/test_llm_client/` — test all three adapters against a mock endpoint
-- `tests/test_tutor/` — test graph compilation and node state transitions
+**Phase 38A — MCP server gaps:**
+- `tests/test_mcp/test_assessment_server.py` (new) — `validate_json_schema`: valid schemas (learning_module, question, question_bank), missing keys, unknown schema name
+- `tests/test_mcp/test_document_server.py` — added `extract_text_from_pptx` and `extract_text_from_docx` tests; fixtures generated inline via `tmp_path` using `python-pptx` / `python-docx`
+
+**Phase 38B — LangGraph graph node tests:**
+- `tests/test_tutor/test_graph_nodes.py` (new) — 17 tests covering all graph nodes: `generate_diagnostic` (questions populated, non-dict response), `evaluate_diagnostic` (all-correct/none-correct/partial/empty), `present_concept` (fast path with enriched+audio, fallback path via LLM), `ask_question`, `evaluate_response` (correct/incorrect/chat history), `simplify_foundations`, `_advance_concept` (next concept, empty remaining), `_session_complete`
+
+**Phase 38C — Sliding pipeline tests:**
+- `tests/test_content/test_sliding_pipeline.py` (new) — `_enrich_one` skip-on-error (Phase 36), success path, abort; `run_sliding_pipeline` returns topics, updates progress dict, skips failed topics and continues, aborts cleanly
 
 ---
 
