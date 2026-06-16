@@ -284,7 +284,11 @@ def _enrich_one(
     with tracer.start_as_current_span(
         "sliding.enrich", attributes={"topic.title": topic.title}
     ):
-        enriched = enrich(topic, source_text, llm, anchor=anchor)
+        try:
+            enriched = enrich(topic, source_text, llm, anchor=anchor)
+        except Exception as exc:
+            print(f"[sliding_pipeline] skipping topic {topic.title!r} — enrichment failed: {exc}")
+            return None
 
     # Attach anchor to enriched topic
     if anchor.has_diagram:
