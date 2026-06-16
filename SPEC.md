@@ -90,7 +90,7 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
 | PPTX / DOCX parsing (Phase 35) | `pptx_parser.py`, `docx_parser.py` in `backend/ingestion/`; upload page accepts `.pptx` and `.docx`; MCP `document_server` exposes `extract_text_from_pptx`/`extract_text_from_docx` | ✅ Done |
 | Audio improvements | Pre-generate audio for all topics (not just on-demand); cache invalidation on re-generation | 🔲 Planned |
 | Observability dashboard (Phase 37) | Dedicated Streamlit page: Phoenix link + DeepEval per-session metric table + avg score bar chart; nav from sidebar and module library home page | ✅ Done |
-| Error handling polish | Structured user-facing error messages at each pipeline step; retry buttons; partial-failure recovery | 🔲 Planned |
+| Error handling polish (Phase 36) | Structured user-facing error messages at each pipeline step; retry buttons; partial-failure recovery. Pipeline: per-step try/except (parse/LLM/enrich/quiz/save) with `_fail()` helper, step label, technical expander, and "Learn with N topic(s) / Retry from scratch" recovery buttons. Tutor: `_run_node` catches graph exceptions → `tutor_error` in session state → "Try again / Reset session" UI. Single-topic enrichment failure skips that topic instead of killing the pipeline. | ✅ Done |
 | Test coverage | Integration tests for MCP servers, LLM factory adapters, and LangGraph graph | 🔲 Planned |
 
 **Definition of done for Phase 3:**
@@ -100,7 +100,7 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
 - [ ] End-to-end test passes for Portkey and Ollama providers
 - [x] Mastery state is persisted across sessions (user can resume a tutor session)
 - [x] Upload page accepts `.pptx` and `.docx` in addition to `.pdf`
-- [ ] All pipeline failures surface a structured, user-actionable error message
+- [x] All pipeline failures surface a structured, user-actionable error message
 
 ---
 
