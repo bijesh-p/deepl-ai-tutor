@@ -267,8 +267,10 @@ p  { font-weight: 400 !important; line-height: 1.6 !important; }
     counter-reset: none !important;
 }
 
-/* Each radio label → card */
-[data-testid="stRadio"] label {
+/* Each radio label → card.
+   Scoped to [role="radiogroup"] > label (direct children only) so the
+   widget-level <label> outside the group is never counted. */
+[data-testid="stRadio"] [role="radiogroup"] > label {
     counter-increment: quiz-opt !important;
     display: flex !important;
     align-items: center !important;
@@ -283,18 +285,18 @@ p  { font-weight: 400 !important; line-height: 1.6 !important; }
     margin-bottom: 0 !important;
     position: relative !important;
 }
-[data-testid="stRadio"] label:hover {
+[data-testid="stRadio"] [role="radiogroup"] > label:hover {
     border-color: #93C5FD !important;
     background: #F0F8FF !important;
 }
-[data-testid="stRadio"] label:has(input:checked) {
+[data-testid="stRadio"] [role="radiogroup"] > label:has(input:checked) {
     border-color: #2563EB !important;
     background: #EFF6FF !important;
     box-shadow: 0 0 0 3px rgba(37,99,235,0.12) !important;
 }
 
-/* Letter badge A B C D via ::before */
-[data-testid="stRadio"] label::before {
+/* Letter badge A B C D E via ::before */
+[data-testid="stRadio"] [role="radiogroup"] > label::before {
     content: counter(quiz-opt, upper-alpha) !important;
     display: inline-flex !important;
     align-items: center !important;
@@ -311,31 +313,31 @@ p  { font-weight: 400 !important; line-height: 1.6 !important; }
     font-family: 'Inter', sans-serif !important;
     transition: background 0.15s ease, color 0.15s ease !important;
 }
-[data-testid="stRadio"] label:hover::before {
+[data-testid="stRadio"] [role="radiogroup"] > label:hover::before {
     background: #DBEAFE !important;
     color: #1D4ED8 !important;
 }
-[data-testid="stRadio"] label:has(input:checked)::before {
+[data-testid="stRadio"] [role="radiogroup"] > label:has(input:checked)::before {
     background: #2563EB !important;
     color: #FFFFFF !important;
 }
 
 /* Bigger, clearer option text */
-[data-testid="stRadio"] label p,
-[data-testid="stRadio"] label div {
+[data-testid="stRadio"] [role="radiogroup"] > label p,
+[data-testid="stRadio"] [role="radiogroup"] > label div {
     font-size: 14px !important;
     font-weight: 500 !important;
     color: #1F2937 !important;
     line-height: 1.5 !important;
 }
-[data-testid="stRadio"] label:has(input:checked) p,
-[data-testid="stRadio"] label:has(input:checked) div {
+[data-testid="stRadio"] [role="radiogroup"] > label:has(input:checked) p,
+[data-testid="stRadio"] [role="radiogroup"] > label:has(input:checked) div {
     color: #1E40AF !important;
     font-weight: 600 !important;
 }
 
 /* Hide Streamlit's default radio indicator dot (we use ::before badge) */
-[data-testid="stRadio"] label > div:first-child {
+[data-testid="stRadio"] [role="radiogroup"] > label > div:first-child {
     display: none !important;
 }
 
