@@ -9,8 +9,19 @@ from backend.analytics.persistence import load_user_profile, save_user
 _LOGIN_CSS = """
 <style>
 /* ── Login page — full-viewport centred canvas ─────────────────────────── */
-/* Sidebar is not rendered at all on the login page (handled in app.py),
-   so no CSS rule is needed to hide it. */
+
+/* Hide the sidebar on login.
+   The global CSS forces it visible with display:flex !important, but this
+   rule is injected AFTER the global CSS so it wins while on this page.
+   After login Streamlit removes this <style> block; the global CSS then
+   takes back control and the sidebar re-appears automatically. */
+[data-testid="stSidebar"],
+section[data-testid="stSidebar"] {
+    display: none !important;
+    min-width: 0 !important;
+    width: 0 !important;
+    overflow: hidden !important;
+}
 
 /* Hide every Streamlit top-bar element on the login page */
 header[data-testid="stHeader"],
