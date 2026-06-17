@@ -22,10 +22,28 @@ input, select, textarea, p, label,
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
 }
 
-/* Page layout */
-.block-container { padding-top: 1.5rem !important; }
+/* Page layout — compact top padding so content starts near the top,
+   sensible side padding so text isn't jammed against the edge on narrow screens */
+.block-container {
+    padding-top: 0.5rem !important;
+    padding-bottom: 2rem !important;
+    padding-left: 2rem !important;
+    padding-right: 2rem !important;
+    max-width: 960px !important;
+}
+/* Mobile: drop side padding further */
+@media (max-width: 640px) {
+    .block-container {
+        padding-left: 0.75rem !important;
+        padding-right: 0.75rem !important;
+        padding-top: 0.25rem !important;
+    }
+}
 
 /* ── Typography ────────────────────────────────────────────────────────── */
+/* Reset browser default top-margins on headings — they add large invisible gaps
+   at the top of every page section */
+h1, h2, h3, h4 { margin-top: 0 !important; margin-bottom: 0.4rem !important; }
 h1 { font-weight: 700 !important; letter-spacing: -0.025em !important; }
 h2 { font-weight: 600 !important; letter-spacing: -0.015em !important; }
 h3 { font-weight: 600 !important; letter-spacing: -0.01em !important; }
@@ -88,13 +106,33 @@ p  { font-weight: 400 !important; line-height: 1.6 !important; }
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
 }
 
-/* Always show the sidebar expand button after collapse */
-[data-testid="stSidebarCollapsedControl"],
-[data-testid="collapsedControl"] {
+/* Sidebar expand pull-tab — shows as a small coloured handle on the left
+   edge whenever the sidebar is collapsed, so it is always easy to click.
+   Note: font-family is intentionally NOT set here so the Material Symbols
+   chevron glyph inside the button renders correctly. */
+[data-testid="stSidebarCollapsedControl"] {
     display: flex !important;
     visibility: visible !important;
     opacity: 1 !important;
-    z-index: 9999 !important;
+    z-index: 99999 !important;
+    pointer-events: all !important;
+}
+[data-testid="stSidebarCollapsedControl"] button {
+    background: linear-gradient(180deg, #4F46E5 0%, #2563EB 100%) !important;
+    border: none !important;
+    border-radius: 0 10px 10px 0 !important;
+    color: #FFFFFF !important;
+    min-height: 56px !important;
+    min-width: 22px !important;
+    padding: 0 !important;
+    box-shadow: 3px 0 14px rgba(37,99,235,0.35) !important;
+    transition: min-width 0.2s ease, box-shadow 0.2s ease !important;
+    cursor: pointer !important;
+}
+[data-testid="stSidebarCollapsedControl"] button:hover {
+    min-width: 30px !important;
+    box-shadow: 4px 0 20px rgba(37,99,235,0.5) !important;
+    background: linear-gradient(180deg, #4338CA 0%, #1D4ED8 100%) !important;
 }
 
 /* Base text */
@@ -256,12 +294,15 @@ p  { font-weight: 400 !important; line-height: 1.6 !important; }
 
 /* ── Quiz option cards — radio & checkbox as full-width clickable cards ─── */
 
-/* Counter for A / B / C / D letter badges */
+/* Counter for A / B / C / D letter badges.
+   max-width keeps options aligned with question text on wide screens. */
 [data-testid="stRadio"] [role="radiogroup"] {
     counter-reset: quiz-opt !important;
     display: flex !important;
     flex-direction: column !important;
     gap: 8px !important;
+    max-width: 680px !important;
+    width: 100% !important;
 }
 [data-testid="stCheckbox"] {
     counter-reset: none !important;

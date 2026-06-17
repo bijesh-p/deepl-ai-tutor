@@ -11,6 +11,17 @@ _LOGIN_CSS = """
 /* ── Login page — full-viewport centred canvas ─────────────────────────── */
 [data-testid="stSidebar"] { display: none !important; }
 
+/* Hide every Streamlit top-bar element on the login page */
+header[data-testid="stHeader"],
+[data-testid="stHeader"],
+[data-testid="stDecoration"],
+[data-testid="stStatusWidget"],
+[data-testid="stToolbar"],
+[data-testid="stAppToolbar"],
+.stAppToolbar,
+.stHeader,
+#MainMenu { display: none !important; }
+
 /* Stretch the app to full viewport and center everything */
 .stApp {
     background: linear-gradient(145deg, #EEF2FF 0%, #F5F0FF 50%, #EFF6FF 100%) !important;
@@ -133,8 +144,6 @@ def render_login_page() -> None:
             """
 <div style="text-align:center;padding:0.5rem 0 1.5rem;
     font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-  <div style="font-size:3rem;margin-bottom:0.5rem;
-      filter:drop-shadow(0 3px 10px rgba(79,70,229,0.25));">📚</div>
   <div style="font-size:1.9rem;font-weight:800;letter-spacing:-0.03em;
       background:linear-gradient(135deg,#1E1B4B 0%,#4F46E5 50%,#2563EB 100%);
       -webkit-background-clip:text;-webkit-text-fill-color:transparent;

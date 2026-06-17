@@ -185,30 +185,22 @@ def _render_quiz_question() -> None:
     all_answered = answered_count == total_q
 
     diff_icon, diff_label, _, diff_bg, diff_border, diff_fg = _DIFFICULTY_META[difficulty]
-
-    # ── Header ───────────────────────────────────────────────────────────────
-    col_title, col_badge = st.columns([4, 1])
-    with col_title:
-        st.markdown("## Quiz")
-    with col_badge:
-        st.markdown(
-            f"<div style='margin-top:14px;text-align:right;'>"
-            f"<span style='background:{diff_bg};color:{diff_fg};border:1px solid {diff_border};"
-            f"padding:4px 12px;border-radius:999px;font-size:12px;font-weight:600;'>"
-            f"{diff_icon} {diff_label}</span></div>",
-            unsafe_allow_html=True,
-        )
-
-    # ── Progress bar + stats ──────────────────────────────────────────────────
     unanswered = total_q - answered_count
+
+    # ── Compact header: title + badge + progress stats in one HTML block ──────
     st.markdown(
-        f"<div style='display:flex;justify-content:space-between;align-items:center;"
-        f"font-size:12px;color:#6B7280;margin-bottom:4px;'>"
-        f"<span>Question <b style='color:#1E1B4B;'>{idx + 1}</b> of {total_q}</span>"
-        f"<span style='display:flex;gap:12px;'>"
-        f"<span style='color:#10B981;font-weight:600;'>✓ {answered_count} answered</span>"
-        f"<span style='color:#9CA3AF;'>{unanswered} remaining</span>"
-        f"</span></div>",
+        f"<div style='display:flex;align-items:center;justify-content:space-between;"
+        f"margin-bottom:6px;flex-wrap:wrap;gap:6px;'>"
+        f"<h2 style='margin:0;font-size:1.3rem;font-weight:700;color:#1E1B4B;'>Quiz</h2>"
+        f"<div style='display:flex;align-items:center;gap:10px;flex-wrap:wrap;'>"
+        f"<span style='font-size:12px;color:#10B981;font-weight:600;'>✓ {answered_count}</span>"
+        f"<span style='font-size:12px;color:#9CA3AF;'>{unanswered} left</span>"
+        f"<span style='background:{diff_bg};color:{diff_fg};border:1px solid {diff_border};"
+        f"padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;'>"
+        f"{diff_icon} {diff_label}</span>"
+        f"</div></div>"
+        f"<div style='font-size:11px;color:#9CA3AF;margin-bottom:4px;'>"
+        f"Question <b style='color:#1E1B4B;'>{idx + 1}</b> / {total_q}</div>",
         unsafe_allow_html=True,
     )
     st.progress((idx + 1) / total_q)
@@ -219,20 +211,19 @@ def _render_quiz_question() -> None:
     # ── Question card ─────────────────────────────────────────────────────────
     st.markdown(question_card_html(idx + 1, q.question_text, q.question_type), unsafe_allow_html=True)
 
-    # ── Answer inputs ─────────────────────────────────────────────────────────
-    with st.container(border=True):
-        if q.question_type == "single_choice":
-            st.radio(
-                label="",
-                options=q.options,
-                index=None,
-                key=f"quiz_q_{q.question_id}",
-                label_visibility="collapsed",
-            )
-        else:
-            st.caption("Select all that apply:")
-            for j, opt in enumerate(q.options):
-                st.checkbox(opt, key=f"quiz_q_{q.question_id}_opt_{j}")
+    # ── Answer inputs (no extra border container — CSS cards handle styling) ──
+    if q.question_type == "single_choice":
+        st.radio(
+            label="",
+            options=q.options,
+            index=None,
+            key=f"quiz_q_{q.question_id}",
+            label_visibility="collapsed",
+        )
+    else:
+        st.caption("Select all that apply:")
+        for j, opt in enumerate(q.options):
+            st.checkbox(opt, key=f"quiz_q_{q.question_id}_opt_{j}")
 
     # Persist current widget state immediately after rendering
     _save_widget_state(q, ss)
@@ -241,9 +232,8 @@ def _render_quiz_question() -> None:
     answered_count = sum(1 for q2 in questions if _is_answered(q2, ss))
     all_answered = answered_count == total_q
 
-    st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
-
     # ── Prev / Next navigation row ────────────────────────────────────────────
+    st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
     col_prev, col_mid, col_next = st.columns([1, 2, 1])
 
     with col_prev:
@@ -253,13 +243,13 @@ def _render_quiz_question() -> None:
 
     with col_mid:
         if not _is_answered(q, ss):
-            hint_color, hint_text = "#F59E0B", "Select an answer to continue"
+            hint_color, hint_text = "#F59E0B", "Select an answer"
         elif not is_last:
-            hint_color, hint_text = "#10B981", "Answered — click Next"
+            hint_color, hint_text = "#10B981", "Answered — Next ›"
         elif all_answered:
-            hint_color, hint_text = "#2563EB", "All done! Click Submit below."
+            hint_color, hint_text = "#2563EB", "All done! Submit ↓"
         else:
-            hint_color, hint_text = "#F59E0B", f"{answered_count} of {total_q} answered"
+            hint_color, hint_text = "#F59E0B", f"{answered_count}/{total_q} answered"
         st.markdown(
             f"<div style='text-align:center;font-size:12px;color:{hint_color};"
             f"padding-top:6px;font-weight:600;'>{hint_text}</div>",
@@ -272,12 +262,11 @@ def _render_quiz_question() -> None:
             st.rerun()
 
     # ── Persistent Submit button (always visible) ─────────────────────────────
-    st.markdown("<div style='height:18px;'></div>", unsafe_allow_html=True)
     st.markdown(
-        f"<div style='border-top:1px solid #E5E7EB;padding-top:16px;'>"
-        f"<div style='font-size:12px;color:#9CA3AF;margin-bottom:8px;text-align:center;'>"
-        f"{'All questions answered — ready to submit.' if all_answered else f'{answered_count} of {total_q} questions answered'}"
-        f"</div></div>",
+        f"<div style='border-top:1px solid #E5E7EB;margin-top:10px;padding-top:10px;"
+        f"font-size:11px;color:#9CA3AF;text-align:center;margin-bottom:6px;'>"
+        f"{'All questions answered — ready to submit.' if all_answered else f'{answered_count} of {total_q} answered'}"
+        f"</div>",
         unsafe_allow_html=True,
     )
     if st.button(
