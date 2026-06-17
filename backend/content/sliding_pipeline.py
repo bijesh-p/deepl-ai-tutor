@@ -91,6 +91,11 @@ def run_sliding_pipeline(
     Returns the final list of published EnrichedTopics.
     """
     all_words = _doc_words(doc)
+    if not all_words:
+        raise ValueError(
+            "No text could be extracted from this document. "
+            "It may be a scanned image PDF. Please use a text-based PDF, PPTX, or DOCX."
+        )
     accumulated: list[tuple[str, str]] = []   # (word, section_id)
     published: list[EnrichedTopic] = []
     idx = 0
@@ -225,7 +230,8 @@ def _assess(llm, accumulated: list[tuple[str, str]]) -> dict:
     except Exception as exc:
         print(f"[sliding_pipeline] _assess error ({type(exc).__name__}): {exc}")
         traceback.print_exc()
-        return {"is_presentable": False, "concept_title": "", "concept_summary": "", "reason": f"error: {exc}"}
+        # Fail-open: treat as presentable so force-publish always fires
+        return {"is_presentable": True, "concept_title": "", "concept_summary": "", "reason": f"assessment error, defaulting to presentable: {exc}"}
 
 
 def _make_topic(assessment: dict, accumulated: list[tuple[str, str]], idx: int) -> Topic:
@@ -244,6 +250,26 @@ def _make_topic(assessment: dict, accumulated: list[tuple[str, str]], idx: int) 
         summary=assessment.get("concept_summary", ""),
         source_section_ids=section_ids,
         order=idx,
+    )
+
+
+def _make_raw_fallback(topic: Topic, source_text: str) -> EnrichedTopic:
+    """Return a minimal EnrichedTopic from raw text when LLM enrichment fails.
+
+    The anchor-attachment code in _enrich_one runs after this, so diagrams/bullets
+    are still added on top of the raw excerpt.
+    """
+    excerpt = source_text[:2000].strip()
+    sentences = [s.strip() for s in excerpt.replace("\n", ". ").split(". ") if s.strip()]
+    takeaways = sentences[:3] or [topic.summary or "Content from this section."]
+    return EnrichedTopic(
+        topic=topic,
+        content_md=excerpt,
+        key_takeaways=takeaways,
+        top_concepts=[topic.title],
+        diagrams=[],
+        inline_questions=[],
+        audio_path="",
     )
 
 
@@ -287,8 +313,8 @@ def _enrich_one(
         try:
             enriched = enrich(topic, source_text, llm, anchor=anchor)
         except Exception as exc:
-            print(f"[sliding_pipeline] skipping topic {topic.title!r} — enrichment failed: {exc}")
-            return None
+            print(f"[sliding_pipeline] enrichment LLM failed for {topic.title!r}: {exc}. Using raw-text fallback.")
+            enriched = _make_raw_fallback(topic, source_text)
 
     # Attach anchor to enriched topic
     if anchor.has_diagram:

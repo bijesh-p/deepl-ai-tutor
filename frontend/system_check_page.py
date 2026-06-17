@@ -31,23 +31,56 @@ _ENV_VARS = {
 def render_system_check_page() -> None:
     st.title("System Health Check")
 
-    provider = st.session_state.get("llm_provider", "anthropic")
-    model = st.session_state.get("llm_model", "")
+    provider = st.session_state.get(
+        "llm_provider",
+        os.environ.get("AI_TUTOR_LLM_PROVIDER", "anthropic"),
+    )
+    model = st.session_state.get(
+        "llm_model",
+        os.environ.get("AI_TUTOR_LLM_MODEL", ""),
+    )
 
+    # ── LLM Connectivity ─────────────────────────────────────────────────────
     st.header("LLM Connectivity")
-    st.caption(f"Testing **{provider}** / `{model}` (change in sidebar)")
+    st.caption(f"Provider: **{provider}** | Model: `{model or '(env default)'}` — change in the sidebar")
+
     _show_env_status(provider)
 
-    if st.button("Test LLM Connection", type="primary"):
-        _test_llm()
+    with st.spinner("Testing LLM connection…"):
+        ok, detail = _run_llm_test(provider, model)
+
+    if ok:
+        st.success(f"Connected — {detail}")
+    else:
+        st.error(f"Connection failed — {detail}")
+
+    if st.button("Re-test Connection", type="primary"):
+        _run_llm_test.clear()
+        st.rerun()
 
     st.markdown("---")
 
+    # ── Component Checks ─────────────────────────────────────────────────────
     st.header("Component Checks")
     if st.button("Run All Checks"):
         _check_database()
         _check_ollama_server()
         _check_packages()
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def _run_llm_test(provider: str, model: str) -> tuple[bool, str]:
+    """Run a lightweight API ping. Cached for 120 s; clear with .clear()."""
+    import traceback
+    from dotenv import load_dotenv
+    load_dotenv(override=True)  # re-apply .env so OS-level stale vars don't win
+    try:
+        from backend.core.llm_client import LLMFactory
+        client = LLMFactory.create(provider=provider, model=model or None)
+        response = client.generate("Reply with the single word: OK")
+        return True, f"model `{client.model}` → `{response}`"
+    except Exception as exc:
+        return False, f"{type(exc).__name__}: {exc}\n\n```\n{traceback.format_exc()}\n```"
 
 
 def _mask(value: str) -> str:
@@ -63,27 +96,14 @@ def _show_env_status(provider: str) -> None:
         if value and value not in ("your-anthropic-api-key-here", "your-portkey-api-key-here"):
             st.info(f"`{var}` = `{_mask(value)}`")
         else:
-            st.warning(f"`{var}` is **not set**")
-
-
-def _test_llm() -> None:
-    try:
-        from backend.core.llm_client import LLMFactory
-
-        with st.spinner("Connecting..."):
-            client = LLMFactory.create()
-            response = client.generate("Reply with the single word: OK")
-        st.success(f"Connected — model: `{client.model}`, response: `{response}`")
-    except Exception as e:
-        st.error(f"Connection failed: {e}")
+            st.warning(f"`{var}` is **not set** — add it to `.env` and restart the app")
 
 
 def _check_database() -> None:
     try:
         from backend.analytics.db import get_db
 
-        import streamlit as _st
-        db_path = _st.session_state.get("db_path") or os.environ.get("AI_TUTOR_DB_PATH", "data/ai_tutor.db")
+        db_path = st.session_state.get("db_path") or os.environ.get("AI_TUTOR_DB_PATH", "data/ai_tutor.db")
         conn = get_db(db_path)
         conn.execute("SELECT 1")
         st.success(f"Database — OK (`{db_path}`)")

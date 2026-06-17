@@ -7,7 +7,7 @@ import fitz  # PyMuPDF
 
 from backend.ingestion.models import Document, Section, SourceType
 
-_DEFAULT_MAX_PAGES = 4
+_DEFAULT_MAX_PAGES = 10
 
 
 def parse_pdf(file_path: str, max_pages: int = _DEFAULT_MAX_PAGES) -> Document:

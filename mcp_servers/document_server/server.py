@@ -11,7 +11,7 @@ mcp = FastMCP("document_server")
 
 
 @mcp.tool()
-def extract_text_from_pdf(file_path: str, max_pages: int = 4) -> str:
+def extract_text_from_pdf(file_path: str, max_pages: int = 10) -> str:
     """Extract structured text from a PDF file.
 
     Returns the JSON-encoded `Document` model (see backend.ingestion.models),

@@ -14,6 +14,16 @@ from pathlib import Path
 import streamlit as st
 
 from backend.core.llm_client import LLMFactory
+from frontend.styles import (
+    step_progress_html,
+    page_header_html,
+    parsing_status_html,
+    slide_chips_html,
+    skeleton_slide_html,
+    quiz_generating_html,
+    saving_status_html,
+    bouncing_dots_html,
+)
 
 _TOOL_FOR_EXT: dict[str, str] = {
     ".pdf": "extract_text_from_pdf",
@@ -40,25 +50,49 @@ def render_upload_page() -> None:
             # Pipeline finished in the background — redirect now
             _handle_completed(progress)
             return
-        if state not in ("failed", "aborted"):
+        if state == "aborted":
+            elapsed = int(time.monotonic() - progress.get("started_at", time.monotonic()))
+            done = progress.get("topics_enriched", 0)
+            st.warning(
+                f"Generation cancelled after {elapsed}s."
+                + (f" {done} slide(s) had been generated." if done else "")
+            )
+            _cleanup_pipeline_state()
+            # fall through to show upload form
+        elif state not in ("failed",):
             _pipeline_status_fragment()
             return
-        # failed/aborted fall through to upload form below
+        # failed falls through to upload form below
 
     # ── Upload form ───────────────────────────────────────────────────────────
-    st.title("New Module")
-    st.caption("Upload a document to create an interactive learning module.")
+    st.markdown(
+        page_header_html(
+            "New Learning Module",
+            "Upload a document and AI Tutor will generate slides, diagrams, audio, and a quiz for you.",
+            "📄",
+        ),
+        unsafe_allow_html=True,
+    )
 
     with st.form("upload_form"):
         uploaded = st.file_uploader(
-            "Document",
+            "Choose a document",
             type=["pdf", "pptx", "docx"],
-            help="PDF, PowerPoint (.pptx), or Word (.docx) — converted into slides, diagrams, audio, and quizzes.",
+            help="PDF, PowerPoint (.pptx), or Word (.docx) — up to 10 pages processed.",
+            label_visibility="collapsed",
         )
         cached_name = st.session_state.get("_cached_upload_name")
         if cached_name:
-            st.info(f"Previous file **{cached_name}** will be re-used if no new file is chosen.")
-        submitted = st.form_submit_button("Start Learning", type="primary")
+            st.info(f"Re-using **{cached_name}** — upload a new file to replace it.")
+        col_btn, col_hint = st.columns([1, 3])
+        with col_btn:
+            submitted = st.form_submit_button("Start Learning →", type="primary", use_container_width=True)
+        with col_hint:
+            st.markdown(
+                "<div style='padding-top:8px;font-size:12px;color:#9CA3AF;'>"
+                "Processing takes 1–3 minutes depending on document length.</div>",
+                unsafe_allow_html=True,
+            )
 
     if not submitted:
         return
@@ -217,6 +251,10 @@ def _run_pipeline_bg(
             enriched_topics = run_sliding_pipeline(
                 doc, llm, progress, abort_event, tracer
             )
+        except ValueError as exc:
+            # Raised when the document has no extractable text (e.g. scanned image PDF)
+            _fail(progress, "enrich", exc, str(exc))
+            return
         except Exception as exc:
             partial = progress.get("enriched_topics", [])
             detail = (
@@ -238,8 +276,7 @@ def _run_pipeline_bg(
 
         if not enriched_topics:
             _fail(progress, "enrich", None,
-                  "No presentable concepts could be extracted from this document. "
-                  "Try a document with clearer headings or more text content.")
+                  "No slides could be generated. The document may have very little text content.")
             return
 
         module = LearningModule(
@@ -299,6 +336,10 @@ def _run_pipeline_bg(
             os.unlink(tmp_path)
 
 
+_PIPELINE_STEPS = ["Upload", "Parse", "Generate Slides", "Quiz", "Save"]
+_STATE_TO_STEP = {"parsing": 1, "enriching": 2, "quiz": 3, "saving": 4}
+
+
 @st.fragment(run_every=2)
 def _pipeline_status_fragment() -> None:
     progress = st.session_state.get("pipeline_progress")
@@ -308,8 +349,22 @@ def _pipeline_status_fragment() -> None:
     state = progress["state"]
     elapsed = int(time.monotonic() - progress["started_at"])
 
-    if state in ("parsing",):
-        st.info(f"{progress['detail'] or 'Preparing...'} ({elapsed}s)")
+    if state == "failed":
+        _render_failed_state(progress, elapsed)
+        return
+
+    if state == "aborted":
+        st.rerun()
+        return
+
+    # ── Step progress bar (always shown) ─────────────────────────────────────
+    step_idx = _STATE_TO_STEP.get(state, 1)
+    st.markdown(step_progress_html(_PIPELINE_STEPS, step_idx), unsafe_allow_html=True)
+
+    # ── Per-state animated status cards ──────────────────────────────────────
+    if state == "parsing":
+        detail = progress.get("detail") or "Reading document…"
+        st.markdown(parsing_status_html(detail, elapsed), unsafe_allow_html=True)
 
     elif state == "enriching":
         if progress.get("ready"):
@@ -317,74 +372,97 @@ def _pipeline_status_fragment() -> None:
             return
 
         done = progress.get("topics_enriched", 0)
-        detail = progress.get("detail", "Reading document...")
-        st.info(f"{detail} ({elapsed}s)")
-        if done > 0:
-            st.metric("Slides ready", done)
+        total = progress.get("total_topics", 0)
+        enriched = progress.get("enriched_topics", [])
+        current = progress.get("current_topic", "")
+
+        # Slide chips — completed (green) + current (pulsing blue)
+        st.markdown(slide_chips_html(enriched, current, total), unsafe_allow_html=True)
+
+        # Skeleton shimmer for the in-flight slide
+        if current:
+            st.markdown(skeleton_slide_html(f"Writing «{current}»…"), unsafe_allow_html=True)
+        elif done == 0:
+            st.markdown(skeleton_slide_html("Connecting to AI…"), unsafe_allow_html=True)
+
+        # Progress bar
+        if total > 0 and done > 0:
+            frac = min(done / total, 1.0)
+            st.progress(frac, text=f"{done} of ~{total} slides ready")
+
+        # Stats row
+        col_stat, col_abort = st.columns([3, 1])
+        with col_stat:
+            elapsed_str = f"{elapsed}s" if elapsed > 0 else ""
+            hint = f"Generating slides — {elapsed_str} elapsed" if elapsed_str else "Generating slides…"
+            st.caption(hint)
+        with col_abort:
+            _abort_button()
+
+    elif state == "quiz":
+        st.markdown(quiz_generating_html(elapsed), unsafe_allow_html=True)
         _abort_button()
 
-    elif state in ("quiz", "saving"):
-        st.info(f"{progress['detail']} ({elapsed}s)")
-        _abort_button()
+    elif state == "saving":
+        st.markdown(saving_status_html(elapsed), unsafe_allow_html=True)
 
-    elif state == "failed":
-        step = progress.get("failed_step", "")
-        error_msg = progress.get("error", "An unexpected error occurred.")
-        error_detail = progress.get("error_detail", "")
-        partial_topics = progress.get("enriched_topics", [])
-        partial_module = progress.get("module")
-        partial_bank = progress.get("bank")
 
-        st.error(error_msg)
-        st.caption(f"Failed at step: **{step or 'unknown'}** · {elapsed}s elapsed")
+def _render_failed_state(progress: dict, elapsed: int) -> None:
+    step = progress.get("failed_step", "")
+    error_msg = progress.get("error", "An unexpected error occurred.")
+    error_detail = progress.get("error_detail", "")
+    partial_topics = progress.get("enriched_topics", [])
+    partial_module = progress.get("module")
+    partial_bank = progress.get("bank")
 
-        if error_detail:
-            with st.expander("Technical details"):
-                st.code(error_detail, language=None)
+    st.markdown(
+        f"""<div style="padding:16px 20px;background:#FEF2F2;border:1px solid #FECACA;border-left:4px solid #EF4444;border-radius:10px;margin-bottom:12px;">
+  <div style="font-weight:700;color:#991B1B;font-size:15px;margin-bottom:4px;">Generation failed</div>
+  <div style="color:#7F1D1D;font-size:14px;">{error_msg}</div>
+  <div style="font-size:11px;color:#9CA3AF;margin-top:8px;">Step: <b>{step or 'unknown'}</b> · {elapsed}s elapsed</div>
+</div>""",
+        unsafe_allow_html=True,
+    )
 
-        can_recover = (
-            (step in ("quiz", "save") and partial_module is not None) or
-            (step == "enrich" and len(partial_topics) >= 1)
-        )
+    if error_detail:
+        with st.expander("Technical details"):
+            st.code(error_detail, language=None)
 
-        if can_recover:
-            col_recover, col_retry = st.columns(2)
-            with col_recover:
-                n = len(partial_module.topics) if partial_module is not None else len(partial_topics)
-                if st.button(f"Learn with {n} topic(s) →", type="primary", key="_btn_recover"):
-                    if partial_module is None:
-                        from backend.content.models import LearningModule
-                        partial_module = LearningModule(
-                            module_id=progress["module_id"],
-                            title=progress.get("doc_title", "Partial Module"),
-                            source_doc_id=progress.get("doc_id", ""),
-                            topics=list(partial_topics),
-                            created_at=datetime.now(timezone.utc).isoformat(),
-                        )
-                    st.session_state["module"] = partial_module
-                    if partial_bank:
-                        st.session_state["bank"] = partial_bank
-                    st.session_state["page"] = "tutor_room"
-                    _cleanup_pipeline_state()
-                    st.rerun()
-            with col_retry:
-                if st.button("Retry from scratch", type="secondary", key="_btn_retry_fail"):
-                    _cleanup_pipeline_state()
-                    st.rerun()
-        else:
-            cached_name = st.session_state.get("_cached_upload_name")
-            if cached_name:
-                st.caption(f"File **{cached_name}** will be re-used on retry.")
-            if st.button("Retry", type="primary", key="_btn_retry"):
+    can_recover = (
+        (step in ("quiz", "save") and partial_module is not None) or
+        (step == "enrich" and len(partial_topics) >= 1)
+    )
+
+    if can_recover:
+        n = len(partial_module.topics) if partial_module is not None else len(partial_topics)
+        col_recover, col_retry = st.columns(2)
+        with col_recover:
+            if st.button(f"Learn with {n} slide(s) →", type="primary", key="_btn_recover"):
+                if partial_module is None:
+                    from backend.content.models import LearningModule
+                    partial_module = LearningModule(
+                        module_id=progress["module_id"],
+                        title=progress.get("doc_title", "Partial Module"),
+                        source_doc_id=progress.get("doc_id", ""),
+                        topics=list(partial_topics),
+                        created_at=datetime.now(timezone.utc).isoformat(),
+                    )
+                st.session_state["module"] = partial_module
+                if partial_bank:
+                    st.session_state["bank"] = partial_bank
+                st.session_state["page"] = "tutor_room"
                 _cleanup_pipeline_state()
                 st.rerun()
-
-    elif state == "aborted":
-        st.warning(f"Generation was cancelled after {elapsed}s.")
-        if st.button("Upload New File", type="primary"):
+        with col_retry:
+            if st.button("Retry from scratch", type="secondary", key="_btn_retry_fail"):
+                _cleanup_pipeline_state()
+                st.rerun()
+    else:
+        cached_name = st.session_state.get("_cached_upload_name")
+        if cached_name:
+            st.caption(f"File **{cached_name}** will be re-used on retry.")
+        if st.button("Retry", type="primary", key="_btn_retry"):
             _cleanup_pipeline_state()
-            st.session_state.pop("_cached_upload_bytes", None)
-            st.session_state.pop("_cached_upload_name", None)
             st.rerun()
 
 
@@ -472,6 +550,12 @@ def _abort_button() -> None:
         abort_event = st.session_state.get("pipeline_abort_event")
         if abort_event:
             abort_event.set()
+        # Mark state immediately so the page shows "aborted" on next render
+        # without waiting for the background thread to notice.
+        progress = st.session_state.get("pipeline_progress")
+        if progress:
+            progress["state"] = "aborted"
+        st.rerun()
 
 
 def _cleanup_pipeline_state() -> None:

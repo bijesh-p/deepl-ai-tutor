@@ -5,7 +5,7 @@ Run with: uv run streamlit run app.py
 from __future__ import annotations
 
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv(override=True)  # override=True ensures .env always wins over OS-level env vars
 
 import streamlit as st
 from backend.observability import setup_tracing
@@ -15,7 +15,11 @@ st.set_page_config(
     page_title="AI Tutor",
     page_icon="📚",
     layout="wide",
+    initial_sidebar_state="collapsed",
 )
+
+from frontend.styles import inject_global_css
+inject_global_css()
 
 # ---------------------------------------------------------------------------
 # Provider → available models (from env or sensible defaults)
@@ -78,20 +82,35 @@ def _render_sidebar() -> None:
     logged_in = bool(st.session_state.get("username"))
 
     with st.sidebar:
-        # ── User badge ────────────────────────────────────────────────────────
+        # ── App name ──────────────────────────────────────────────────────────
+        st.markdown(
+            "<div style='font-size:15px;font-weight:700;color:#1E1B4B;"
+            "letter-spacing:-0.02em;padding-bottom:8px;"
+            "font-family:Inter,-apple-system,sans-serif;'>📚 AI Tutor</div>",
+            unsafe_allow_html=True,
+        )
+
+        # ── User badge + sign-out ─────────────────────────────────────────────
         if logged_in:
             username = st.session_state["username"]
-            badge = " (Admin)" if st.session_state.get("is_admin") else ""
-            st.markdown(f"**{username}**{badge}")
-            if st.button("Sign out", key="_signout"):
+            role_label = "Admin" if st.session_state.get("is_admin") else "Student"
+            st.markdown(
+                f"<div style='font-family:Inter,sans-serif;padding:4px 2px 6px;line-height:1.35;'>"
+                f"<div style='font-size:15px;font-weight:700;color:#1E1B4B;letter-spacing:-0.01em;'>{username}</div>"
+                f"<div style='font-size:10px;font-weight:500;color:#818CF8;letter-spacing:0.05em;"
+                f"text-transform:uppercase;'>{role_label}</div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+            st.markdown("<span class='sb-signout-marker'></span>", unsafe_allow_html=True)
+            if st.button("Sign out", key="_signout", use_container_width=True, help="Sign out of AI Tutor"):
                 for k in list(st.session_state.keys()):
                     del st.session_state[k]
                 st.session_state["page"] = "login"
                 st.rerun()
-            st.markdown("---")
 
-        # ── LLM Provider + Model ──────────────────────────────────────────────
-        st.markdown("### LLM")
+        # ── Model ─────────────────────────────────────────────────────────────
+        st.markdown("<div class='sb-label'>Model</div>", unsafe_allow_html=True)
 
         providers = ["anthropic", "portkey", "ollama"]
         current_provider = st.session_state.get(
@@ -99,87 +118,75 @@ def _render_sidebar() -> None:
             os.environ.get("AI_TUTOR_LLM_PROVIDER", "anthropic"),
         )
         idx = providers.index(current_provider) if current_provider in providers else 0
-        provider = st.selectbox("Provider", providers, index=idx, key="_llm_provider_select")
+        provider = st.selectbox("Provider", providers, index=idx, key="_llm_provider_select",
+                                label_visibility="collapsed")
 
-        # Build model list; for Ollama prefer what's actually running
         if provider == "ollama":
             running = _get_ollama_running_models()
             model_list = running if running else _models_for_provider("ollama")
         else:
             model_list = _models_for_provider(provider)
 
-        # Pick default: keep current if it's in the list, else first
         env_default = os.environ.get("AI_TUTOR_LLM_MODEL", "")
         current_model = st.session_state.get("llm_model", env_default)
         if st.session_state.get("llm_provider") != provider:
-            # Provider changed — reset to first in list
             current_model = model_list[0] if model_list else ""
         model_idx = model_list.index(current_model) if current_model in model_list else 0
 
         if model_list:
-            model = st.selectbox("Model", model_list, index=model_idx, key="_llm_model_select")
+            model = st.selectbox("Model", model_list, index=model_idx, key="_llm_model_select",
+                                 label_visibility="collapsed")
         else:
             model = st.text_input("Model", value=current_model, key="_llm_model_input",
-                                  placeholder="e.g. llama3.2")
+                                  placeholder="e.g. llama3.2", label_visibility="collapsed")
 
         st.session_state["llm_provider"] = provider
         st.session_state["llm_model"] = model
 
-        st.markdown("---")
-
-        # ── Audio ────────────────────────────────────────────────────────────
+        # ── Settings (audio + observability toggles) ──────────────────────────
         if logged_in:
-            st.markdown("### Audio")
+            st.markdown("<div class='sb-label'>Settings</div>", unsafe_allow_html=True)
+
             audio_on = st.toggle(
-                "Enable audio",
+                "Audio",
                 value=st.session_state.get("audio_enabled", True),
-                help="Disable to skip TTS generation — useful for testing latency without audio",
+                help="Enable TTS narration for slides and diagnostics",
                 key="_audio_toggle",
             )
-            st.session_state["audio_enabled"] = audio_on
-            if not audio_on:
-                st.caption("Audio disabled — slides and diagnostic will be silent.")
-            st.markdown("---")
-
-        # ── Observability ─────────────────────────────────────────────────────
-        if logged_in:
-            st.markdown("### Observability")
             tracing_on = st.toggle(
-                "Tracing (Phoenix)",
+                "Tracing",
                 value=st.session_state.get("tracing_enabled", True),
-                help="Send OTEL spans to local Arize Phoenix at http://localhost:6006",
+                help="Send OTEL spans to Arize Phoenix at localhost:6006",
                 key="_tracing_toggle",
             )
             evals_on = st.toggle(
-                "Evals (DeepEval)",
+                "Evals",
                 value=st.session_state.get("evals_enabled", False),
-                help="Run quality metrics after each session using the active LLM as judge",
+                help="Run DeepEval quality metrics using the active LLM as judge",
                 key="_evals_toggle",
             )
+            st.session_state["audio_enabled"] = audio_on
             st.session_state["tracing_enabled"] = tracing_on
             st.session_state["evals_enabled"] = evals_on
-            if tracing_on:
-                st.caption("Traces → [localhost:6006](http://localhost:6006)")
-
-            st.markdown("---")
 
             # ── Navigation ────────────────────────────────────────────────────
-            if st.button("New Module"):
+            st.markdown("<div class='sb-label'>Navigate</div>", unsafe_allow_html=True)
+            if st.button("+ New Module", use_container_width=True):
                 st.session_state["page"] = "upload"
                 st.rerun()
-            if st.button("Module Library"):
+            if st.button("📚 Library", use_container_width=True):
                 st.session_state["page"] = "module_library"
                 st.rerun()
-            if st.button("System Check"):
+            if st.button("🩺 System Check", use_container_width=True):
                 st.session_state["page"] = "system_check"
                 st.rerun()
-            if st.button("Observability"):
+            if st.button("📊 Observability", use_container_width=True):
                 st.session_state["page"] = "observability"
                 st.rerun()
 
-    # Active model caption below sidebar (shown in main area header row)
+    # Active provider/model shown as a small caption in the main area
     if logged_in:
-        st.caption(f"LLM: **{provider}** / `{model}`")
+        st.caption(f"`{provider}` / `{model}`")
 
 
 def main() -> None:
@@ -192,20 +199,27 @@ def main() -> None:
     if not st.session_state.get("username") and st.session_state["page"] != "login":
         st.session_state["page"] = "login"
 
-    _render_sidebar()
+    if st.session_state["page"] != "login":
+        _render_sidebar()
 
-    # ── Global pipeline progress banner ──────────────────────────────────────
+    # ── Global pipeline progress banner (non-upload pages only) ──────────────
     progress = st.session_state.get("pipeline_progress")
-    if progress and progress["state"] not in ("completed", "failed", "aborted"):
+    _current_page = st.session_state.get("page", "")
+    if (progress
+            and progress["state"] not in ("completed", "failed", "aborted")
+            and _current_page != "upload"):
         elapsed = int(_time.monotonic() - progress["started_at"])
         state = progress["state"]
+        done = progress.get("topics_enriched", 0)
+        icons = {"parsing": "🔍", "enriching": "✨", "quiz": "❓", "saving": "💾"}
         label = {
-            "parsing": "Parsing PDF...",
-            "enriching": f"Generating slides ({progress.get('topics_enriched', 0)} ready)...",
-            "quiz": "Generating quiz...",
-            "saving": "Saving module...",
-        }.get(state, "Working...")
-        st.info(f"{label} ({elapsed}s)")
+            "parsing": "Parsing document",
+            "enriching": f"{done} slide(s) ready — generating more",
+            "quiz": "Generating quiz questions",
+            "saving": "Saving module",
+        }.get(state, "Working")
+        elapsed_txt = f" · {elapsed}s" if elapsed > 0 else ""
+        st.info(f"{icons.get(state, '⏳')} {label}{elapsed_txt}")
 
     page = st.session_state["page"]
 
