@@ -715,12 +715,38 @@ erDiagram
     users ||--o{ tutor_sessions : resumes
     modules ||--o{ tutor_sessions : tracked_in
 
-    users { TEXT user_id PK; TEXT username }
-    user_profiles { TEXT user_id PK; TEXT overall_depth; TEXT topic_mastery_json; TEXT module_visits_json; TEXT last_seen }
-    modules { TEXT module_id PK; TEXT title; INTEGER is_published }
-    quiz_attempts { TEXT attempt_id PK; INTEGER score }
-    topic_mastery { TEXT topic_id; INTEGER mastered; TEXT difficulty; INTEGER attempts }
-    tutor_sessions { TEXT user_id PK; TEXT module_id PK; TEXT state_json; TEXT phase }
+    users {
+        TEXT user_id PK
+        TEXT username
+    }
+    user_profiles {
+        TEXT user_id PK
+        TEXT overall_depth
+        TEXT topic_mastery_json
+        TEXT module_visits_json
+        TEXT last_seen
+    }
+    modules {
+        TEXT module_id PK
+        TEXT title
+        INTEGER is_published
+    }
+    quiz_attempts {
+        TEXT attempt_id PK
+        INTEGER score
+    }
+    topic_mastery {
+        TEXT topic_id
+        INTEGER mastered
+        TEXT difficulty
+        INTEGER attempts
+    }
+    tutor_sessions {
+        TEXT user_id PK
+        TEXT module_id PK
+        TEXT state_json
+        TEXT phase
+    }
 ```
 
 All tables above live in the **per-user DB** (`data/<username>/ai_tutor.db`, or `AI_TUTOR_DB_PATH`). A separate **shared DB** (`AI_TUTOR_SHARED_DB_PATH`, default `data/shared/ai_tutor.db`) holds one standalone table with no cross-DB foreign keys:
