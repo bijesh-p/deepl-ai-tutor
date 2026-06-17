@@ -199,7 +199,8 @@ def main() -> None:
     if not st.session_state.get("username") and st.session_state["page"] != "login":
         st.session_state["page"] = "login"
 
-    _render_sidebar()
+    if st.session_state["page"] != "login":
+        _render_sidebar()
 
     # ── Global pipeline progress banner (non-upload pages only) ──────────────
     progress = st.session_state.get("pipeline_progress")

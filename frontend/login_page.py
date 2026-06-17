@@ -10,17 +10,17 @@ _LOGIN_CSS = """
 <style>
 /* ── Login page — full-viewport centred canvas ─────────────────────────── */
 
-/* Hide the sidebar on login.
-   The global CSS forces it visible with display:flex !important, but this
-   rule is injected AFTER the global CSS so it wins while on this page.
-   After login Streamlit removes this <style> block; the global CSS then
-   takes back control and the sidebar re-appears automatically. */
+/* Sidebar and its pull-tab are completely absent on the login page.
+   _render_sidebar() is skipped in app.py so no sidebar content is rendered.
+   These rules are a belt-and-braces guard against any leftover sidebar DOM. */
 [data-testid="stSidebar"],
-section[data-testid="stSidebar"] {
+section[data-testid="stSidebar"],
+[data-testid="stSidebarCollapsedControl"] {
     display: none !important;
-    min-width: 0 !important;
     width: 0 !important;
+    min-width: 0 !important;
     overflow: hidden !important;
+    pointer-events: none !important;
 }
 
 /* Hide every Streamlit top-bar element on the login page */
