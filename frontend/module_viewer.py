@@ -26,17 +26,6 @@ def render_module_viewer(module: LearningModule) -> None:
     st.title(module.title)
     st.caption(f"{done_count}/{total_expected} topics ready" if generating else f"{done_count} topics")
 
-    with st.sidebar:
-        st.markdown("### Contents")
-        for et in module.topics:
-            st.markdown(f"- {et.topic.title}")
-        if generating and progress:
-            pending_topics = progress.get("topics", [])
-            enriched_titles = {et.topic.title for et in module.topics}
-            for t in pending_topics:
-                if t.title not in enriched_titles:
-                    st.markdown(f"- *{t.title}* (pending)")
-
     for et in module.topics:
         with st.expander(f"**{et.topic.title}**", expanded=True):
             if et.top_concepts:
