@@ -40,10 +40,19 @@ def render_upload_page() -> None:
             # Pipeline finished in the background — redirect now
             _handle_completed(progress)
             return
-        if state not in ("failed", "aborted"):
+        if state == "aborted":
+            elapsed = int(time.monotonic() - progress.get("started_at", time.monotonic()))
+            done = progress.get("topics_enriched", 0)
+            st.warning(
+                f"Generation cancelled after {elapsed}s."
+                + (f" {done} slide(s) had been generated." if done else "")
+            )
+            _cleanup_pipeline_state()
+            # fall through to show upload form
+        elif state not in ("failed",):
             _pipeline_status_fragment()
             return
-        # failed/aborted fall through to upload form below
+        # failed falls through to upload form below
 
     # ── Upload form ───────────────────────────────────────────────────────────
     st.title("New Module")
@@ -217,6 +226,10 @@ def _run_pipeline_bg(
             enriched_topics = run_sliding_pipeline(
                 doc, llm, progress, abort_event, tracer
             )
+        except ValueError as exc:
+            # Raised when the document has no extractable text (e.g. scanned image PDF)
+            _fail(progress, "enrich", exc, str(exc))
+            return
         except Exception as exc:
             partial = progress.get("enriched_topics", [])
             detail = (
@@ -238,8 +251,7 @@ def _run_pipeline_bg(
 
         if not enriched_topics:
             _fail(progress, "enrich", None,
-                  "No presentable concepts could be extracted from this document. "
-                  "Try a document with clearer headings or more text content.")
+                  "No slides could be generated. The document may have very little text content.")
             return
 
         module = LearningModule(
@@ -380,12 +392,10 @@ def _pipeline_status_fragment() -> None:
                 st.rerun()
 
     elif state == "aborted":
-        st.warning(f"Generation was cancelled after {elapsed}s.")
-        if st.button("Upload New File", type="primary"):
-            _cleanup_pipeline_state()
-            st.session_state.pop("_cached_upload_bytes", None)
-            st.session_state.pop("_cached_upload_name", None)
-            st.rerun()
+        # Handled in render_upload_page — fragment sees this briefly but the
+        # next st.rerun() from _abort_button replaces the fragment with the
+        # main-function "aborted" path before the user notices.
+        st.rerun()
 
 
 def _handle_completed(progress: dict) -> None:
@@ -472,6 +482,12 @@ def _abort_button() -> None:
         abort_event = st.session_state.get("pipeline_abort_event")
         if abort_event:
             abort_event.set()
+        # Mark state immediately so the page shows "aborted" on next render
+        # without waiting for the background thread to notice.
+        progress = st.session_state.get("pipeline_progress")
+        if progress:
+            progress["state"] = "aborted"
+        st.rerun()
 
 
 def _cleanup_pipeline_state() -> None:

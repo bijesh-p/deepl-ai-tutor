@@ -5,7 +5,7 @@ Run with: uv run streamlit run app.py
 from __future__ import annotations
 
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv(override=True)  # override=True ensures .env always wins over OS-level env vars
 
 import streamlit as st
 from backend.observability import setup_tracing
