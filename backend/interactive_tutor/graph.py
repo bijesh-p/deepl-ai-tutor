@@ -246,10 +246,31 @@ def present_concept(state: GraphState) -> dict:
     # If the pipeline already finished enriching this topic, use its assets directly
     if enriched:
         diagrams = enriched.get("diagrams", [])
-        mermaid_code = diagrams[0]["content"] if diagrams else ""
+        raw_mermaid = diagrams[0]["content"] if diagrams else ""
+        if raw_mermaid:
+            from backend.content.diagram_generator import _sanitize_mermaid
+            mermaid_code = _sanitize_mermaid(raw_mermaid)
+        else:
+            mermaid_code = ""
         audio_path = enriched.get("audio_path", "")
         top_concepts = enriched.get("top_concepts", [])
         content_md = enriched.get("content_md", "")
+
+        # Inline diagram fallback: generate on-the-fly if pipeline produced none
+        if not mermaid_code and content_md:
+            try:
+                from backend.content.diagram_generator import _sanitize_mermaid, _try_diagram
+                from backend.content.models import Topic as _Topic
+                _llm = _get_llm()
+                _topic = _Topic(
+                    topic_id="inline", title=concept, summary="",
+                    source_section_ids=[], order=0,
+                )
+                _diag = _try_diagram(content_md[:2000], _topic, _llm)
+                if _diag:
+                    mermaid_code = _diag.content
+            except Exception:
+                pass
 
         if content_md:
             # Fast path: pipeline audio is already diagram-synced and depth-annotated.
@@ -276,8 +297,10 @@ def present_concept(state: GraphState) -> dict:
                         from backend.content.audio_generator import generate_audio
                         diagram_caption = (enriched.get("diagrams", [{}])[0].get("caption", "")
                                            if enriched.get("diagrams") else "")
+                        # Limit TTS to first 400 chars so audio stays ~30-60s
+                        short_transcript = transcript[:400].rsplit(" ", 1)[0] + "..."
                         audio_path = generate_audio(
-                            transcript,
+                            short_transcript,
                             f"{concept}_tutor",
                             diagram_caption=diagram_caption,
                             diagram_mermaid=mermaid_code,
@@ -434,7 +457,7 @@ def ask_question(state: GraphState) -> dict:
     question_data = result if isinstance(result, dict) else {"question": str(result), "expected_answer": "", "misconceptions": []}
 
     history = list(state.get("chat_history", []))
-    history.append({"role": "tutor", "content": question_data["question"]})
+    history.append({"role": "tutor", "content": question_data["question"], "concept": concept})
 
     return {"current_question": question_data, "chat_history": history}
 
@@ -471,9 +494,10 @@ def evaluate_response(state: GraphState) -> dict:
     result = llm.generate(prompt, tool_schema=schema)
     evaluation = result if isinstance(result, dict) else {"is_correct": False, "feedback": str(result)}
 
+    concept = state.get("current_concept", "")
     history = list(state.get("chat_history", []))
-    history.append({"role": "student", "content": answer})
-    history.append({"role": "tutor", "content": evaluation.get("feedback", "")})
+    history.append({"role": "student", "content": answer, "concept": concept})
+    history.append({"role": "tutor", "content": evaluation.get("feedback", ""), "concept": concept})
 
     return {
         "concept_mastered": evaluation.get("is_correct", False),
@@ -503,7 +527,7 @@ def provide_hint(state: GraphState) -> dict:
 
     hint = llm.generate(prompt, system="You are a patient tutor giving a helpful hint.")
     history = list(state.get("chat_history", []))
-    history.append({"role": "tutor", "content": f"Hint: {hint}"})
+    history.append({"role": "tutor", "content": f"Hint: {hint}", "concept": concept})
     return {"chat_history": history}
 
 
@@ -523,7 +547,7 @@ def simplify_foundations(state: GraphState) -> dict:
 
     simplified = llm.generate(prompt, system="You are explaining to a complete beginner.")
     history = list(state.get("chat_history", []))
-    history.append({"role": "tutor", "content": f"Let me break this down differently:\n\n{simplified}"})
+    history.append({"role": "tutor", "content": f"Let me break this down differently:\n\n{simplified}", "concept": concept})
     return {"chat_history": history, "attempts": 0}
 
 

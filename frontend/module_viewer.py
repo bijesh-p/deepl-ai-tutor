@@ -4,6 +4,7 @@ import time
 from datetime import datetime, timezone
 
 import streamlit as st
+from backend.content.diagram_generator import _sanitize_mermaid
 from backend.content.models import LearningModule, Question
 
 try:
@@ -26,6 +27,13 @@ def render_module_viewer(module: LearningModule) -> None:
     st.title(module.title)
     st.caption(f"{done_count}/{total_expected} topics ready" if generating else f"{done_count} topics")
 
+    col_tutor_top, _ = st.columns([2, 5])
+    with col_tutor_top:
+        if st.button("🚀 Start Adaptive Tutor", type="primary"):
+            st.session_state["page"] = "tutor_room"
+            st.rerun()
+    st.markdown("---")
+
     with st.sidebar:
         st.markdown("### Contents")
         for et in module.topics:
@@ -46,20 +54,26 @@ def render_module_viewer(module: LearningModule) -> None:
             if et.audio_path:
                 st.audio(et.audio_path, format="audio/mp3")
 
-            st.markdown(et.content_md)
+            # Diagram first (anchor-first), then explanation below
+            mermaid_diagrams = [d for d in et.diagrams if d.diagram_type == "mermaid"]
+            if mermaid_diagrams:
+                for diagram in mermaid_diagrams:
+                    st.caption(f"📊 {diagram.caption}")
+                    clean = _sanitize_mermaid(diagram.content) if diagram.content else ""
+                    if _HAS_MERMAID and clean:
+                        try:
+                            st_mermaid(clean, height="280px")
+                        except Exception:
+                            st.info(et.topic.summary or diagram.caption)
+                    else:
+                        st.info(et.topic.summary or diagram.caption)
+                st.markdown("")
 
+            st.markdown(et.content_md)
             if et.key_takeaways:
                 st.markdown("**Key takeaways:**")
                 for kt in et.key_takeaways:
                     st.markdown(f"- {kt}")
-
-            for diagram in et.diagrams:
-                if diagram.diagram_type == "mermaid":
-                    st.markdown(f"*{diagram.caption}*")
-                    if _HAS_MERMAID:
-                        st_mermaid(diagram.content)
-                    else:
-                        st.code(diagram.content, language="text")
 
             if et.inline_questions:
                 st.markdown("---")
@@ -70,20 +84,14 @@ def render_module_viewer(module: LearningModule) -> None:
         _pending_topics_fragment()
 
     st.markdown("---")
-    col_quiz, col_tutor = st.columns(2)
-    with col_quiz:
-        quiz_ready = not generating or (progress and progress.get("bank") is not None)
-        if st.button("Take the Quiz", type="primary", disabled=not quiz_ready):
-            if progress and progress.get("bank"):
-                st.session_state["question_bank"] = progress["bank"]
-            st.session_state["page"] = "quiz"
-            st.rerun()
-        if not quiz_ready:
-            st.caption("Available after all topics are generated")
-    with col_tutor:
-        if st.button("Start Adaptive Tutor"):
-            st.session_state["page"] = "tutor_room"
-            st.rerun()
+    quiz_ready = not generating or (progress and progress.get("bank") is not None)
+    if st.button("📝 Take the Quiz", type="primary", disabled=not quiz_ready):
+        if progress and progress.get("bank"):
+            st.session_state["question_bank"] = progress["bank"]
+        st.session_state["page"] = "quiz"
+        st.rerun()
+    if not quiz_ready:
+        st.caption("Quiz available after all topics are generated")
 
 
 def _sync_module_from_progress(module: LearningModule, progress: dict | None) -> LearningModule:
@@ -116,14 +124,28 @@ def _pending_topics_fragment() -> None:
 
     current = progress.get("current_topic", "")
     done = progress.get("topics_enriched", 0)
-    total = progress.get("total_topics", 0)
+    avg = progress.get("avg_seconds_per_topic", 0)
+    last_topic_at = progress.get("last_topic_at")
 
-    if state == "enriching" and current:
-        st.info(f"Generating: {current} ({done}/{total} topics ready)")
+    if state == "enriching":
+        if done == 0:
+            st.info("⏳ Generating first topic...")
+        else:
+            # Estimate time into the current topic
+            if last_topic_at and avg > 0:
+                time_on_current = int(time.monotonic() - last_topic_at)
+                remaining = max(0, int(avg) - time_on_current)
+                eta_text = f"~{remaining}s remaining" if remaining > 5 else "almost ready"
+                st.info(
+                    f"⏳ {done} topic{'s' if done != 1 else ''} ready · "
+                    f"Generating **{current}** · {eta_text}"
+                )
+            else:
+                st.info(f"⏳ {done} topic{'s' if done != 1 else ''} ready · Generating **{current}**...")
     elif state == "quiz":
-        st.info("Generating quiz questions...")
+        st.info("⏳ Generating quiz questions...")
     elif state == "saving":
-        st.info("Saving module...")
+        st.info("⏳ Saving module...")
 
 
 def _render_inline_questions(topic_id: str, questions: list[Question]) -> None:
@@ -134,21 +156,32 @@ def _render_inline_questions(topic_id: str, questions: list[Question]) -> None:
         st.markdown(f"**Q{i + 1}: {q.question_text}**")
 
         if q.question_type == "single_choice":
+            already_answered = st.session_state.get(answered_key, False)
+            # After answering, lock the radio and restore the chosen index
+            saved_idx = st.session_state.get(f"{answered_key}_idx")
             choice = st.radio(
                 label="",
                 options=q.options,
-                index=None,
+                index=saved_idx,
                 key=key,
                 label_visibility="collapsed",
+                disabled=already_answered,
             )
-            if choice is not None and not st.session_state.get(answered_key):
+            if choice is not None and not already_answered:
                 selected_idx = q.options.index(choice)
-                if selected_idx in q.correct_answers:
+                is_correct = selected_idx in q.correct_answers
+                st.session_state[answered_key] = True
+                st.session_state[f"{answered_key}_idx"] = selected_idx
+                st.session_state[f"{answered_key}_correct"] = is_correct
+                st.rerun()
+
+            if already_answered:
+                is_correct = st.session_state.get(f"{answered_key}_correct", False)
+                if is_correct:
                     st.success(f"Correct! {q.explanation}")
                 else:
                     correct_text = q.options[q.correct_answers[0]]
                     st.error(f"Not quite. The correct answer is: **{correct_text}**. {q.explanation}")
-                st.session_state[answered_key] = True
         else:
             selected = []
             for j, opt in enumerate(q.options):

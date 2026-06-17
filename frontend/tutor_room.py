@@ -44,8 +44,12 @@ def render_tutor_room() -> None:
     col_main, col_meta = st.columns([4, 1])
     with col_meta:
         mastered = state.get("mastered_concepts", [])
-        total = len(mastered) + 1 + len(state.get("remaining_concepts", []))
-        st.metric("Progress", f"{len(mastered)}/{total}")
+        remaining = state.get("remaining_concepts", [])
+        total = len(mastered) + 1 + len(remaining)
+        done = len(mastered)
+        pct = done / total if total else 0
+        st.caption(f"**Topics done: {done}/{total}**")
+        st.progress(pct)
         depth = state.get("presentation_depth", "—")
         st.caption(f"Level: **{depth}**")
         # Wait time tracking
@@ -68,14 +72,34 @@ def render_tutor_room() -> None:
             _render_slide(state, graph)
 
         elif phase == "question":
-            _render_chat_history(state.get("chat_history", []))
-            if st.button("Ask me a question", type="primary"):
-                _run_node(graph, state, "ask_question")
-                st.session_state["tutor_phase"] = "answer"
-                st.rerun()
+            current = state.get("current_concept", "")
+            _render_chat_history(state.get("chat_history", []), concept=current)
+            remaining = state.get("remaining_concepts", [])
+            col_ask, col_skip, col_lib = st.columns([2, 2, 2])
+            with col_ask:
+                if st.button("Ask me a question", type="primary"):
+                    _run_node(graph, state, "ask_question")
+                    st.session_state["tutor_phase"] = "answer"
+                    st.rerun()
+            with col_skip:
+                if remaining:
+                    if st.button("Next topic →", type="secondary"):
+                        content_map = st.session_state.get("tutor_content_map", {})
+                        _advance_to_next(state, graph, content_map)
+                        st.rerun()
+                else:
+                    if st.button("Finish session ✓", type="secondary"):
+                        _run_node(graph, state, "session_complete")
+                        st.session_state["tutor_phase"] = "done"
+                        st.rerun()
+            with col_lib:
+                if st.button("Back to Module Library"):
+                    st.session_state["page"] = "module_library"
+                    st.rerun()
 
         elif phase == "answer":
-            _render_chat_history(state.get("chat_history", []))
+            current = state.get("current_concept", "")
+            _render_chat_history(state.get("chat_history", []), concept=current)
             question = state.get("current_question", {})
             if question:
                 answer = st.text_area(
@@ -173,14 +197,21 @@ def _render_diagnostic(state: dict, graph) -> None:
 
     progress = st.session_state.get("pipeline_progress", {})
 
-    # Use prefetched questions from pipeline if available, else generate now
+    visited = st.session_state.get("tutor_visited_concepts", [])
     if not questions:
+        # Only reuse prefetched questions for the very first concept
         prefetched = progress.get("diagnostic_questions", [])
-        if prefetched:
+        content_map = st.session_state.get("tutor_content_map", {})
+        concept_content = content_map.get(concept, "")
+
+        if prefetched and not visited:
+            # First topic — use prefetched (already generated from doc start)
             state["diagnostic_questions"] = prefetched
             questions = prefetched
         else:
-            with st.spinner(f"Preparing diagnostic for **{concept}**..."):
+            # New topic — generate fresh questions from THIS topic's content
+            state["concept_content"] = concept_content
+            with st.spinner(f"Preparing questions for {concept}..."):
                 _run_node(graph, state, "generate_diagnostic")
             st.rerun()
 
@@ -197,6 +228,22 @@ def _render_diagnostic(state: dict, graph) -> None:
 
     st.subheader(f"Before we begin: {concept}")
     st.markdown("Answer these questions to help us tailor the explanation to your level.")
+
+    if visited:
+        if st.button("← Previous topic", type="secondary", key="diag_prev"):
+            prev = visited.pop()
+            st.session_state["tutor_visited_concepts"] = visited
+            remaining = state.get("remaining_concepts", [])
+            state["remaining_concepts"] = [concept] + remaining
+            mastered = state.get("mastered_concepts", [])
+            if concept in mastered:
+                mastered.remove(concept)
+            state["mastered_concepts"] = mastered
+            state["current_concept"] = prev
+            state["attempts"] = 0
+            state["diagnostic_questions"] = []
+            st.session_state["tutor_phase"] = "slide"
+            st.rerun()
 
     with st.form("diagnostic_form"):
         answers = []
@@ -238,18 +285,25 @@ def _render_slide(state: dict, graph) -> None:
     mermaid_code = slide.get("mermaid_code", "")
     audio_path = slide.get("audio_path", "")
     # Use audio duration as the slide hold time so advance never interrupts playback
-    slide_duration_s = slide.get("audio_duration_s") or _SLIDE_DURATION_DEFAULT_S
+    slide_duration_s = _SLIDE_DURATION_DEFAULT_S
 
     st.subheader(concept)
 
     if top_concepts:
         st.info("**Key concepts:** " + " | ".join(f"`{c}`" for c in top_concepts))
 
-    if mermaid_code:
-        if _HAS_MERMAID:
-            st_mermaid(mermaid_code)
-        else:
-            st.code(mermaid_code, language="text")
+    if mermaid_code and mermaid_code.strip():
+        from backend.content.diagram_generator import _sanitize_mermaid
+        clean_mermaid = _sanitize_mermaid(mermaid_code)
+        _, col_diag, _ = st.columns([1, 4, 1])
+        with col_diag:
+            if _HAS_MERMAID and clean_mermaid:
+                try:
+                    st_mermaid(clean_mermaid, height="280px")
+                except Exception:
+                    st.info(concept)
+            else:
+                st.info(concept)
 
     if audio_path and os.path.exists(audio_path):
         st.audio(audio_path, format="audio/mp3", autoplay=True)
@@ -261,8 +315,11 @@ def _render_slide(state: dict, graph) -> None:
     score_pct = int(state.get("diagnostic_score", 0) * 100)
     st.caption(f"Adapted for: **{depth}** (diagnostic score: {score_pct}%)")
 
-    # Show previous Q&A (non-slide messages)
-    qa_history = [m for m in history if m.get("role") != "slide"]
+    # Show Q&A for current concept only
+    qa_history = [
+        m for m in history
+        if m.get("role") != "slide" and m.get("concept", concept) == concept
+    ]
     if qa_history:
         st.markdown("---")
         _render_chat_history(qa_history)
@@ -278,23 +335,61 @@ def _render_slide(state: dict, graph) -> None:
     remaining_concepts = state.get("remaining_concepts", [])
     has_next = bool(remaining_concepts)
 
+    # Check if next concept is already generated or still being built
+    next_concept = remaining_concepts[0] if remaining_concepts else ""
+    content_map = st.session_state.get("tutor_content_map", {})
+    next_ready = next_concept in content_map and bool(content_map[next_concept])
+
     col_q, col_next = st.columns([3, 1])
     with col_q:
         if st.button("Ask me a question about this", type="primary"):
             _run_node(graph, state, "ask_question")
             st.session_state["tutor_phase"] = "answer"
             st.rerun()
-    with col_next:
-        if has_next:
-            lbl = f"Next slide ({remaining_s}s)" if remaining_s > 0 else "Next slide →"
-            if st.button(lbl, type="secondary"):
-                _do_advance_from_slide(state, graph)
+    # Previous topic button
+    visited = st.session_state.get("tutor_visited_concepts", [])
+    col_prev, col_next = st.columns(2)
+    with col_prev:
+        if visited:
+            if st.button("← Previous topic", type="secondary"):
+                prev = visited.pop()
+                st.session_state["tutor_visited_concepts"] = visited
+                # Re-insert current concept at front of remaining
+                remaining = state.get("remaining_concepts", [])
+                state["remaining_concepts"] = [concept] + remaining
+                # Also remove from mastered
+                mastered = state.get("mastered_concepts", [])
+                if concept in mastered:
+                    mastered.remove(concept)
+                state["mastered_concepts"] = mastered
+                state["current_concept"] = prev
+                state["attempts"] = 0
+                st.session_state["tutor_phase"] = "slide"
                 st.rerun()
 
-    # Auto-advance when timer expires
-    if has_next and remaining_s == 0:
-        _do_advance_from_slide(state, graph)
-        st.rerun()
+    with col_next:
+        if has_next:
+            if next_ready:
+                if st.button("Next slide →", type="secondary"):
+                    if concept not in st.session_state.get("tutor_visited_concepts", []):
+                        st.session_state.setdefault("tutor_visited_concepts", []).append(concept)
+                    _do_advance_from_slide(state, graph)
+                    st.rerun()
+            else:
+                progress_info = st.session_state.get("pipeline_progress", {})
+                avg = progress_info.get("avg_seconds_per_topic", 0)
+                last_at = progress_info.get("last_topic_at")
+                if avg > 0 and last_at:
+                    waited = int(time.monotonic() - last_at)
+                    eta = max(0, int(avg) - waited)
+                    eta_txt = f"~{eta}s" if eta > 5 else "almost ready"
+                else:
+                    eta_txt = "generating..."
+                st.button(f"Next slide ({eta_txt})", disabled=True, type="secondary")
+        if not has_next:
+            if st.button("Back to Module Library", type="secondary"):
+                st.session_state["page"] = "module_library"
+                st.rerun()
 
 
 def _do_advance_from_slide(state: dict, graph) -> None:
@@ -332,7 +427,7 @@ def _do_advance_from_slide(state: dict, graph) -> None:
 
 def _init_tutor_state(module) -> None:
     topics = module.topics
-    concepts = [t.topic.title for t in topics]
+    concepts = list(dict.fromkeys(t.topic.title for t in topics))  # deduplicate preserving order
     summary_map = {t.topic.title: t.topic.summary for t in topics}
     content_map = {t.topic.title: t.content_md for t in topics}
 
@@ -498,9 +593,15 @@ def _run_node(graph, state: dict, node_name: str) -> None:
     state.update(updates)
 
 
-def _render_chat_history(history: list[dict]) -> None:
+def _render_chat_history(history: list[dict], concept: str = "") -> None:
     for msg in history:
         role = msg.get("role", "")
+        if role == "slide":
+            continue
+        # If concept filter set, only show messages for that concept
+        # (messages without a concept tag are legacy — show them always)
+        if concept and msg.get("concept") and msg.get("concept") != concept:
+            continue
         content = msg.get("content", "")
         if role == "tutor" and content:
             st.chat_message("assistant").markdown(content)
@@ -551,7 +652,7 @@ def _end_session(state: dict | None = None) -> None:
         _trigger_evals(state)
 
     # 4. Clean up tutor session state
-    for key in ("tutor_state", "tutor_phase", "tutor_graph", "tutor_content_map", "tutor_summary_map"):
+    for key in ("tutor_state", "tutor_phase", "tutor_graph", "tutor_content_map", "tutor_summary_map", "tutor_visited_concepts"):
         st.session_state.pop(key, None)
 
     st.session_state["page"] = "module_library"

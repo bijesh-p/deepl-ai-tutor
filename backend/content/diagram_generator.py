@@ -48,15 +48,32 @@ _DIAGRAM_TOOL_SCHEMA = {
 }
 
 _DIAGRAM_SYSTEM = (
-    "You are an expert at creating clear educational slide diagrams. "
+    "You are an expert at creating clear, colorful educational diagrams. "
     "Follow ALL rules — no exceptions:\n"
-    "1. Always generate a Mermaid flowchart (direction LR). "
-    "2. Use at most 6 nodes total. Every node label must be 1-4 words — no full sentences. "
+    "1. Choose the best Mermaid flowchart direction for the content: "
+    "   - Use 'LR' (left-to-right) ONLY for simple 3-5 node linear flows or pipelines. "
+    "   - Use 'TD' (top-down) for hierarchies, taxonomies, branching, or anything with 5+ nodes. "
+    "2. Use AT MOST 6 nodes total — this is a hard limit, do not exceed it. "
+    "   If the topic has many ideas, pick only the 3-6 most important ones. "
+    "   Every node label must be 1-4 words — no full sentences. "
     "3. Do NOT use subgraphs. Keep the diagram flat. "
     "4. Never use a double-quote character or backslash-escaped quote inside a label — "
     "use #quot; if needed, or rephrase without quotes. "
-    "5. Do not create an edge from a subgraph to itself. "
-    "6. Output only the Mermaid code with no markdown fences around it."
+    "5. Output only the Mermaid code with no markdown fences around it. "
+    "6. ONLY use concepts and terms that appear explicitly in the provided source text. "
+    "Do NOT invent nodes, do NOT include meta-concepts like 'quiz', 'questions', 'diagnostic', "
+    "'learning', or 'slide'. Show only the subject-matter relationships from the text itself. "
+    "7. Each arrow must represent a real logical relationship (e.g. leads-to, is-a, enables, "
+    "consists-of) — not a random connection between terms. "
+    "8. Add color using classDef. Classify every node as one of: primary (main concept), "
+    "secondary (supporting idea), or outcome (result/application). "
+    "Then assign classes and define them like this example at the END of the diagram:\n"
+    "    classDef primary fill:#4C9BE8,stroke:#1a5fa8,color:#fff\n"
+    "    classDef secondary fill:#F0A500,stroke:#b87800,color:#fff\n"
+    "    classDef outcome fill:#2ECC71,stroke:#1a7a43,color:#fff\n"
+    "    class NodeA primary\n"
+    "    class NodeB,NodeC secondary\n"
+    "    class NodeD outcome"
 )
 
 # ---------------------------------------------------------------------------
@@ -114,7 +131,9 @@ def _try_diagram(source_text: str, topic: Topic, llm) -> Diagram | None:
         f"Topic: {topic.title}\n"
         f"Summary: {topic.summary}\n\n"
         f"Source text:\n{source_text[:3000]}\n\n"
-        "Generate a Mermaid diagram showing how the key ideas in this topic relate."
+        "Generate a Mermaid diagram showing how the key concepts in this source text relate to each other. "
+        "Use ONLY terms and concepts that appear in the source text above. "
+        "Do not add anything that is not mentioned in the text."
     )
     try:
         result = llm.generate(
@@ -127,10 +146,18 @@ def _try_diagram(source_text: str, topic: Topic, llm) -> Diagram | None:
         mermaid_code = result.get("mermaid_code", "").strip()
         if not mermaid_code:
             return None
+        sanitized = _sanitize_mermaid(mermaid_code)
+        # Reject if there are no edges — it's not a real diagram
+        if "-->" not in sanitized and "---" not in sanitized:
+            return None
+        # Reject if fewer than 2 nodes — nothing useful to show
+        node_count = len(set(re.findall(r'\b([A-Za-z][A-Za-z0-9_]*)\s*[\[\({]', sanitized)))
+        if node_count < 2:
+            return None
         return Diagram(
             diagram_id=str(uuid.uuid4()),
             diagram_type="mermaid",
-            content=_sanitize_mermaid(mermaid_code),
+            content=sanitized,
             caption=result.get("caption", ""),
         )
     except Exception:
@@ -160,12 +187,64 @@ def _try_bullets(source_text: str, topic: Topic, llm) -> list[str]:
     return [topic.summary] if topic.summary else ["Key ideas from this section."]
 
 
+_DIAGRAM_HEADER_RE = re.compile(
+    r'^(flowchart|graph|sequenceDiagram|classDiagram|stateDiagram|erDiagram|gantt|pie)',
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
 def _sanitize_mermaid(code: str) -> str:
     code = code.strip()
+
+    # Strip markdown fences
     code = re.sub(r"^```(?:mermaid)?\s*\n?", "", code, flags=re.IGNORECASE)
     code = re.sub(r"\n?```\s*$", "", code)
     code = code.strip()
+
+    # Strip YAML frontmatter (---\n...\n---)
+    code = re.sub(r"^---\n.*?\n---\n?", "", code, flags=re.DOTALL)
+    code = code.strip()
+
+    # Fix escaped quotes
     code = code.replace('\\"', "#quot;")
+
+    # Replace & with 'and' in node labels to avoid Mermaid parse errors
+    code = re.sub(r'\[([^\]]*?)&([^\]]*?)\]', lambda m: f'[{m.group(1)}and{m.group(2)}]', code)
+    code = re.sub(r'\(([^\)]*?)&([^\)]*?)\)', lambda m: f'({m.group(1)}and{m.group(2)})', code)
+
+    # Strip edge labels (-->|label| → -->) which often cause parse failures
+    code = re.sub(r'-->\s*\|[^|]*\|', '-->', code)
+    code = re.sub(r'---\s*\|[^|]*\|', '---', code)
+
+    # Split pipe-separated classDef lines into individual lines
+    # e.g. "classDef primary fill:#aaa | secondary fill:#bbb" → two separate lines
+    def _split_classdef(m):
+        parts = [p.strip() for p in m.group(1).split('|')]
+        return '\n'.join(f'classDef {p}' for p in parts if p)
+    code = re.sub(r'classDef\s+(.+)', _split_classdef, code)
+
+    # Auto-prepend "flowchart TD" if no valid diagram type header present
+    if not _DIAGRAM_HEADER_RE.search(code):
+        code = "flowchart TD\n" + code
+
+    # Count distinct node IDs
+    node_ids = list(dict.fromkeys(re.findall(r'\b([A-Za-z][A-Za-z0-9_]*)\s*[\[\({]', code)))
+    node_ids += [n for n in re.findall(r'(?:-->|---)\s*([A-Za-z][A-Za-z0-9_]*)\b', code)
+                 if n not in node_ids]
+    node_ids = list(dict.fromkeys(node_ids))
+
+    # Switch LR → TD when too many nodes
+    if len(node_ids) > 5:
+        code = re.sub(r'^(flowchart|graph)\s+LR', r'\1 TD', code, count=1, flags=re.MULTILINE)
+
+    # Auto-assign classDef colors if definitions exist but assignments are missing
+    has_classdef = "classDef" in code
+    has_class_assign = bool(re.search(r'^[ \t]*class\s+\w', code, re.MULTILINE))
+    if has_classdef and not has_class_assign and node_ids:
+        classes = ["primary", "secondary", "outcome"]
+        assignments = [f"class {nid} {classes[i % len(classes)]}" for i, nid in enumerate(node_ids)]
+        code = code + "\n" + "\n".join(assignments)
+
     return code
 
 

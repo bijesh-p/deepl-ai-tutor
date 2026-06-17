@@ -61,6 +61,30 @@ def render_quiz_page(bank: QuestionBank) -> None:
         save_attempt(result, st.session_state["quiz_difficulty"], db=db)
 
         st.session_state["quiz_result"] = result
-        st.session_state["page"] = "results"
-        del st.session_state["quiz"]
-        st.rerun()
+
+        # Show per-question feedback before redirecting
+        st.markdown("---")
+        st.subheader("Your results")
+        st.metric("Score", f"{result.score} / {result.total}")
+        st.markdown("")
+
+        for i, (q, r) in enumerate(zip(quiz.questions, result.answers)):
+            icon = "✅" if r.is_correct else "❌"
+            st.markdown(f"**{i + 1}. {icon} {q.question_text}**")
+            for j, opt in enumerate(q.options):
+                is_correct_opt = j in q.correct_answers
+                was_selected = j in r.selected
+                if is_correct_opt:
+                    st.markdown(f"&nbsp;&nbsp;&nbsp;🟢 **{opt}** ← correct answer")
+                elif was_selected:
+                    st.markdown(f"&nbsp;&nbsp;&nbsp;🔴 {opt} ← your answer")
+                else:
+                    st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{opt}")
+            if r.explanation:
+                st.caption(f"💡 {r.explanation}")
+            st.markdown("")
+
+        if st.button("See full results →", type="primary"):
+            st.session_state["page"] = "results"
+            del st.session_state["quiz"]
+            st.rerun()

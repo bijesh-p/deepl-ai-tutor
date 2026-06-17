@@ -33,10 +33,8 @@ def render_upload_page() -> None:
             # Pipeline finished in the background — redirect now
             _handle_completed(progress)
             return
-        if state not in ("failed", "aborted"):
-            _pipeline_status_fragment()
-            return
-        # failed/aborted fall through to upload form below
+        _pipeline_status_fragment()
+        return
 
     # ── Upload form ───────────────────────────────────────────────────────────
     st.title("New Module")
@@ -105,6 +103,7 @@ def _start_pipeline(tmp_path: str, user_id: str, username: str, db_path: str) ->
         "db_path": db_path,
         "tracing_enabled": tracing_enabled,
         "audio_enabled": audio_enabled,
+        "log": [],
     }
 
     st.session_state["pipeline_progress"] = progress
@@ -129,28 +128,26 @@ def _run_pipeline_bg(
     progress: dict,
     abort_event: threading.Event,
 ) -> None:
+    def _log(msg: str) -> None:
+        elapsed = int(time.monotonic() - progress["started_at"])
+        progress["log"].append(f"[{elapsed:>3}s] {msg}")
+
     try:
         from backend.content.models import LearningModule
         from backend.content.sliding_pipeline import run_sliding_pipeline
-        from backend.core.mcp_client import get_client
         from backend.ingestion.models import Document
-        from backend.observability.tracer import get_tracer
+        from backend.ingestion.pdf_parser import parse_pdf
         from backend.quiz.question_bank import generate_question_bank
-        tracer = get_tracer() if progress.get("tracing_enabled", True) else _noop_tracer()
+        tracer = _noop_tracer()
 
-        # Parse PDF via the document_server MCP tool
+        # Parse PDF directly (no MCP subprocess needed)
         progress["state"] = "parsing"
         progress["detail"] = "Reading PDF..."
-        doc_json = get_client("document_server").call(
-            "extract_text_from_pdf", file_path=tmp_path, max_pages=4
-        )
-        doc = Document.from_json(doc_json)
+        _log("Reading PDF...")
+        doc = parse_pdf(tmp_path, max_pages=50)
         progress["doc_title"] = doc.title
         progress["doc_id"] = doc.doc_id
-        progress["detail"] = (
-            f"Parsed {doc.title} — {len(doc.sections)} section(s), "
-            f"{doc.total_pages} page(s)"
-        )
+        _log(f"Parsed '{doc.title}' — {len(doc.sections)} section(s), {doc.total_pages} page(s)")
 
         if abort_event.is_set():
             progress["state"] = "aborted"
@@ -158,14 +155,15 @@ def _run_pipeline_bg(
 
         progress["state"] = "enriching"
         progress["detail"] = "Connecting to LLM..."
+        _log("Connecting to LLM...")
         llm = LLMFactory.create(provider=provider, model=model)
+        _log(f"LLM ready ({provider} / {model})")
 
         if abort_event.is_set():
             progress["state"] = "aborted"
             return
 
         # Generate diagnostic audio immediately — pure TTS, no LLM needed.
-        # Plays as soon as the student lands on the diagnostic page (~3s from here).
         if progress.get("audio_enabled", True):
             try:
                 from backend.content.audio_generator import generate_diagnostic_audio
@@ -179,12 +177,12 @@ def _run_pipeline_bg(
         # Prefetch diagnostic questions for slide 1 in background — ready by redirect.
         diag_future = _prefetch_diagnostic(llm, doc, progress)
 
-        # Sliding-window pipeline: reads 500 words at a time, assesses whether
-        # enough material exists for a slide, enriches immediately and publishes.
-        # Sets progress["ready"]=True after first slide → redirect to tutor room.
+        # Sliding-window pipeline
+        _log("Starting content generation...")
         enriched_topics = run_sliding_pipeline(
             doc, llm, progress, abort_event, tracer
         )
+        _log(f"Content generation done — {len(enriched_topics)} slide(s) ready")
 
         # Collect prefetched diagnostic (may already be done)
         try:
@@ -212,36 +210,47 @@ def _run_pipeline_bg(
         # Generate quiz bank
         progress["state"] = "quiz"
         progress["detail"] = "Generating quiz questions..."
+        _log("Generating quiz questions...")
         progress["current_topic"] = ""
         bank = generate_question_bank(module, llm)
         progress["bank"] = bank
-        progress["detail"] = f"{len(bank.questions)} quiz questions generated"
+        _log(f"Quiz done — {len(bank.questions)} questions generated")
 
         if abort_event.is_set():
             progress["state"] = "aborted"
             return
 
-        # Save to database via the storage_server MCP tool
+        # Save to database directly
         progress["state"] = "saving"
         progress["detail"] = "Saving module..."
-        get_client("storage_server").call(
-            "save_module_to_db",
-            module_id=module.module_id,
-            title=module.title,
-            source_filename=doc.source_filename,
-            module_json=module.to_json(),
-            question_bank_json=json.dumps(_bank_to_dict(bank)),
-            created_by=user_id,
-            db_path=db_path,
-        )
+        _log("Saving module to database...")
+        from backend.analytics.db import get_db
+        from backend.analytics.persistence import save_module
+        conn = get_db(db_path)
+        try:
+            save_module(
+                module_id=module.module_id,
+                title=module.title,
+                source_filename=doc.source_filename,
+                module_json=module.to_json(),
+                question_bank_json=json.dumps(_bank_to_dict(bank)),
+                created_by=user_id,
+                db=conn,
+            )
+        finally:
+            conn.close()
 
         progress["module"] = module
         progress["state"] = "completed"
+        _log("Module saved. Done!")
         progress["detail"] = "Module ready!"
 
     except Exception as exc:
+        import traceback
+        traceback.print_exc()
         progress["state"] = "failed"
         progress["error"] = str(exc)
+        _log(f"ERROR: {exc}")
     finally:
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
@@ -255,6 +264,13 @@ def _pipeline_status_fragment() -> None:
 
     state = progress["state"]
     elapsed = int(time.monotonic() - progress["started_at"])
+
+    # Always show the full step log so the user can see all completed stages
+    log_entries = progress.get("log", [])
+    if log_entries:
+        with st.expander("Pipeline steps", expanded=True):
+            for entry in log_entries:
+                st.text(entry)
 
     if state in ("parsing",):
         st.info(f"{progress['detail'] or 'Preparing...'} ({elapsed}s)")
@@ -318,7 +334,7 @@ def _handle_completed(progress: dict) -> None:
     st.session_state["module"] = module
     if bank:
         st.session_state["bank"] = bank
-    st.session_state["page"] = "tutor_room"
+    st.session_state["page"] = "module_library"
     _cleanup_pipeline_state()
     st.rerun()
 
@@ -339,7 +355,7 @@ def _redirect_to_viewer(progress: dict) -> None:
         created_at=datetime.now(timezone.utc).isoformat(),
     )
     st.session_state["module"] = module
-    st.session_state["page"] = "tutor_room"
+    st.session_state["page"] = "module_library"
     st.rerun()
 
 
@@ -351,16 +367,22 @@ def _prefetch_diagnostic(llm, doc, progress: dict) -> Future:
     from concurrent.futures import ThreadPoolExecutor
     from backend.interactive_tutor.graph import _DIAGNOSTIC_SCHEMA, _DIAGNOSTIC_SYSTEM
 
-    first_section = doc.sections[0] if doc.sections else None
-    title = first_section.title if first_section else doc.title
-    summary = (first_section.body[:300] if first_section else "")
+    # Build a representative content sample from across the whole document
+    # (not just the first section title, which may be a page code like "M1L1")
+    all_body = "\n\n".join(
+        s.body for s in doc.sections if s.body.strip()
+    )
+    content_sample = all_body[:1500].strip() or doc.title
 
     def _fetch():
         try:
             result = llm.generate(
                 prompt=(
-                    f"Topic: {title}\nSummary: {summary}\n\n"
-                    "Generate diagnostic questions to assess the student's prior knowledge."
+                    f"Document title: {doc.title}\n\n"
+                    f"Content excerpt:\n{content_sample}\n\n"
+                    "Generate 3 diagnostic questions to assess the student's prior knowledge "
+                    "of the subject matter in this document. Base questions strictly on the "
+                    "concepts mentioned in the content above."
                 ),
                 system=_DIAGNOSTIC_SYSTEM,
                 tool_schema=_DIAGNOSTIC_SCHEMA,

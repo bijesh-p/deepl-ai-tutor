@@ -12,19 +12,20 @@ calls (assess + enrich) with no need to read the whole document first.
 from __future__ import annotations
 
 import threading
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 from backend.content.models import EnrichedTopic, Topic
 from backend.ingestion.models import Document
 
-CHUNK_WORDS = 200
+CHUNK_WORDS = 300
 
 # ---------------------------------------------------------------------------
 # Assessment prompt / schema
 # ---------------------------------------------------------------------------
 
-MAX_ACCUMULATE_WORDS = 500  # force-publish after this many words even if not assessed presentable
+MAX_ACCUMULATE_WORDS = 800  # force-publish after this many words even if not assessed presentable
 
 _ASSESS_SYSTEM = (
     "You are an instructional designer reading a section of a document. "
@@ -130,10 +131,14 @@ def run_sliding_pipeline(
             if enriched is not None:
                 published.append(enriched)
                 _store_in_vector_db(enriched, module_id)
+                now = time.monotonic()
                 progress["enriched_topics"] = list(published)
                 progress["topics_enriched"] = len(published)
                 progress["current_topic"] = enriched.topic.title
                 progress["detail"] = f"Slide {len(published)} ready: {enriched.topic.title}"
+                progress["last_topic_at"] = now
+                elapsed_so_far = now - progress.get("started_at", now)
+                progress["avg_seconds_per_topic"] = elapsed_so_far / len(published)
 
                 if len(published) == 1:
                     progress["ready"] = True   # triggers redirect to tutor room
@@ -164,8 +169,12 @@ def run_sliding_pipeline(
             if enriched is not None:
                 published.append(enriched)
                 _store_in_vector_db(enriched, module_id)
+                now = time.monotonic()
                 progress["enriched_topics"] = list(published)
                 progress["topics_enriched"] = len(published)
+                progress["last_topic_at"] = now
+                elapsed_so_far = now - progress.get("started_at", now)
+                progress["avg_seconds_per_topic"] = elapsed_so_far / len(published)
                 if len(published) == 1:
                     progress["ready"] = True
 
