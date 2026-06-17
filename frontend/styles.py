@@ -85,7 +85,27 @@ p  { font-weight: 400 !important; line-height: 1.6 !important; }
  *   Secondary  : #4B5563  contrast  7:1         ✓ WCAG AA
  *   Label hint : #818CF8  contrast  3.5:1       (9px decorative, uppercase)
  *   Font       : Inter — clean, modern, web-standard
+ *
+ * Always-visible: Streamlit's collapse mechanism uses transform to slide
+ * the sidebar off-screen.  We override transform so it is always on-screen.
+ * The stSidebarCollapseButton is hidden to remove the collapse affordance.
  */
+[data-testid="stSidebar"] {
+    transform: translateX(0) !important;
+    display: flex !important;
+    visibility: visible !important;
+    min-width: 14rem !important;
+    opacity: 1 !important;
+}
+/* Hide the in-sidebar collapse arrow so the sidebar can't be closed */
+[data-testid="stSidebarCollapseButton"] {
+    display: none !important;
+}
+/* Also hide the collapsed-state expand pull-tab (sidebar never collapses) */
+[data-testid="stSidebarCollapsedControl"] {
+    display: none !important;
+}
+
 [data-testid="stSidebar"] > div:first-child {
     background: linear-gradient(170deg, #EEF2FF 0%, #F5F0FF 100%) !important;
     border-right: 1px solid #C7D2FE !important;
@@ -106,34 +126,6 @@ p  { font-weight: 400 !important; line-height: 1.6 !important; }
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
 }
 
-/* Sidebar expand pull-tab — shows as a small coloured handle on the left
-   edge whenever the sidebar is collapsed, so it is always easy to click.
-   Note: font-family is intentionally NOT set here so the Material Symbols
-   chevron glyph inside the button renders correctly. */
-[data-testid="stSidebarCollapsedControl"] {
-    display: flex !important;
-    visibility: visible !important;
-    opacity: 1 !important;
-    z-index: 99999 !important;
-    pointer-events: all !important;
-}
-[data-testid="stSidebarCollapsedControl"] button {
-    background: linear-gradient(180deg, #4F46E5 0%, #2563EB 100%) !important;
-    border: none !important;
-    border-radius: 0 10px 10px 0 !important;
-    color: #FFFFFF !important;
-    min-height: 56px !important;
-    min-width: 22px !important;
-    padding: 0 !important;
-    box-shadow: 3px 0 14px rgba(37,99,235,0.35) !important;
-    transition: min-width 0.2s ease, box-shadow 0.2s ease !important;
-    cursor: pointer !important;
-}
-[data-testid="stSidebarCollapsedControl"] button:hover {
-    min-width: 30px !important;
-    box-shadow: 4px 0 20px rgba(37,99,235,0.5) !important;
-    background: linear-gradient(180deg, #4338CA 0%, #1D4ED8 100%) !important;
-}
 
 /* Base text */
 [data-testid="stSidebar"] p,
