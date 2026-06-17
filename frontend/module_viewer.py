@@ -38,7 +38,7 @@ def render_module_viewer(module: LearningModule) -> None:
                     st.markdown(f"- *{t.title}* (pending)")
 
     for et in module.topics:
-        with st.expander(f"**{et.topic.title}**", expanded=False):
+        with st.expander(f"**{et.topic.title}**", expanded=True):
             if et.top_concepts:
                 concepts_text = " | ".join(f"**{c}**" for c in et.top_concepts)
                 st.info(f"Top concepts: {concepts_text}")
