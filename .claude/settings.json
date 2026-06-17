@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(uv run python -c ' *)",
-      "Bash(uv run *)"
+      "Bash(uv run *)",
+      "PowerShell(Get-Process -Name \"streamlit\" -ErrorAction SilentlyContinue)",
+      "PowerShell(Stop-Process -Force)"
     ]
   }
 }

@@ -9,7 +9,8 @@ from backend.analytics.persistence import load_user_profile, save_user
 _LOGIN_CSS = """
 <style>
 /* ── Login page — full-viewport centred canvas ─────────────────────────── */
-[data-testid="stSidebar"] { display: none !important; }
+/* Sidebar is not rendered at all on the login page (handled in app.py),
+   so no CSS rule is needed to hide it. */
 
 /* Hide every Streamlit top-bar element on the login page */
 header[data-testid="stHeader"],
