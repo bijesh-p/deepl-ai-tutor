@@ -31,14 +31,14 @@ See [SPEC.md](SPEC.md) for the full phase breakdown and definitions of done.
 
 | Layer | Technology |
 |---|---|
-| Frontend | Streamlit (multi-page) |
+| Frontend | Streamlit (multi-page, single `app.py` router) |
 | Content Generation | Direct LLM pipeline (decompose → enrich → diagrams → audio → quiz) |
-| Adaptive Tutor | LangGraph (diagnostic + 5-node state machine) |
+| Adaptive Tutor | LangGraph (diagnostic + 8-node state machine) |
 | LLM Providers | Anthropic SDK, Portkey, Ollama (OpenAI-compat) |
 | Tool Protocol | MCP (Model Context Protocol) — 3 standalone servers |
 | Vector Store | ChromaDB + sentence-transformers (`all-MiniLM-L6-v2`) |
-| Database | SQLite |
-| Document Parsing | PyMuPDF |
+| Database | SQLite — per-user DB + separate shared DB for published modules |
+| Document Parsing | PyMuPDF (PDF), python-pptx, python-docx |
 | Audio TTS | edge-tts (Microsoft Edge voices) |
 | Diagrams | Mermaid (via `streamlit-mermaid`) |
 | Tracing | Arize Phoenix (local OTLP) + openinference auto-instrumentation |
@@ -178,28 +178,32 @@ No new package is required — LangGraph picks this up automatically.
 
 ```
 course_project/
-├── app.py                          # Streamlit entry point + sidebar
+├── app.py                          # Streamlit entry point, sidebar, page router
 ├── backend/
 │   ├── core/
 │   │   ├── llm_client/             # LLM factory + adapters (Anthropic, Portkey, Ollama)
 │   │   └── mcp_client.py           # MCP tool dispatcher
-│   ├── interactive_tutor/          # LangGraph state machine
-│   ├── ingestion/                  # PDF parsing → Document model
+│   ├── interactive_tutor/          # LangGraph state machine (graph.py)
+│   ├── ingestion/                  # PDF/PPTX/DOCX parsing → Document model
 │   ├── content/                    # Enricher, diagram generator, audio, questions
 │   ├── quiz/                       # Question bank, assembly, scoring
-│   ├── analytics/                  # SQLite persistence & cohort stats
+│   ├── analytics/                  # SQLite persistence, admin auth, cohort + mastery stats
 │   └── observability/              # OTEL tracing setup + DeepEval runner
 ├── mcp_servers/
-│   ├── document_server/            # extract_text_from_pdf, parse_images
+│   ├── document_server/            # extract_text_from_pdf/pptx/docx, parse_images
 │   ├── assessment_server/          # evaluate_taxonomy, validate_json_schema
 │   └── storage_server/             # save_module_to_db, upsert/query_vector_db
 ├── frontend/
-│   ├── upload_page.py              # PDF upload + content generation
-│   ├── module_library_page.py      # Browse/select modules
+│   ├── login_page.py               # User / Admin login tabs
+│   ├── upload_page.py              # Upload + content generation, per-step error recovery
+│   ├── module_library_page.py      # My Modules + Shared Library, admin publish controls
 │   ├── module_viewer.py            # Topic viewer + inline questions
 │   ├── quiz_page.py                # Quiz with difficulty selector
 │   ├── results_page.py             # Score + cohort analytics
-│   └── tutor_room.py               # Adaptive tutor UI (LangGraph-driven)
+│   ├── tutor_room.py               # Adaptive tutor UI (LangGraph-driven), session resume
+│   ├── mastery_report_page.py      # Per-topic + cohort mastery report
+│   ├── observability_page.py       # Phoenix link + DeepEval metrics dashboard
+│   └── system_check_page.py        # Env + package validation
 ├── tests/                          # Unit tests
 ├── SPEC.md                         # System specification
 ├── ARCHITECTURE.md                 # Architecture diagrams (Mermaid)
