@@ -199,12 +199,7 @@ def main() -> None:
     if not st.session_state.get("username") and st.session_state["page"] != "login":
         st.session_state["page"] = "login"
 
-    # Only render the sidebar when NOT on the login page.
-    # If _render_sidebar() ran during login, the login CSS (display:none on
-    # the sidebar) can leak in Streamlit's incremental DOM updates and keep
-    # the sidebar hidden even after navigating away.
-    if st.session_state["page"] != "login":
-        _render_sidebar()
+    _render_sidebar()
 
     # ── Global pipeline progress banner (non-upload pages only) ──────────────
     progress = st.session_state.get("pipeline_progress")
