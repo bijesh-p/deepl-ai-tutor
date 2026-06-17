@@ -22,8 +22,12 @@ def render_module_library_page() -> None:
     st.title("Module Library")
     st.caption(f"Welcome, **{st.session_state.get('username', '')}**")
 
-    col1, col2 = st.columns([6, 1])
+    col1, col2, col3 = st.columns([5, 2, 1])
     with col2:
+        if st.button("📊 Observability", key="obs_nav_lib"):
+            st.session_state["page"] = "observability"
+            st.rerun()
+    with col3:
         if st.button("+ New Module"):
             st.session_state["page"] = "upload"
             st.rerun()
@@ -65,6 +69,8 @@ def _render_my_modules(db, shared_db, is_admin: bool) -> None:
         with col_actions:
             if st.button("Learn", key=f"learn_{mod['module_id']}", type="primary"):
                 _load_and_navigate(mod["module_id"], db)
+            if st.button("Mastery Report", key=f"mastery_{mod['module_id']}", type="secondary"):
+                _load_for_mastery_report(mod["module_id"], db)
             if st.button("Delete", key=f"del_{mod['module_id']}", type="secondary"):
                 delete_module(mod["module_id"], db=db)
                 st.rerun()
@@ -130,6 +136,26 @@ def _load_and_navigate(module_id: str, db) -> None:
     st.session_state["module"] = module
     st.session_state["bank"] = bank
     st.session_state["page"] = "learn"
+    st.rerun()
+
+
+def _load_for_mastery_report(module_id: str, db) -> None:
+    row = load_module(module_id, db=db)
+    if not row:
+        st.error("Module not found in database.")
+        return
+
+    if not row.get("module_json"):
+        st.warning(
+            "This module was saved before the v0.3 update and its content cannot be loaded. "
+            "Please delete it and regenerate it from the original PDF."
+        )
+        return
+
+    module = LearningModule.from_json(row["module_json"])
+
+    st.session_state["module"] = module
+    st.session_state["page"] = "mastery_report"
     st.rerun()
 
 

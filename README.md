@@ -6,24 +6,26 @@ A web application that transforms PDF documents into interactive, adaptive learn
 
 - **Phase 1 (PDF POC):** ✅ Complete
 - **Phase 2 (Functional Skeleton):** ✅ Complete — LLM factory, MCP tool servers, LangGraph adaptive tutor, JIT content pipeline, audio narration, ChromaDB vector store, and observability (Phoenix + DeepEval) are all implemented and tested.
-- **Phase 3 (Refined Platform):** 🔄 In Progress — admin-curated module library ✅, ChromaDB wired into the LangGraph tutor ✅, PPTX/DOCX ingestion, live Portkey/Ollama end-to-end validation.
+- **Phase 3 (Refined Platform):** 🔄 In Progress — admin-curated module library ✅, ChromaDB wired into the LangGraph tutor ✅, PPTX/DOCX ingestion ✅, observability dashboard ✅, structured error messages + partial-failure recovery ✅, live Portkey/Ollama end-to-end validation.
 
 See [SPEC.md](SPEC.md) for the full phase breakdown and definitions of done.
 
 ## Features
 
-- **PDF Ingestion** — Upload a PDF and extract structured content with heading-aware section splitting, via the `document_server` MCP tool (`extract_text_from_pdf`).
+- **Multi-Format Ingestion** — Upload a PDF, PowerPoint (`.pptx`), or Word (`.docx`) document. Each format has a dedicated parser (`pdf_parser`, `pptx_parser`, `docx_parser`) exposed as an MCP tool via `document_server`, all producing the same `Document`/`Section` model consumed by the content pipeline.
 - **Multi-LLM Support** — Switch between Anthropic Claude, Portkey, or Ollama via sidebar or `.env`. All three adapters are covered by mocked unit tests (`tests/test_content/test_llm_client.py`); see `references.md` for the live Portkey/Ollama validation checklist.
 - **Just-in-Time Content** — Upload and start learning within ~30 seconds. Topics are delivered as they are enriched; the rest generates in the background.
-- **Personalised Adaptive Tutor** — LangGraph state machine (diagnostic quiz → depth-adapted slide → Q&A loop). Depth preference and topic mastery persist across sessions per username.
+- **Personalised Adaptive Tutor** — LangGraph state machine (diagnostic quiz → depth-adapted slide → Q&A loop). Depth preference and topic mastery persist across sessions per username. **Session resume:** if a session ends before a module is finished, the tutor's full state (current concept, chat history, mastered topics) is saved to a `tutor_sessions` table and restored — with a "Resuming your previous session" banner and a "Restart from scratch" option — the next time that user opens the same module. Per-topic mastery (mastered/in-progress, difficulty, attempts) is also tracked incrementally in the `topic_mastery` table as each concept is completed.
 - **Diagram-Aware Audio** — Each topic slide includes TTS narration (edge-tts) that first describes the diagram, then explains the concept.
 - **MCP Tool Servers** — Document parsing, assessment validation, and storage exposed as standalone MCP servers, dispatched via `backend/core/mcp_client.py`. The content pipeline routes PDF parsing (`extract_text_from_pdf`), vector-store upserts (`upsert_to_vector_db`), and module persistence (`save_module_to_db`) through `mcp_client` rather than calling backend functions directly.
 - **ChromaDB Vector Store** — Each enriched topic is upserted into ChromaDB (`all-MiniLM-L6-v2` embeddings) during generation via `storage_server.upsert_to_vector_db`, enabling semantic search over document chunks in `data/chroma/`. The LangGraph tutor queries this store via `storage_server.query_vector_db`: `provide_hint` grounds hints in retrieved chunks, and `present_concept` falls back to retrieved content when pipeline-enriched content isn't yet available in session state — both non-fatal on error.
 - **Inline Questions** — Reinforcement questions embedded within each sub-topic for active learning.
 - **Quizzes** — End-of-module quizzes with selectable difficulty, randomised questions, and explanations.
 - **Performance Analytics** — Score tracking with cohort comparison (min/max/avg) across all participants.
-- **LLM Observability** — OTEL traces sent to local Arize Phoenix; DeepEval quality metrics run after each session using the active LLM as judge. Toggle both on/off in the sidebar.
+- **LLM Observability** — OTEL traces sent to local Arize Phoenix; DeepEval quality metrics (AnswerRelevancy, Faithfulness, ExplanationClarity) run after each tutor session using the active LLM as judge. Toggle both on/off in the sidebar. A dedicated **Observability Dashboard** page (reachable from the sidebar or the "📊 Observability" button on the Module Library) shows a Phoenix UI link and a per-session DeepEval results table with average score bar chart.
 - **Admin Mode & Shared Library** — The login page has separate "User Login" and "Admin Login" tabs. User Login has no password (regular login, even for admin-listed usernames). Admin Login requires a username from `AI_TUTOR_ADMIN_USERNAMES` plus `AI_TUTOR_ADMIN_PASSWORD` (sidebar shows "(Admin)" on success). Admins can publish/unpublish their own modules to a shared library (`data/shared/ai_tutor.db`), visible to every user in the Module Library's "Shared Library" section.
+- **Mastery Report** — Click "Mastery Report" on any module in the Module Library to see your per-topic progress (mastered / in progress / not started, difficulty reached, attempts) plus a cohort comparison showing the % of all users who have mastered each topic — viewable any time, not tied to quiz completion.
+- **Structured Error Handling & Partial Recovery** — Each pipeline step (parse, LLM connect, enrich, quiz, save) has its own error handler with a user-readable message and a collapsible technical details expander. If enrichment succeeds but quiz or save fails, a "Learn with N topic(s) →" button lets you jump straight into the tutor room with whatever was generated. A single bad topic during enrichment is silently skipped rather than killing the whole pipeline.
 
 ## Tech Stack
 

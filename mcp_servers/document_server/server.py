@@ -52,5 +52,31 @@ def parse_images(file_path: str, max_pages: int = 4) -> str:
     return json.dumps(images)
 
 
+@mcp.tool()
+def extract_text_from_pptx(file_path: str, max_slides: int = 16) -> str:
+    """Extract structured text from a PowerPoint file.
+
+    Returns the JSON-encoded `Document` model (see backend.ingestion.models).
+    Each slide becomes a Section; slides with no body text are skipped.
+    """
+    from backend.ingestion.pptx_parser import parse_pptx
+
+    doc = parse_pptx(file_path, max_slides=max_slides)
+    return doc.to_json()
+
+
+@mcp.tool()
+def extract_text_from_docx(file_path: str, max_sections: int = 16) -> str:
+    """Extract structured text from a Word document.
+
+    Returns the JSON-encoded `Document` model (see backend.ingestion.models).
+    Sections are derived from heading paragraphs.
+    """
+    from backend.ingestion.docx_parser import parse_docx
+
+    doc = parse_docx(file_path, max_sections=max_sections)
+    return doc.to_json()
+
+
 if __name__ == "__main__":
     mcp.run()

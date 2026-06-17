@@ -9,10 +9,17 @@ import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict
 from datetime import datetime, timezone
+from pathlib import Path
 
 import streamlit as st
 
 from backend.core.llm_client import LLMFactory
+
+_TOOL_FOR_EXT: dict[str, str] = {
+    ".pdf": "extract_text_from_pdf",
+    ".pptx": "extract_text_from_pptx",
+    ".docx": "extract_text_from_docx",
+}
 
 
 def render_upload_page() -> None:
@@ -40,13 +47,13 @@ def render_upload_page() -> None:
 
     # ── Upload form ───────────────────────────────────────────────────────────
     st.title("New Module")
-    st.caption("Upload a PDF to create an interactive learning module.")
+    st.caption("Upload a document to create an interactive learning module.")
 
     with st.form("upload_form"):
         uploaded = st.file_uploader(
-            "PDF document",
-            type=["pdf"],
-            help="The document will be converted into slides, diagrams, audio, and quizzes.",
+            "Document",
+            type=["pdf", "pptx", "docx"],
+            help="PDF, PowerPoint (.pptx), or Word (.docx) — converted into slides, diagrams, audio, and quizzes.",
         )
         cached_name = st.session_state.get("_cached_upload_name")
         if cached_name:
@@ -59,23 +66,29 @@ def render_upload_page() -> None:
     if uploaded is None:
         cached = st.session_state.get("_cached_upload_bytes")
         if cached is None:
-            st.error("Please upload a PDF.")
+            st.error("Please upload a PDF, PPTX, or DOCX file.")
             return
         uploaded_bytes = cached
+        file_ext = Path(st.session_state.get("_cached_upload_name", ".pdf")).suffix.lower()
     else:
         uploaded_bytes = uploaded.read()
+        file_ext = Path(uploaded.name).suffix.lower()
         st.session_state["_cached_upload_bytes"] = uploaded_bytes
         st.session_state["_cached_upload_name"] = uploaded.name
 
-    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+    if file_ext not in _TOOL_FOR_EXT:
+        st.error(f"Unsupported file type: {file_ext!r}. Please upload a PDF, PPTX, or DOCX.")
+        return
+
+    with tempfile.NamedTemporaryFile(suffix=file_ext, delete=False) as tmp:
         tmp.write(uploaded_bytes)
         tmp_path = tmp.name
 
-    _start_pipeline(tmp_path, user_id, username, db_path)
+    _start_pipeline(tmp_path, file_ext, user_id, username, db_path)
     st.rerun()
 
 
-def _start_pipeline(tmp_path: str, user_id: str, username: str, db_path: str) -> None:
+def _start_pipeline(tmp_path: str, file_ext: str, user_id: str, username: str, db_path: str) -> None:
     provider = st.session_state.get("llm_provider", "anthropic")
     model = st.session_state.get("llm_model", "claude-sonnet-4-6")
     tracing_enabled = st.session_state.get("tracing_enabled", True)
@@ -98,6 +111,8 @@ def _start_pipeline(tmp_path: str, user_id: str, username: str, db_path: str) ->
         "doc_id": "",
         "started_at": time.monotonic(),
         "error": None,
+        "failed_step": None,
+        "error_detail": "",
         "module": None,
         "bank": None,
         "user_id": user_id,
@@ -112,15 +127,23 @@ def _start_pipeline(tmp_path: str, user_id: str, username: str, db_path: str) ->
 
     thread = threading.Thread(
         target=_run_pipeline_bg,
-        args=(tmp_path, user_id, username, provider, model, db_path, progress, abort_event),
+        args=(tmp_path, file_ext, user_id, username, provider, model, db_path, progress, abort_event),
         daemon=True,
         name="pipeline-worker",
     )
     thread.start()
 
 
+def _fail(progress: dict, step: str, exc: BaseException | None, user_msg: str) -> None:
+    progress["state"] = "failed"
+    progress["failed_step"] = step
+    progress["error"] = user_msg
+    progress["error_detail"] = str(exc) if exc is not None else ""
+
+
 def _run_pipeline_bg(
     tmp_path: str,
+    file_ext: str,
     user_id: str,
     username: str,
     provider: str,
@@ -138,34 +161,44 @@ def _run_pipeline_bg(
         from backend.quiz.question_bank import generate_question_bank
         tracer = get_tracer() if progress.get("tracing_enabled", True) else _noop_tracer()
 
-        # Parse PDF via the document_server MCP tool
+        # ── Step 1: Parse ─────────────────────────────────────────────────────
         progress["state"] = "parsing"
-        progress["detail"] = "Reading PDF..."
-        doc_json = get_client("document_server").call(
-            "extract_text_from_pdf", file_path=tmp_path, max_pages=4
-        )
-        doc = Document.from_json(doc_json)
-        progress["doc_title"] = doc.title
-        progress["doc_id"] = doc.doc_id
-        progress["detail"] = (
-            f"Parsed {doc.title} — {len(doc.sections)} section(s), "
-            f"{doc.total_pages} page(s)"
-        )
+        progress["detail"] = "Reading document..."
+        try:
+            tool_name = _TOOL_FOR_EXT[file_ext]
+            doc_json = get_client("document_server").call(tool_name, file_path=tmp_path)
+            doc = Document.from_json(doc_json)
+            progress["doc_title"] = doc.title
+            progress["doc_id"] = doc.doc_id
+            progress["detail"] = (
+                f"Parsed {doc.title} — {len(doc.sections)} section(s), "
+                f"{doc.total_pages} page(s)"
+            )
+        except Exception as exc:
+            _fail(progress, "parse", exc,
+                  "Could not read the document. The file may be corrupted, "
+                  "password-protected, or in an unsupported format.")
+            return
 
         if abort_event.is_set():
             progress["state"] = "aborted"
             return
 
+        # ── Step 2: Connect to LLM ────────────────────────────────────────────
         progress["state"] = "enriching"
         progress["detail"] = "Connecting to LLM..."
-        llm = LLMFactory.create(provider=provider, model=model)
+        try:
+            llm = LLMFactory.create(provider=provider, model=model)
+        except Exception as exc:
+            _fail(progress, "enrich", exc,
+                  "Could not connect to the LLM. Check your API key and provider settings.")
+            return
 
         if abort_event.is_set():
             progress["state"] = "aborted"
             return
 
         # Generate diagnostic audio immediately — pure TTS, no LLM needed.
-        # Plays as soon as the student lands on the diagnostic page (~3s from here).
         if progress.get("audio_enabled", True):
             try:
                 from backend.content.audio_generator import generate_diagnostic_audio
@@ -179,12 +212,19 @@ def _run_pipeline_bg(
         # Prefetch diagnostic questions for slide 1 in background — ready by redirect.
         diag_future = _prefetch_diagnostic(llm, doc, progress)
 
-        # Sliding-window pipeline: reads 500 words at a time, assesses whether
-        # enough material exists for a slide, enriches immediately and publishes.
-        # Sets progress["ready"]=True after first slide → redirect to tutor room.
-        enriched_topics = run_sliding_pipeline(
-            doc, llm, progress, abort_event, tracer
-        )
+        # ── Step 3: Enrich (sliding-window pipeline) ──────────────────────────
+        try:
+            enriched_topics = run_sliding_pipeline(
+                doc, llm, progress, abort_event, tracer
+            )
+        except Exception as exc:
+            partial = progress.get("enriched_topics", [])
+            detail = (
+                f" {len(partial)} topic(s) were successfully generated before the failure."
+                if partial else ""
+            )
+            _fail(progress, "enrich", exc, f"Content generation failed.{detail}")
+            return
 
         # Collect prefetched diagnostic (may already be done)
         try:
@@ -197,8 +237,9 @@ def _run_pipeline_bg(
             return
 
         if not enriched_topics:
-            progress["state"] = "failed"
-            progress["error"] = "No presentable concepts found in document."
+            _fail(progress, "enrich", None,
+                  "No presentable concepts could be extracted from this document. "
+                  "Try a document with clearer headings or more text content.")
             return
 
         module = LearningModule(
@@ -208,40 +249,51 @@ def _run_pipeline_bg(
             topics=enriched_topics,
             created_at=datetime.now(timezone.utc).isoformat(),
         )
+        # Publish module early so partial-recovery UI can use it if quiz/save fails
+        progress["module"] = module
 
-        # Generate quiz bank
+        # ── Step 4: Quiz ──────────────────────────────────────────────────────
         progress["state"] = "quiz"
         progress["detail"] = "Generating quiz questions..."
         progress["current_topic"] = ""
-        bank = generate_question_bank(module, llm)
-        progress["bank"] = bank
-        progress["detail"] = f"{len(bank.questions)} quiz questions generated"
+        try:
+            bank = generate_question_bank(module, llm)
+            progress["bank"] = bank
+            progress["detail"] = f"{len(bank.questions)} quiz questions generated"
+        except Exception as exc:
+            _fail(progress, "quiz", exc,
+                  "Quiz generation failed. The course content is ready — "
+                  "you can start learning without a quiz.")
+            return
 
         if abort_event.is_set():
             progress["state"] = "aborted"
             return
 
-        # Save to database via the storage_server MCP tool
+        # ── Step 5: Save ──────────────────────────────────────────────────────
         progress["state"] = "saving"
         progress["detail"] = "Saving module..."
-        get_client("storage_server").call(
-            "save_module_to_db",
-            module_id=module.module_id,
-            title=module.title,
-            source_filename=doc.source_filename,
-            module_json=module.to_json(),
-            question_bank_json=json.dumps(_bank_to_dict(bank)),
-            created_by=user_id,
-            db_path=db_path,
-        )
+        try:
+            get_client("storage_server").call(
+                "save_module_to_db",
+                module_id=module.module_id,
+                title=module.title,
+                source_filename=doc.source_filename,
+                module_json=module.to_json(),
+                question_bank_json=json.dumps(_bank_to_dict(bank)),
+                created_by=user_id,
+                db_path=db_path,
+            )
+        except Exception as exc:
+            _fail(progress, "save", exc,
+                  "Could not save the module to the database. "
+                  "The content was generated — you can start learning now, "
+                  "but it won't appear in your Module Library.")
+            return
 
-        progress["module"] = module
         progress["state"] = "completed"
         progress["detail"] = "Module ready!"
 
-    except Exception as exc:
-        progress["state"] = "failed"
-        progress["error"] = str(exc)
     finally:
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
@@ -276,14 +328,56 @@ def _pipeline_status_fragment() -> None:
         _abort_button()
 
     elif state == "failed":
-        st.error(f"Generation failed: {progress['error']}")
-        st.caption(f"Failed after {elapsed}s")
-        cached_name = st.session_state.get("_cached_upload_name")
-        if cached_name:
-            st.caption(f"Previous file **{cached_name}** will be re-used on retry.")
-        if st.button("Retry", type="primary"):
-            _cleanup_pipeline_state()
-            st.rerun()
+        step = progress.get("failed_step", "")
+        error_msg = progress.get("error", "An unexpected error occurred.")
+        error_detail = progress.get("error_detail", "")
+        partial_topics = progress.get("enriched_topics", [])
+        partial_module = progress.get("module")
+        partial_bank = progress.get("bank")
+
+        st.error(error_msg)
+        st.caption(f"Failed at step: **{step or 'unknown'}** · {elapsed}s elapsed")
+
+        if error_detail:
+            with st.expander("Technical details"):
+                st.code(error_detail, language=None)
+
+        can_recover = (
+            (step in ("quiz", "save") and partial_module is not None) or
+            (step == "enrich" and len(partial_topics) >= 1)
+        )
+
+        if can_recover:
+            col_recover, col_retry = st.columns(2)
+            with col_recover:
+                n = len(partial_module.topics) if partial_module is not None else len(partial_topics)
+                if st.button(f"Learn with {n} topic(s) →", type="primary", key="_btn_recover"):
+                    if partial_module is None:
+                        from backend.content.models import LearningModule
+                        partial_module = LearningModule(
+                            module_id=progress["module_id"],
+                            title=progress.get("doc_title", "Partial Module"),
+                            source_doc_id=progress.get("doc_id", ""),
+                            topics=list(partial_topics),
+                            created_at=datetime.now(timezone.utc).isoformat(),
+                        )
+                    st.session_state["module"] = partial_module
+                    if partial_bank:
+                        st.session_state["bank"] = partial_bank
+                    st.session_state["page"] = "tutor_room"
+                    _cleanup_pipeline_state()
+                    st.rerun()
+            with col_retry:
+                if st.button("Retry from scratch", type="secondary", key="_btn_retry_fail"):
+                    _cleanup_pipeline_state()
+                    st.rerun()
+        else:
+            cached_name = st.session_state.get("_cached_upload_name")
+            if cached_name:
+                st.caption(f"File **{cached_name}** will be re-used on retry.")
+            if st.button("Retry", type="primary", key="_btn_retry"):
+                _cleanup_pipeline_state()
+                st.rerun()
 
     elif state == "aborted":
         st.warning(f"Generation was cancelled after {elapsed}s.")
