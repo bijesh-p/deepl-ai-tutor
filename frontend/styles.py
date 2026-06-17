@@ -86,24 +86,37 @@ p  { font-weight: 400 !important; line-height: 1.6 !important; }
  *   Label hint : #818CF8  contrast  3.5:1       (9px decorative, uppercase)
  *   Font       : Inter — clean, modern, web-standard
  *
- * Always-visible: Streamlit's collapse mechanism uses transform to slide
- * the sidebar off-screen.  We override transform so it is always on-screen.
- * The stSidebarCollapseButton is hidden to remove the collapse affordance.
+ * Collapsible: sidebar starts collapsed after login (initial_sidebar_state
+ * = "collapsed" in set_page_config). A styled pull-tab lets the user expand
+ * and collapse freely. Do NOT override transform here — that breaks the
+ * natural slide-in/out animation.
  */
-[data-testid="stSidebar"] {
-    transform: translateX(0) !important;
+
+/* Expand pull-tab — blue handle on the left edge when sidebar is collapsed.
+   font-family intentionally omitted to preserve the Material Symbols chevron. */
+[data-testid="stSidebarCollapsedControl"] {
     display: flex !important;
     visibility: visible !important;
-    min-width: 14rem !important;
     opacity: 1 !important;
+    z-index: 99999 !important;
+    pointer-events: all !important;
 }
-/* Hide the in-sidebar collapse arrow so the sidebar can't be closed */
-[data-testid="stSidebarCollapseButton"] {
-    display: none !important;
+[data-testid="stSidebarCollapsedControl"] button {
+    background: linear-gradient(180deg, #4F46E5 0%, #2563EB 100%) !important;
+    border: none !important;
+    border-radius: 0 10px 10px 0 !important;
+    color: #FFFFFF !important;
+    min-height: 56px !important;
+    min-width: 22px !important;
+    padding: 0 !important;
+    box-shadow: 3px 0 14px rgba(37,99,235,0.35) !important;
+    transition: min-width 0.2s ease, box-shadow 0.2s ease !important;
+    cursor: pointer !important;
 }
-/* Also hide the collapsed-state expand pull-tab (sidebar never collapses) */
-[data-testid="stSidebarCollapsedControl"] {
-    display: none !important;
+[data-testid="stSidebarCollapsedControl"] button:hover {
+    min-width: 30px !important;
+    box-shadow: 4px 0 20px rgba(37,99,235,0.5) !important;
+    background: linear-gradient(180deg, #4338CA 0%, #1D4ED8 100%) !important;
 }
 
 [data-testid="stSidebar"] > div:first-child {

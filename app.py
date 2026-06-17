@@ -15,7 +15,7 @@ st.set_page_config(
     page_title="AI Tutor",
     page_icon="📚",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 from frontend.styles import inject_global_css
