@@ -5,6 +5,11 @@
 - [PyMuPDF Documentation](https://pymupdf.readthedocs.io/) — Python bindings for MuPDF; used for PDF text extraction and TOC parsing in `backend/ingestion/pdf_parser.py`.
 - [PyMuPDF GitHub](https://github.com/pymupdf/PyMuPDF) — Source and issue tracker.
 
+## WebVTT Transcript Parsing
+
+- [WebVTT Spec (W3C)](https://www.w3.org/TR/webvtt1/) — W3C standard for timed text tracks; defines the `.vtt` format parsed by `backend/ingestion/vtt_parser.py`.
+- [WebVTT on MDN](https://developer.mozilla.org/en-US/docs/Web/API/WebVTT_API) — MDN reference for WebVTT cue formatting, voice tags (`<v>`), and timestamp syntax.
+
 ## LLM Integration
 
 - [Anthropic Python SDK](https://github.com/anthropic/anthropic-sdk-python) — Official SDK used in `backend/core/llm_client/adapters/anthropic_adapter.py`.
