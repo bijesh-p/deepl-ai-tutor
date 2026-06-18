@@ -208,9 +208,25 @@ def _sanitize_mermaid(code: str) -> str:
     # Fix escaped quotes
     code = code.replace('\\"', "#quot;")
 
+    # Replace backticks with single quotes — backticks inside labels break the JS parser
+    code = code.replace('`', "'")
+
     # Replace & with 'and' in node labels to avoid Mermaid parse errors
     code = re.sub(r'\[([^\]]*?)&([^\]]*?)\]', lambda m: f'[{m.group(1)}and{m.group(2)}]', code)
     code = re.sub(r'\(([^\)]*?)&([^\)]*?)\)', lambda m: f'({m.group(1)}and{m.group(2)})', code)
+
+    # Replace () inside [] node labels with {} to prevent parse errors
+    # e.g. A[Feature Extraction (CNN)] → A[Feature Extraction {CNN}]
+    # Skips shape markers like [(text)] where ( immediately follows [
+    code = re.sub(
+        r'\[([A-Za-z0-9][^\]]*?)\(([^\)]*?)\)([^\]]*?)\]',
+        lambda m: f'[{m.group(1)}{{{m.group(2)}}}{m.group(3)}]',
+        code,
+    )
+
+    # Strip subgraph wrappers — keep inner node lines, remove the subgraph/end lines
+    code = re.sub(r'^[ \t]*subgraph\b[^\n]*\n?', '', code, flags=re.MULTILINE)
+    code = re.sub(r'^[ \t]*end\s*$', '', code, flags=re.MULTILINE)
 
     # Strip edge labels (-->|label| → -->) which often cause parse failures
     code = re.sub(r'-->\s*\|[^|]*\|', '-->', code)

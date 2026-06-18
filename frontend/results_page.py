@@ -24,16 +24,32 @@ def render_results_page(result: QuizResult) -> None:
     _render_cohort_chart(stats)
 
     # Per-question breakdown
+    quiz = st.session_state.get("quiz")
+    quiz_questions = {q.question_id: q for q in quiz.questions} if quiz else {}
+
     st.markdown("---")
     st.markdown("### Question Breakdown")
     for i, ar in enumerate(result.answers):
+        q = quiz_questions.get(ar.question_id)
         icon = "✅" if ar.is_correct else "❌"
-        with st.expander(f"{icon} Question {i + 1}"):
-            if ar.is_correct:
-                st.success("Correct")
-            else:
-                st.error("Incorrect")
-            st.markdown(f"**Explanation:** {ar.explanation}")
+        title = q.question_text if q else f"Question {i + 1}"
+        if len(title) > 80:
+            title = title[:77] + "..."
+        with st.expander(f"{icon} {title}", expanded=not ar.is_correct):
+            if q:
+                for j, opt in enumerate(q.options):
+                    is_correct = j in ar.correct
+                    was_selected = j in ar.selected
+                    if is_correct and was_selected:
+                        st.markdown(f"✅ **{opt}**")
+                    elif is_correct and not was_selected:
+                        st.markdown(f"🟢 **{opt}**")
+                    elif was_selected and not is_correct:
+                        st.markdown(f"🔴 ~~{opt}~~")
+                    else:
+                        st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;{opt}")
+            if ar.explanation:
+                st.caption(f"💡 {ar.explanation}")
 
     st.markdown("---")
     col1, col2 = st.columns(2)

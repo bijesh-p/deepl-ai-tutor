@@ -86,5 +86,4 @@ def render_quiz_page(bank: QuestionBank) -> None:
 
         if st.button("See full results →", type="primary"):
             st.session_state["page"] = "results"
-            del st.session_state["quiz"]
             st.rerun()
