@@ -46,7 +46,7 @@ _CHATTER_PATTERNS = [
         r"^\s*sorry\s*(,|\s)*(i|my)\s*(was|got)\s*(muted|disconnected)",
         r"^\s*you('re|\s+are)\s+on\s+mute",
         r"^\s*(thanks?|thank\s+you)\s*(for\s+joining|everyone|all)?\s*[.!]?\s*$",
-        r"^\s*(bye|goodbye|see\s+you|have\s+a\s+(good|great)\s+(day|evening))\b.*$",
+        r"(bye|goodbye|see\s+you|have\s+a\s+(good|great)\s+(day|evening))",
         r"^\s*(okay|ok|alright|sure|yes|yeah|right|mm-hmm|uh-huh)\s*[.!,]?\s*$",
         r"^\s*let('s|\s+us)\s+(wait|give)\s+(for|a)\s+(others|few|moment)",
         r"^\s*(we('ll|\s+will)\s+)?(start|begin)\s+(in\s+a\s+(few|couple)|shortly|soon)",
@@ -206,7 +206,7 @@ def _clean_cue_text(text: str) -> str:
 def _strip_chatter(cues: list[_Cue]) -> list[_Cue]:
     result = []
     for cue in cues:
-        if any(p.match(cue.text) for p in _CHATTER_PATTERNS):
+        if any(p.search(cue.text) for p in _CHATTER_PATTERNS):
             continue
         result.append(cue)
     return result
@@ -326,7 +326,7 @@ def _merge_small_sections(sections: list[_RawSection]) -> list[_RawSection]:
     merged: list[_RawSection] = []
     for sec in sections:
         word_count = sum(len(p.split()) for p in sec.body_parts + sec.qa_parts)
-        if merged and not sec.is_qa and word_count < 50 and not merged[-1].is_qa:
+        if merged and not sec.is_qa and word_count < 5 and not merged[-1].is_qa:
             merged[-1].body_parts.extend(sec.body_parts)
             merged[-1].qa_parts.extend(sec.qa_parts)
         else:
