@@ -66,6 +66,15 @@ CREATE TABLE IF NOT EXISTS topic_mastery (
     last_updated TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (user_id, module_id, topic_id)
 );
+
+CREATE TABLE IF NOT EXISTS tutor_sessions (
+    user_id    TEXT NOT NULL REFERENCES users(user_id),
+    module_id  TEXT NOT NULL,
+    state_json TEXT NOT NULL,
+    phase      TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, module_id)
+);
 """
 
 _MIGRATIONS = [

@@ -93,15 +93,29 @@ Two-mode login: the login page has separate **"User Login"** and **"Admin Login"
 
 ---
 
-### Phase 33 — LangGraph mastery persistence + mastery report
+### Phase 33 — Tutor session resume + per-topic mastery persistence ✅ Done
 
-Wire `SqliteSaver` as the LangGraph checkpointer so sessions resume after page refresh. Add a mastery report page.
+`tutor_room.py` invokes graph nodes manually via `_run_node()`, never `graph.invoke(state, config=...)`, so a real `SqliteSaver` checkpointer doesn't fit without rewriting the tutor's control flow (see SPEC.md §2, superseded resolution). Instead: a new `tutor_sessions` table stores the serialized `GraphState` dict + UI phase, keyed by `(user_id, module_id)`. On entering the tutor room, if a non-"done" saved session exists for this user/module, restore it and show a "Resuming your previous session" banner with a "Restart from scratch" option; otherwise initialize fresh as before. After every settled render, upsert the current state/phase (or delete the row once `phase == "done"`). Separately, the existing-but-unused `topic_mastery` table (`user_id, module_id, topic_id, mastered, difficulty, attempts, last_updated`) is now written to incrementally — once per concept when it's mastered (slide auto-advance or Q&A success), and as an "in progress" (`mastered=0`) row if the session ends mid-concept.
 
 **Files:**
-- `backend/interactive_tutor/graph.py` — add `SqliteSaver` checkpointer
-- `backend/analytics/db.py` — `topic_mastery` table (see SPEC §7.5)
+- `backend/analytics/db.py` — new `tutor_sessions` table
+- `backend/analytics/persistence.py` — `save_tutor_session`, `load_tutor_session`, `delete_tutor_session`, `save_topic_mastery`, `get_topic_mastery`
+- `frontend/tutor_room.py` — resume-on-entry, `_persist_session`, `_record_topic_mastery` helpers wired into the slide/Q&A/end-session flows
+- `tests/test_analytics/test_persistence.py` — round-trip tests for the new functions
+
+---
+
+### Phase 40 — Mastery report page + cohort mastery analytics ✅ Done
+
+New standalone page showing a user's per-topic mastery (mastered / in progress / not started, difficulty reached, attempts) for a module, plus a cohort comparison (% of all users who mastered each topic), reachable via a "Mastery Report" button per module in the Module Library — viewable any time, not tied to quiz completion.
+
+**Files:**
+- `backend/analytics/models.py` — `TopicMasteryRow`, `MasteryReport`, `CohortTopicMastery`, `CohortMastery` dataclasses
 - `backend/analytics/stats.py` — `get_mastery_report`, `get_cohort_mastery`
-- `frontend/` — new `mastery_report_page.py` (or section in results)
+- `frontend/mastery_report_page.py` (new) — per-topic badges + cohort bar chart, following `results_page.py`'s layout conventions
+- `frontend/module_library_page.py` — "Mastery Report" button per module
+- `app.py` — new `mastery_report` page route
+- `tests/test_analytics/test_stats.py` — tests for the new mastery stats functions
 
 ---
 
@@ -115,48 +129,57 @@ Added `_retrieve_context(module_id, query_text, n_results)` to `graph.py`: calls
 
 ---
 
-### Phase 35 — PPTX + DOCX parsing
+### Phase 35 — PPTX + DOCX parsing ✅ Done
 
-Implement `pptx_parser.py` and `docx_parser.py`. Update upload page to accept `.pptx` and `.docx`. Output must conform to the same `Document` / `Section` contracts as the PDF parser.
+`parse_pptx` (max 16 slides, title from `core_properties` or filename stem, each slide body from non-title placeholder text, blank-body slides skipped) and `parse_docx` (max 16 sections, groups paragraphs by heading style, falls back to one section if no headings). MCP `document_server` exposes `extract_text_from_pptx`/`extract_text_from_docx` delegating to the new parsers. `upload_page.py` accepts `["pdf", "pptx", "docx"]` and routes to the right MCP tool via `_TOOL_FOR_EXT`.
 
 **Files:**
-- `backend/ingestion/pptx_parser.py`
-- `backend/ingestion/docx_parser.py`
-- `frontend/upload_page.py` — expand file type filter
-- `mcp_servers/document_server/` — add `extract_text_from_pptx`, `extract_text_from_docx` tools
+- `backend/ingestion/pptx_parser.py` (new)
+- `backend/ingestion/docx_parser.py` (new)
+- `backend/ingestion/__init__.py` — export new parsers
+- `frontend/upload_page.py` — multi-format uploader + `_TOOL_FOR_EXT` routing
+- `mcp_servers/document_server/server.py` — add `extract_text_from_pptx`, `extract_text_from_docx`
+- `tests/test_ingestion/test_pptx_parser.py`, `tests/test_ingestion/test_docx_parser.py` (new)
+- `pyproject.toml` — added `python-pptx`, `python-docx`
 
 ---
 
-### Phase 36 — Error handling and UX polish
+### Phase 36 — Error handling and UX polish ✅ Done
 
 Structured, user-actionable error messages at each pipeline step. Retry buttons. Partial-failure recovery (save topics that succeeded even if later steps fail).
 
 **Files:**
-- `backend/content/sliding_pipeline.py` — per-step error capture and publish
-- `frontend/upload_page.py` — surface step-specific errors with retry controls
-- `frontend/tutor_room.py` — graph error → reset session with checkpoint restore offer
+- `backend/content/sliding_pipeline.py` — `_enrich_one`: guard `enrich()` with try/except so a single bad topic is skipped (returns `None`) rather than killing the pipeline
+- `frontend/upload_page.py` — `_fail()` helper; per-step try/except in `_run_pipeline_bg` (parse, LLM connect, enrich, quiz, save); `progress["module"]` set early after enrichment; failed-state UI with step label, collapsible technical expander, and "Learn with N topic(s) / Retry from scratch" two-column recovery buttons
+- `frontend/tutor_room.py` — `_run_node` catches graph exceptions, stores `tutor_error` in session state, and calls `st.rerun()` to abort the button handler; new `_render_tutor_error` shows a user-readable message + technical expander + "Try again" / "Reset session" buttons
 
 ---
 
-### Phase 37 — Observability dashboard
+### Phase 37 — Observability dashboard ✅ Done
 
-Expose Arize Phoenix and DeepEval results in a dedicated Streamlit page. Link to Phoenix UI, show per-session eval summary, trend charts.
+Dedicated page (`frontend/observability_page.py`) with two sections: (1) Phoenix trace explorer with `st.link_button` to open the Phoenix UI (base URL derived from `OTEL_EXPORTER_OTLP_ENDPOINT`); (2) DeepEval quality metrics — per-session table + avg score bar chart, queried via `get_eval_results()` in `backend/analytics/stats.py` (LEFT JOIN modules for module title). Navigation added to sidebar ("Observability" button) and module library home page ("📊 Observability" button in header row).
 
 **Files:**
-- `frontend/observability_page.py` (new)
-- `backend/observability/eval_runner.py` — add `get_eval_results(user_id)` query
-- `frontend/app.py` — add page to router
+- `frontend/observability_page.py` (new) — Phoenix section + DeepEval section
+- `backend/analytics/stats.py` — `get_eval_results(user_id, limit, db)` (note: placed in stats.py, not eval_runner.py, for consistency with other query functions)
+- `app.py` — sidebar button + router case
+- `frontend/module_library_page.py` — "📊 Observability" button in header
 
 ---
 
-### Phase 38 — Test coverage
+### Phase 38 — Test coverage ✅ Done
 
-Integration tests for MCP servers, LLM factory adapters, and the LangGraph graph (dry-run with mock LLM responses).
+Integration tests for MCP servers, LLM factory adapters, and the LangGraph graph (dry-run with mock LLM responses). 119 tests pass (up from 88).
 
-**Files:**
-- `tests/test_mcp/` — test each MCP server tool in subprocess mode
-- `tests/test_llm_client/` — test all three adapters against a mock endpoint
-- `tests/test_tutor/` — test graph compilation and node state transitions
+**Phase 38A — MCP server gaps:**
+- `tests/test_mcp/test_assessment_server.py` (new) — `validate_json_schema`: valid schemas (learning_module, question, question_bank), missing keys, unknown schema name
+- `tests/test_mcp/test_document_server.py` — added `extract_text_from_pptx` and `extract_text_from_docx` tests; fixtures generated inline via `tmp_path` using `python-pptx` / `python-docx`
+
+**Phase 38B — LangGraph graph node tests:**
+- `tests/test_tutor/test_graph_nodes.py` (new) — 17 tests covering all graph nodes: `generate_diagnostic` (questions populated, non-dict response), `evaluate_diagnostic` (all-correct/none-correct/partial/empty), `present_concept` (fast path with enriched+audio, fallback path via LLM), `ask_question`, `evaluate_response` (correct/incorrect/chat history), `simplify_foundations`, `_advance_concept` (next concept, empty remaining), `_session_complete`
+
+**Phase 38C — Sliding pipeline tests:**
+- `tests/test_content/test_sliding_pipeline.py` (new) — `_enrich_one` skip-on-error (Phase 36), success path, abort; `run_sliding_pipeline` returns topics, updates progress dict, skips failed topics and continues, aborts cleanly
 
 ---
 

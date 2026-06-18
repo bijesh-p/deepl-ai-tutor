@@ -82,26 +82,25 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
 
 | Task | Description | Status |
 |---|---|---|
-| Admin mode (Phase 32) | Two-mode login: regular usernames log in as today (no password); usernames in `AI_TUTOR_ADMIN_USERNAMES` must additionally match `AI_TUTOR_ADMIN_PASSWORD` to set `is_admin=True`. Admin-generated modules can be published (copied) to a shared `published_modules` table in `data/shared/ai_tutor.db`, visible to all users in a "Shared Library" section. Admin scope is publish/unpublish of their own modules only — no edit/delete rights over other users' personal modules. 
-Additonally in the login page create two separate set of login and password fields for admin and user modes. Password is only enabled for admin mode and user mode its disabled by default|
+| Admin mode (Phase 32) | Two-mode login: regular usernames log in as today (no password); usernames in `AI_TUTOR_ADMIN_USERNAMES` must additionally match `AI_TUTOR_ADMIN_PASSWORD` to set `is_admin=True`. Admin-generated modules can be published (copied) to a shared `published_modules` table in `data/shared/ai_tutor.db`, visible to all users in a "Shared Library" section. Admin scope is publish/unpublish of their own modules only — no edit/delete rights over other users' personal modules. Additonally in the login page create two separate set of login and password fields for admin and user modes. Password is only enabled for admin mode and user mode its disabled by default| ✅ Done |
 | ChromaDB tutor wiring (Phase 34) | `provide_hint` queries `storage_server.query_vector_db` (filtered by `module_id`) to ground hints in retrieved chunks, non-fatal on error. `present_concept` queries ChromaDB only as a fallback when `enriched_topic`/`concept_content` is empty in state, using the concept title as query text — avoids redundant queries on the normal (pipeline-enriched) fast path. | ✅ Done |
 | MCPClient pipeline integration (Phase 39) | Route `save_module_to_db` through `mcp_client` (storage_server gains an optional `db_path` param, delegates to `backend.analytics.db.get_db` + `persistence.save_module`, same pattern as Phase 30's `extract_text_from_pdf`). | ✅ Done |
 | Portkey / Ollama validation | End-to-end test matrix: all three providers × PDF upload → module → tutor session | 🔲 Planned |
-| LangGraph tutor polish | Mastery persistence across sessions (`SqliteSaver` checkpointer); mastery report page; cohort mastery analytics | 🔲 Planned |
-| PPTX / DOCX parsing | `pptx_parser.py`, `docx_parser.py` in `backend/ingestion/`; upload page accepts `.pptx` and `.docx` | 🔲 Planned |
+| LangGraph tutor polish (Phase 33/40) | Mastery persistence across sessions via a `tutor_sessions` table (serialized `GraphState` + UI phase); per-topic mastery written to `topic_mastery` table; mastery report page with cohort mastery analytics | ✅ Done |
+| PPTX / DOCX parsing (Phase 35) | `pptx_parser.py`, `docx_parser.py` in `backend/ingestion/`; upload page accepts `.pptx` and `.docx`; MCP `document_server` exposes `extract_text_from_pptx`/`extract_text_from_docx` | ✅ Done |
 | Audio improvements | Pre-generate audio for all topics (not just on-demand); cache invalidation on re-generation | 🔲 Planned |
-| Observability dashboard | Expose Arize Phoenix and DeepEval results in a dedicated Streamlit page | 🔲 Planned |
-| Error handling polish | Structured user-facing error messages at each pipeline step; retry buttons; partial-failure recovery | 🔲 Planned |
-| Test coverage | Integration tests for MCP servers, LLM factory adapters, and LangGraph graph | 🔲 Planned |
+| Observability dashboard (Phase 37) | Dedicated Streamlit page: Phoenix link + DeepEval per-session metric table + avg score bar chart; nav from sidebar and module library home page | ✅ Done |
+| Error handling polish (Phase 36) | Structured user-facing error messages at each pipeline step; retry buttons; partial-failure recovery. Pipeline: per-step try/except (parse/LLM/enrich/quiz/save) with `_fail()` helper, step label, technical expander, and "Learn with N topic(s) / Retry from scratch" recovery buttons. Tutor: `_run_node` catches graph exceptions → `tutor_error` in session state → "Try again / Reset session" UI. Single-topic enrichment failure skips that topic instead of killing the pipeline. | ✅ Done |
+| Test coverage (Phase 38) | MCP server tool tests (assessment validate_json_schema; document_server PPTX/DOCX); all LangGraph graph nodes tested with mock LLM; sliding pipeline end-to-end + skip-on-error | ✅ Done |
 
 **Definition of done for Phase 3:**
 - [x] Admin user can publish a module to the shared library; all other users see it in their module library without generating it themselves
 - [x] `provide_hint` retrieves supporting context from ChromaDB; `present_concept` falls back to ChromaDB when pipeline-enriched content is unavailable in state
 - [x] `save_module_to_db` is routed through `mcp_client` (PDF parsing and vector-store upsert already are, per Phase 29/30)
 - [ ] End-to-end test passes for Portkey and Ollama providers
-- [ ] Mastery state is persisted across sessions (user can resume a tutor session)
-- [ ] Upload page accepts `.pptx` and `.docx` in addition to `.pdf`
-- [ ] All pipeline failures surface a structured, user-actionable error message
+- [x] Mastery state is persisted across sessions (user can resume a tutor session)
+- [x] Upload page accepts `.pptx` and `.docx` in addition to `.pdf`
+- [x] All pipeline failures surface a structured, user-actionable error message
 
 ---
 
@@ -134,7 +133,7 @@ Additonally in the login page create two separate set of login and password fiel
 
 - [x] **Content pipeline approach** — **Resolved:** Sliding-window decomposition + direct LLM calls with typed tool schemas.
 - [x] **Embedding model** — **Resolved:** Local `sentence-transformers` (`all-MiniLM-L6-v2`). Fully offline.
-- [x] **LangGraph checkpointer** — **Resolved Phase 3:** `SqliteSaver` (built-in, zero extra infra).
+- [x] **LangGraph checkpointer** — **Resolved Phase 3 (superseded):** `tutor_room.py` invokes graph nodes manually via `_run_node()`, never through `graph.invoke(state, config=...)`, so a real `SqliteSaver` checkpointer (which hooks `.invoke()`/`config`/`thread_id`) doesn't fit without rewriting the tutor's control flow. **New resolution (Phase 33):** a lightweight `tutor_sessions` table stores the serialized `GraphState` dict + UI phase, keyed by `(user_id, module_id)`, upserted after each settled render and deleted on session completion — achieves "resume a tutor session" without a checkpointer.
 - [x] **PPTX/DOCX priority** — **Resolved:** PDF only for Phase 2; PPTX/DOCX in Phase 3.
 - [x] **Hint generation strategy** — **Resolved:** LLM-generated at runtime. `provide_hint` node receives question + context + specific error from evaluation.
 - [x] **Diagnostic quiz** — **Resolved:** 3 MCQ questions before first slide; score sets `presentation_depth` (beginner / intermediate / advanced).
@@ -144,6 +143,10 @@ Additonally in the login page create two separate set of login and password fiel
 - [x] **Admin mode granularity (Phase 32)** — **Resolved:** Admin can publish/unpublish their own generated modules only — no edit/delete rights over other users' personal modules. Admin identity: usernames in `AI_TUTOR_ADMIN_USERNAMES` must additionally provide `AI_TUTOR_ADMIN_PASSWORD` at login to set `is_admin=True`; non-admin usernames log in as before (no password). Published modules are copied into a new shared DB (`data/shared/ai_tutor.db`, table `published_modules`); personal per-user `modules` rows get an `is_published` flag for UI badge state.
 - [x] **ChromaDB tutor-wiring scope (Phase 34)** — **Resolved:** `provide_hint` retrieves context via `query_vector_db` (filtered by `module_id`, query = student's feedback/struggle) to ground hints; non-fatal on error. `present_concept` queries ChromaDB only when `enriched_topic`/`concept_content` is empty in state (fallback path), using the concept title as query text — the normal pipeline-enriched fast path is unchanged.
 - [x] **save_module_to_db MCP routing (Phase 39)** — **Resolved:** `storage_server.save_module_to_db` gains an optional `db_path` param and delegates to `backend.analytics.db.get_db(db_path)` + `backend.analytics.persistence.save_module(...)` (same delegation pattern as Phase 30's `extract_text_from_pdf`). `frontend/upload_page.py` calls it via `mcp_client` instead of importing `persistence.save_module` directly.
+- [x] **Per-topic mastery tracking (Phase 33)** — **Resolved:** the existing-but-previously-unused `topic_mastery` table (`user_id, module_id, topic_id, mastered, difficulty, attempts, last_updated`) is written incrementally during a tutor session — once per concept, when it's mastered (or, if the session ends mid-concept, an "in progress" row with `mastered=0`). This is in addition to the end-of-session binary blob already stored in `user_profiles.topic_mastery_json`.
+- [x] **Mastery report page (Phase 40)** — **Resolved:** a standalone `frontend/mastery_report_page.py`, reachable via a "Mastery Report" button per module in the Module Library ("My Modules" section) — viewable any time, not tied to quiz completion. Shows the user's per-topic mastery status/difficulty/attempts plus a cohort comparison (% of all users who mastered each topic) computed from `topic_mastery`.
+- [x] **PPTX/DOCX parsing (Phase 35)** — **Resolved:** `backend/ingestion/pptx_parser.py` (`parse_pptx`, max 16 slides, title from `core_properties` or filename stem, each slide → `Section`) and `backend/ingestion/docx_parser.py` (`parse_docx`, max 16 sections, sections from heading paragraphs, fallback to single section when no headings). Both return `Document` with the matching `SourceType`. MCP `document_server` exposes `extract_text_from_pptx`/`extract_text_from_docx` tools following the same pattern as `extract_text_from_pdf`. `frontend/upload_page.py` accepts `["pdf", "pptx", "docx"]` and routes to the right tool via `_TOOL_FOR_EXT`.
+- [x] **Observability dashboard (Phase 37)** — **Resolved:** `frontend/observability_page.py` with two sections: (1) Phoenix trace explorer — derives base URL from `OTEL_EXPORTER_OTLP_ENDPOINT`, shows `st.link_button` to open Phoenix UI; (2) DeepEval quality metrics — queries `eval_results` via `get_eval_results()` in `stats.py` (LEFT JOIN modules for title), renders per-session table + avg score bar chart. Navigation: "Observability" sidebar button + "📊 Observability" button on module library home page.
 - [ ] **Portkey virtual key management** — One shared virtual key or per-user? **Pending.**
 
 ---

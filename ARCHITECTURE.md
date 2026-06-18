@@ -1,6 +1,6 @@
 # AI Tutor — Architecture
 
-> **Version:** 1.3 | **Updated:** 2026-06-14
+> **Version:** 1.4 | **Updated:** 2026-06-17
 > Companion to [SPEC.md](SPEC.md).
 
 ---
@@ -15,19 +15,24 @@ Static documents (PDFs, PowerPoint slides, Word docs) lead to passive learning a
 
 AI Tutor is a web platform that transforms uploaded documents into interactive, adaptive learning experiences:
 
-1. **Any user** uploads a PDF → a background pipeline (decompose → enrich → diagrams → audio → questions) generates a structured learning module; first topic is visible within ~30 seconds.
+1. **Any user** uploads a PDF, PPTX, or DOCX → a background pipeline (decompose → enrich → diagrams → audio → questions) generates a structured learning module; first topic is visible within ~30 seconds. Every pipeline step reports structured, user-actionable errors with retry / partial-recovery options instead of a raw stack trace.
 2. **Users** browse the module library → work through enriched content with diagram-first slides, audio narration, and inline questions, then take a quiz.
-3. **Adaptive Tutor** (LangGraph) opens with a diagnostic quiz to calibrate depth, then walks through each concept as a slide, follows up with targeted questions, provides hints when the student struggles, and simplifies foundations after repeated failures.
-4. **Admin mode** (Phase 3) lets an admin publish curated modules to the shared library so all users can access them without generating their own.
+3. **Adaptive Tutor** (LangGraph) opens with a diagnostic quiz to calibrate depth, then walks through each concept as a slide, follows up with targeted questions, provides hints (grounded in ChromaDB-retrieved context) when the student struggles, and simplifies foundations after repeated failures. Sessions persist mid-concept so a student can close the tab and resume later.
+4. **Admin mode** lets an admin publish curated modules to a shared library (separate SQLite DB) so all users can access them without generating their own. Login has separate User (no password) and Admin (password-gated) tabs.
+5. A **Mastery Report** page shows per-topic mastery, attempts, and difficulty for any module a user has studied, alongside a cohort comparison.
+6. An **Observability** dashboard links out to Arize Phoenix traces and shows DeepEval quality metrics per session.
 
 ### High-Level Component Map
 
 ```
-Streamlit Frontend
-    ├── Login Page ──→ per-user DB (provider, model prefs)
-    ├── Upload & Generate ──→ Background Pipeline (JIT) ──→ SQLite + ChromaDB
-    ├── Module Library / Viewer / Quiz / Results ──→ SQLite
-    ├── Tutor Room ──→ LangGraph Graph ──→ SQLite + ChromaDB
+Streamlit Frontend (entry point: app.py)
+    ├── Login Page ──→ User tab (no password) | Admin tab (password) ──→ per-user DB
+    ├── Upload & Generate ──→ Background Pipeline (JIT, per-step error recovery) ──→ SQLite + ChromaDB
+    ├── Module Library ──→ My Modules (SQLite) + Shared Library (published_modules)
+    ├── Module Viewer / Quiz / Results ──→ SQLite
+    ├── Tutor Room ──→ LangGraph Graph ──→ SQLite (resume + mastery) + ChromaDB
+    ├── Mastery Report ──→ per-topic + cohort mastery (SQLite)
+    ├── Observability ──→ Phoenix link + DeepEval metrics (SQLite eval_results)
     │                       ↕
     │              MCP Tool Servers
     │           (document, assessment, storage)
@@ -41,19 +46,19 @@ Streamlit Frontend
 
 | Layer | Technology | Phase introduced |
 |---|---|---|
-| Frontend | Streamlit (multi-page) | 1 |
+| Frontend | Streamlit (multi-page, single `app.py` router) | 1 |
 | Content generation | Direct LLM pipeline (sliding-window + JIT) | 2 |
 | Adaptive tutor | LangGraph state machine | 2 |
 | LLM providers | Anthropic SDK, Portkey, Ollama (OpenAI-compat) | 1 / 2 / 2 |
 | LLM abstraction | Strategy + factory pattern (`BaseLLMClient`, `LLMFactory`) | 2 |
 | Tool protocol | MCP (Model Context Protocol) | 2 |
 | Vector store | ChromaDB + `sentence-transformers` (`all-MiniLM-L6-v2`) | 2 |
-| Relational DB | SQLite (`sqlite3` stdlib), per-user preferences | 1 / 2 |
-| Document parsing | PyMuPDF (PDF); PPTX + DOCX deferred to Phase 3 | 1 |
+| Relational DB | SQLite (`sqlite3` stdlib), per-user DB + shared DB for published modules | 1 / 2 / 3 |
+| Document parsing | PyMuPDF (PDF), `python-pptx`, `python-docx` | 1 / 3 (Phase 35) |
 | Diagrams | Mermaid (LLM-generated, diagram-first approach) | 1 / 2 |
 | Audio TTS | `edge-tts` (Microsoft Edge voices, offline) | 2 |
 | LLM quality evals | DeepEval (LLM-as-judge, async, per session) | 2 |
-| Observability | Arize Phoenix + OTEL (`opentelemetry-sdk`) | 2 |
+| Observability | Arize Phoenix + OTEL (`opentelemetry-sdk`), dedicated dashboard page | 2 / 3 (Phase 37) |
 | Package manager | `uv` | 1 |
 | Python | 3.14+ | 1 |
 
@@ -68,11 +73,14 @@ ai-tutor-platform/
 ├── README.md                           # Setup, architecture, quickstart
 ├── pyproject.toml                      # Unified dependencies (uv)
 ├── SPEC.md
+├── ARCHITECTURE.md
 ├── CLAUDE.md
+├── app.py                              # Entry point: session init, sidebar, page router
 │
 ├── mcp_servers/                        # TOOL LAYER — MCP microservices
 │   ├── __init__.py
-│   ├── document_server/                # Tools: extract_text_from_pdf, parse_images
+│   ├── document_server/                # Tools: extract_text_from_pdf, parse_images,
+│   │                                    #        extract_text_from_pptx, extract_text_from_docx
 │   ├── assessment_server/              # Tools: validate_json_schema, evaluate_taxonomy
 │   └── storage_server/                 # Tools: upsert_to_vector_db, save_module_to_db, query_vector_db
 │
@@ -90,22 +98,23 @@ ai-tutor-platform/
 │   ├── ingestion/                     # Document parsers
 │   │   ├── models.py                  # Document, Section, ExtractedImage dataclasses
 │   │   ├── pdf_parser.py
-│   │   ├── pptx_parser.py             # Phase 3
-│   │   ├── docx_parser.py             # Phase 3
+│   │   ├── pptx_parser.py             # Phase 35
+│   │   ├── docx_parser.py             # Phase 35
 │   │   └── image_extractor.py
 │   │
 │   ├── content/                       # Content generation pipeline
 │   │   ├── models.py                  # LearningModule, EnrichedTopic, Topic, Diagram, Question
-│   │   ├── sliding_pipeline.py        # Sliding-window decomposition + JIT enrichment
+│   │   ├── sliding_pipeline.py        # Sliding-window decomposition + JIT enrichment;
+│   │   │                              # per-topic enrich failures are caught and skipped (Phase 36)
 │   │   ├── diagram_generator.py       # Diagram-first: Mermaid or bullet fallback
 │   │   ├── content_enricher.py        # Anchor-grounded explanation generation
 │   │   ├── inline_question_gen.py     # Per-topic inline comprehension questions
 │   │   └── audio_generator.py         # edge-tts narration per topic
 │   │
 │   ├── interactive_tutor/             # ADAPTIVE TUTOR — LangGraph
-│   │   ├── state.py                   # GraphState TypedDict
-│   │   ├── nodes.py                   # All 8 node functions
-│   │   └── graph.py                   # Compile graph with conditional router
+│   │   ├── __init__.py
+│   │   └── graph.py                   # GraphState TypedDict, all node functions,
+│   │                                  # build_tutor_graph() with conditional router
 │   │
 │   ├── observability/                 # LLM quality + tracing
 │   │   ├── tracer.py                  # OTEL setup → Arize Phoenix (+ optional LangSmith)
@@ -119,36 +128,40 @@ ai-tutor-platform/
 │   │   └── evaluator.py
 │   │
 │   └── analytics/                     # Persistence + stats
-│       ├── db.py
+│       ├── db.py                      # Schema + migrations (per-user DB and shared DB)
+│       ├── auth.py                    # Admin username/password checks (Phase 32)
 │       ├── models.py
-│       ├── persistence.py
+│       ├── persistence.py             # CRUD incl. tutor_sessions, topic_mastery, published_modules
 │       └── stats.py
 │
-├── frontend/                          # PRESENTATION LAYER
-│   ├── app.py                         # Entry point, session init, router
-│   ├── login_page.py                  # Login with per-user provider/model prefs
-│   ├── upload_page.py                 # Upload PDF + run background JIT pipeline
-│   ├── module_library_page.py         # Browse modules; admin publish controls (Phase 3)
-│   ├── module_viewer.py               # Topics with diagram-first slides, audio, inline Qs
+├── frontend/                          # PRESENTATION LAYER (pages rendered by app.py)
+│   ├── login_page.py                  # Two-mode login: User tab / Admin tab (Phase 32)
+│   ├── upload_page.py                 # Upload PDF/PPTX/DOCX, run background JIT pipeline,
+│   │                                  # per-step error UI + partial-failure recovery (Phase 36)
+│   ├── module_library_page.py         # My Modules + Shared Library, admin publish controls (Phase 32)
+│   ├── module_viewer.py               # Topics with diagram-first slides, inline audio, inline Qs
 │   ├── quiz_page.py
 │   ├── results_page.py
-│   ├── tutor_room.py                  # LangGraph tutor: diagnostic → slides → Q&A
-│   ├── system_check_page.py           # Verify env + packages
-│   └── demo_mode.py                   # Sidebar toggle — fixture JSON, bypasses pipeline
+│   ├── tutor_room.py                  # LangGraph tutor: diagnostic → slides → Q&A,
+│   │                                  # session resume banner (Phase 33), error recovery UI (Phase 36)
+│   ├── mastery_report_page.py         # Per-topic + cohort mastery report (Phase 40)
+│   ├── observability_page.py          # Phoenix link + DeepEval metrics dashboard (Phase 37)
+│   └── system_check_page.py           # Verify env + packages
 │
 ├── tests/
 │   ├── test_ingestion/
-│   ├── test_content/
+│   ├── test_content/                  # incl. test_llm_client.py, test_sliding_pipeline.py
 │   ├── test_quiz/
 │   ├── test_analytics/
-│   ├── test_llm_client/
+│   ├── test_tutor/                    # LangGraph node tests with mock LLM (Phase 38)
 │   ├── test_mcp/
 │   └── fixtures/
 │
 └── data/                              # Runtime data (gitignored)
     ├── uploads/
     ├── generated/
-    ├── ai_tutor.db
+    ├── ai_tutor.db                    # per-user DB (default path)
+    ├── shared/ai_tutor.db             # published_modules — admin-shared library (Phase 32)
     └── chroma/                        # ChromaDB persistent store
 ```
 
@@ -216,6 +229,8 @@ flowchart LR
         UP[Upload Page]
         TUTOR[Tutor Room]
         LIB[Module Library]
+        MR[Mastery Report]
+        OBS[Observability]
     end
 
     subgraph Backend
@@ -226,7 +241,8 @@ flowchart LR
     end
 
     subgraph Storage
-        DB[(SQLite)]
+        DB[(SQLite\nper-user)]
+        SHARED[(SQLite\nshared/published)]
         AUDIO[data/audio/]
     end
 
@@ -239,8 +255,11 @@ flowchart LR
     LG --> LLM
     TTS --> AUDIO
     BG --> DB
-    TUTOR -->|save profile| DB
+    TUTOR -->|save session + mastery| DB
     LIB --> DB
+    LIB -->|publish/unpublish, admin only| SHARED
+    MR --> DB
+    OBS --> DB
 ```
 
 ---
@@ -252,6 +271,8 @@ The pipeline runs in a daemon thread. It publishes each `EnrichedTopic` immediat
 **Total LLM cost:** 3N + 2 calls + N TTS calls for N topics.
 
 **Audio narration is diagram-aware:** the TTS script opens by describing what the diagram shows, then continues with the concept explanation — speech and image are connected.
+
+**Per-step error handling (Phase 36):** `_run_pipeline_bg` in `upload_page.py` wraps each step (parse / LLM-connect / enrich / quiz / save) in its own try/except. A `_fail()` helper records `state="failed"`, the `failed_step`, a user-facing message, and the raw exception (`error_detail`) for a collapsible technical expander. `progress["module"]` is set as soon as enrichment finishes — *before* quiz/save run — so a failure in either of those later steps still leaves enough state for the UI to offer **"Learn with N topic(s) →"** (continue with what was generated) alongside **"Retry from scratch"**. Inside `sliding_pipeline._enrich_one`, a single topic's `enrich()` call is itself guarded — one bad topic is skipped and logged rather than killing the whole run.
 
 ```mermaid
 ---
@@ -384,6 +405,8 @@ flowchart LR
     subgraph document_server
         T1[extract_text_from_pdf]
         T2[parse_images]
+        T1b[extract_text_from_pptx]
+        T1c[extract_text_from_docx]
     end
 
     subgraph assessment_server
@@ -408,8 +431,10 @@ flowchart LR
 
 | Tool | Signature | Description |
 |---|---|---|
-| `extract_text_from_pdf` | `(file_path: str, max_pages: int) -> list[SectionDict]` | Parse PDF, return sections with title + body |
-| `parse_images` | `(file_path: str, output_dir: str) -> list[ImageDict]` | Extract embedded images, save as PNG |
+| `extract_text_from_pdf` | `(file_path: str, max_pages: int = 4) -> str` | Parse PDF via PyMuPDF, return `Document.to_json()` |
+| `parse_images` | `(file_path: str, max_pages: int = 4) -> str` | Extract embedded images, save as PNG |
+| `extract_text_from_pptx` | `(file_path: str, max_slides: int = 16) -> str` | Parse PPTX via `python-pptx`, return `Document.to_json()` (Phase 35) |
+| `extract_text_from_docx` | `(file_path: str, max_sections: int = 16) -> str` | Parse DOCX via `python-docx`, return `Document.to_json()` (Phase 35) |
 
 ### assessment_server tools
 
@@ -422,9 +447,11 @@ flowchart LR
 
 | Tool | Signature | Description |
 |---|---|---|
-| `save_module_to_db` | `(module_json: str, bank_json: str, created_by: str) -> str` | Persist module + bank to SQLite, return `module_id` |
+| `save_module_to_db` | `(module_id, title, source_filename, module_json, question_bank_json, created_by, db_path=None) -> str` | Delegates to `backend.analytics.db.get_db(db_path)` + `persistence.save_module(...)` (Phase 39) — same per-user DB the rest of the app reads |
 | `upsert_to_vector_db` | `(texts: list[str], metadata: list[dict], collection: str) -> None` | Embed and store chunks in ChromaDB |
 | `query_vector_db` | `(query: str, collection: str, n_results: int) -> list[dict]` | Semantic search over stored chunks |
+
+`save_module_to_db`'s optional `db_path` follows the same delegation pattern introduced for `extract_text_from_pdf` in Phase 30 — `frontend/upload_page.py` calls it through `mcp_client` instead of importing `persistence.save_module` directly. Publishing/unpublishing a module to the shared library (`publish_module`, `unpublish_module`, `get_published_modules`, `load_published_module`) is **not** MCP-routed — `module_library_page.py` calls `backend.analytics.persistence` directly against the shared DB (`get_shared_db()`).
 
 ### MCPClient interface (`backend/core/mcp_client.py`)
 
@@ -501,16 +528,29 @@ class GraphState(TypedDict):
 |---|---|
 | `generate_diagnostic` | Generates 3 MCQ questions using only topic title + summary — runs immediately, no enriched content needed |
 | `evaluate_diagnostic` | Scores answers; sets `presentation_depth` (beginner / intermediate / advanced), seeded from user profile |
-| `present_concept` | Delivers slide: diagram + audio (if ready) + depth-calibrated transcript. Falls back to LLM-generated slide if pipeline not done |
+| `present_concept` | Delivers slide: diagram + audio (if ready) + depth-calibrated transcript. Falls back to a ChromaDB-retrieved chunk (Phase 34, query = concept title) when `enriched_topic`/`concept_content` is empty in state — e.g. on session resume before the pipeline reaches this topic — then to a fully LLM-generated slide if ChromaDB has nothing either |
 | `ask_question` | Generates a targeted question assessing the current concept |
 | `evaluate_response` | Analyses answer for specific misconceptions; sets `concept_mastered`; increments `attempts` |
-| `provide_hint` | Generates a hint tailored to the student's specific error — does not reveal the answer |
+| `provide_hint` | Queries `storage_server.query_vector_db` (filtered by `module_id`, Phase 34) to ground a hint in retrieved chunks (non-fatal on error), tailored to the student's specific error — does not reveal the answer |
 | `simplify_foundations` | After 3 failed attempts: breaks concept into building blocks, re-teaches from basics |
 | `advance_concept` | Pops next concept from `remaining_concepts`; resets per-concept tracking |
 
-### Mastery Persistence (Phase 3)
+### Session Resume and Mastery Persistence (Phase 33/40)
 
-`SqliteSaver` checkpointer wired to allow sessions to resume. New `topic_mastery` table:
+`tutor_room.py` calls graph nodes manually via `_run_node()` — never through `graph.invoke(state, config=...)` — so a real LangGraph `SqliteSaver` checkpointer (which hooks `.invoke()`/`config`/`thread_id`) doesn't fit without rewriting the control flow. Instead, a lightweight `tutor_sessions` table stores the serialized `GraphState` dict plus the UI `phase`, keyed by `(user_id, module_id)`, upserted after each settled render and deleted on session completion:
+
+```sql
+CREATE TABLE IF NOT EXISTS tutor_sessions (
+    user_id    TEXT NOT NULL,
+    module_id  TEXT NOT NULL,
+    state_json TEXT NOT NULL,
+    phase      TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, module_id)
+);
+```
+
+On re-entering the Tutor Room for the same module, `_maybe_resume_session()` loads this row and shows a **"Resuming your previous session on this module."** banner with a **"Restart from scratch"** button. Per-topic mastery is written incrementally to `topic_mastery` — once per concept when it's mastered, or as an `mastered=0` "in progress" row if the session ends mid-concept — independent of (and in addition to) the end-of-session summary blob in `user_profiles.topic_mastery_json`:
 
 ```sql
 CREATE TABLE IF NOT EXISTS topic_mastery (
@@ -518,12 +558,18 @@ CREATE TABLE IF NOT EXISTS topic_mastery (
     module_id     TEXT NOT NULL,
     topic_id      TEXT NOT NULL,
     mastered      INTEGER NOT NULL DEFAULT 0,
-    difficulty    TEXT NOT NULL DEFAULT 'easy',
+    difficulty    TEXT NOT NULL DEFAULT 'medium',
     attempts      INTEGER NOT NULL DEFAULT 0,
     last_updated  TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (user_id, module_id, topic_id)
 );
 ```
+
+`frontend/mastery_report_page.py` (Phase 40, reachable via a "Mastery Report" button per module in Module Library) renders this table per-topic alongside a cohort comparison (`get_cohort_mastery()` — % of all users who mastered each topic).
+
+### Tutor Error Handling (Phase 36)
+
+`_run_node()` wraps each node call in try/except. On an exception it stores `{"node": node_name, "detail": str(exc)}` in `st.session_state["tutor_error"]` and calls `st.rerun()` — the `RerunException` aborts the rest of the current button-handler chain so no further node runs against stale state. The next render short-circuits to `_render_tutor_error()`, which shows the failing node, a collapsible technical detail, and two recovery actions: **"Try again"** (clears the flag, reruns the same node) and **"Reset session"** (deletes the `tutor_sessions` row via `delete_tutor_session()` and clears all tutor state keys, returning to a fresh diagnostic).
 
 ---
 
@@ -558,22 +604,26 @@ flowchart LR
 
 | Page | File | Purpose | Phase |
 |---|---|---|---|
-| Login | `frontend/login_page.py` | Username + provider/model prefs; persisted per user in SQLite | 2 |
-| Upload | `frontend/upload_page.py` | Upload PDF, run background JIT pipeline, abort support | 2 |
-| Module Library | `frontend/module_library_page.py` | Browse modules; admin publish/unpublish controls (Phase 3) | 1/3 |
-| Module Viewer | `frontend/module_viewer.py` | Diagram-first slides, audio toggle, 60s auto-advance, inline Qs, deferred quiz button | 2 |
+| Login | `frontend/login_page.py` | Two tabs: User (no password) / Admin (password-gated); per-user provider/model prefs persisted in SQLite | 2 / 32 |
+| Upload | `frontend/upload_page.py` | Upload PDF/PPTX/DOCX, run background JIT pipeline, abort support, per-step error UI + partial-recovery buttons | 2 / 35 / 36 |
+| Module Library | `frontend/module_library_page.py` | My Modules (with Mastery Report button) + Shared Library section; admin publish/unpublish controls | 1 / 32 / 40 |
+| Module Viewer | `frontend/module_viewer.py` | Diagram-first slides, inline audio player, inline Qs, deferred quiz button | 2 |
 | Quiz | `frontend/quiz_page.py` | Difficulty selector, questions, submit | 1 |
 | Results | `frontend/results_page.py` | Score, cohort bar chart, per-question breakdown | 1 |
-| Tutor Room | `frontend/tutor_room.py` | Diagnostic quiz → slide presentation → Q&A loop with hints | 2 |
+| Tutor Room | `frontend/tutor_room.py` | Diagnostic quiz → slide presentation → Q&A loop with hints; session resume banner; error recovery UI | 2 / 33 / 36 |
+| Mastery Report | `frontend/mastery_report_page.py` | Per-topic mastery/difficulty/attempts + cohort comparison for a given module | 40 |
+| Observability | `frontend/observability_page.py` | Phoenix trace link + DeepEval per-session metric table + avg score chart | 37 |
 | System Check | `frontend/system_check_page.py` | Verify packages + env vars before running | 2 |
-| Demo Mode | `frontend/demo_mode.py` | Sidebar toggle — fixture JSON, bypasses pipeline | 1 |
 
-### Admin Mode (Phase 3)
+The global audio on/off toggle and the Observability sidebar shortcut live in `app.py`'s sidebar, not in a per-page file — they apply across Upload, Tutor Room, and Module Viewer.
 
-- Any user can generate a personal module (existing behaviour)
-- An admin user (configured username or password) can mark a module as **published**
-- Published modules appear in the shared library for all users, even those who did not generate it
-- Adds `is_published INTEGER DEFAULT 0` column to the `modules` table and publish/unpublish controls on `module_library_page.py`
+### Admin Mode (Phase 32)
+
+- Any user can generate a personal module (existing behaviour) by logging in via the **User** tab — no password
+- A user whose username is listed in `AI_TUTOR_ADMIN_USERNAMES` can instead log in via the **Admin** tab, which additionally requires `AI_TUTOR_ADMIN_PASSWORD`, setting `is_admin=True` for the session
+- An admin can **publish** one of their own generated modules, copying it into a separate shared SQLite DB (`data/shared/ai_tutor.db`, table `published_modules`); **unpublish** removes it. No edit/delete rights over other users' personal modules
+- Published modules appear in a "Shared Library" section in `module_library_page.py`, visible to every user regardless of who generated the module
+- The per-user `modules` table also carries `is_published INTEGER DEFAULT 0` so "My Modules" can badge a module as already published
 
 ### Page Navigation
 
@@ -582,17 +632,21 @@ flowchart LR
 title: Page Navigation
 ---
 flowchart LR
-    UPLOAD[Upload] -->|topic 1 ready| TUTOR[Tutor Room]
+    LOGIN[Login\nUser / Admin tab] --> UPLOAD[Upload]
+    UPLOAD -->|topic 1 ready, or recover partial| TUTOR[Tutor Room]
     UPLOAD -->|existing module| LIB[Module Library]
-    LIB -->|select| TUTOR
+    LIB -->|select, or resume| TUTOR
     LIB -->|generate new| UPLOAD
+    LIB -->|Mastery Report| MR[Mastery Report]
+    LIB -->|admin publish/unpublish| LIB
+    MR --> LIB
     TUTOR -->|End Session → abort + save| LIB
     TUTOR -->|take quiz| QUIZ[Quiz]
     QUIZ --> RESULTS[Results]
     RESULTS --> LIB
 ```
 
-`system_check` is accessible from the sidebar at any time.
+`system_check` and `observability` are accessible from the sidebar at any time.
 
 ---
 
@@ -658,12 +712,47 @@ erDiagram
     modules ||--o{ quiz_attempts : tested_on
     users ||--o{ topic_mastery : tracks
     modules ||--o{ topic_mastery : covers
+    users ||--o{ tutor_sessions : resumes
+    modules ||--o{ tutor_sessions : tracked_in
 
-    users { TEXT user_id PK; TEXT username }
-    user_profiles { TEXT user_id PK; TEXT overall_depth; TEXT topic_mastery_json; TEXT module_visits_json; TEXT last_seen }
-    modules { TEXT module_id PK; TEXT title; INTEGER is_published }
-    quiz_attempts { TEXT attempt_id PK; INTEGER score }
-    topic_mastery { TEXT topic_id; INTEGER mastered; INTEGER attempts }
+    users {
+        TEXT user_id PK
+        TEXT username
+    }
+    user_profiles {
+        TEXT user_id PK
+        TEXT overall_depth
+        TEXT topic_mastery_json
+        TEXT module_visits_json
+        TEXT last_seen
+    }
+    modules {
+        TEXT module_id PK
+        TEXT title
+        INTEGER is_published
+    }
+    quiz_attempts {
+        TEXT attempt_id PK
+        INTEGER score
+    }
+    topic_mastery {
+        TEXT topic_id
+        INTEGER mastered
+        TEXT difficulty
+        INTEGER attempts
+    }
+    tutor_sessions {
+        TEXT user_id PK
+        TEXT module_id PK
+        TEXT state_json
+        TEXT phase
+    }
+```
+
+All tables above live in the **per-user DB** (`data/<username>/ai_tutor.db`, or `AI_TUTOR_DB_PATH`). A separate **shared DB** (`AI_TUTOR_SHARED_DB_PATH`, default `data/shared/ai_tutor.db`) holds one standalone table with no cross-DB foreign keys:
+
+```
+published_modules { TEXT module_id PK; TEXT title; TEXT module_json; TEXT question_bank_json; TEXT created_by; TEXT published_at }
 ```
 
 ChromaDB collection `modules` holds one chunk per `EnrichedTopic`. Accessed exclusively through `storage_server` MCP tools — no direct `chromadb` imports outside the server.
@@ -723,6 +812,15 @@ Run after each tutoring session against the slide transcripts and Q&A turns:
 | `FaithfulnessMetric` | Transcript content is faithful to the source document (no hallucination) |
 | `ContextualRecallMetric` | Key concepts from source appear in the enriched output |
 | `GEval` (custom) | Diagnostic question quality — are questions fair for the stated topic? |
+
+### Observability Dashboard Page (Phase 37)
+
+`frontend/observability_page.py` gives a single in-app view of both trace and eval data, instead of requiring the user to leave Streamlit:
+
+1. **Phoenix trace explorer** — derives the Phoenix base URL from `OTEL_EXPORTER_OTLP_ENDPOINT` and renders an `st.link_button` to open the Phoenix UI in a new tab (no embedding — Phoenix's own UI is richer).
+2. **DeepEval quality metrics** — calls `get_eval_results()` in `backend/analytics/stats.py` (a `LEFT JOIN` against `modules` for the title), and renders a per-session metric table plus an average-score bar chart.
+
+Reachable from the sidebar (`app.py`) and from a "📊 Observability" button on the Module Library home page.
 
 ### Running Phoenix Locally
 

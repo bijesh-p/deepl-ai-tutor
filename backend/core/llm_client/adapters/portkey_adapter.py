@@ -19,7 +19,7 @@ class PortkeyAdapter(BaseLLMClient):
 
         self.provider = "portkey"
         self.model = model or os.environ.get(
-            "AI_TUTOR_LLM_MODEL",
+            "AI_TUTOR_PORTKEY_MODEL",
             "@vertexai-global/anthropic.claude-sonnet-4-6",
         )
         portkey_key = api_key or os.environ.get("PORTKEY_API_KEY", "")

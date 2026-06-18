@@ -4,9 +4,9 @@ import pytest
 from datetime import datetime, timezone
 
 from backend.analytics.db import get_db
-from backend.analytics.models import ModuleStats
-from backend.analytics.persistence import save_attempt, save_user
-from backend.analytics.stats import get_module_stats
+from backend.analytics.models import CohortMastery, MasteryReport, ModuleStats
+from backend.analytics.persistence import save_attempt, save_topic_mastery, save_user
+from backend.analytics.stats import get_cohort_mastery, get_mastery_report, get_module_stats
 from backend.quiz.models import AnswerResult, QuizResult
 
 
@@ -133,3 +133,48 @@ def test_module_id_in_stats(db):
     uid = save_user("u-1", db=db)
     stats = get_module_stats("mod-1", uid, db=db)
     assert stats.module_id == "mod-1"
+
+
+def test_mastery_report_mixed_progress(db):
+    uid = save_user("alice", db=db)
+    save_topic_mastery(uid, "mod-1", "Intro", mastered=True, difficulty="intermediate", attempts=1, db=db)
+    save_topic_mastery(uid, "mod-1", "Loops", mastered=False, difficulty="beginner", attempts=2, db=db)
+
+    report = get_mastery_report("mod-1", uid, ["Intro", "Loops", "Functions"], db=db)
+
+    assert isinstance(report, MasteryReport)
+    assert report.total_count == 3
+    assert report.mastered_count == 1
+
+    by_topic = {t.topic_id: t for t in report.topics}
+    assert by_topic["Intro"].mastered is True
+    assert by_topic["Loops"].mastered is False
+    assert by_topic["Loops"].attempts == 2
+    # Topic never attempted gets defaults
+    assert by_topic["Functions"].mastered is False
+    assert by_topic["Functions"].attempts == 0
+    assert by_topic["Functions"].last_updated is None
+
+
+def test_cohort_mastery_aggregates_across_users(db):
+    alice = save_user("alice", db=db)
+    bob = save_user("bob", db=db)
+
+    save_topic_mastery(alice, "mod-1", "Intro", mastered=True, difficulty="intermediate", attempts=1, db=db)
+    save_topic_mastery(bob, "mod-1", "Intro", mastered=False, difficulty="beginner", attempts=2, db=db)
+
+    cohort = get_cohort_mastery("mod-1", ["Intro", "Loops"], db=db)
+
+    assert isinstance(cohort, CohortMastery)
+    by_topic = {t.topic_id: t for t in cohort.topics}
+
+    intro = by_topic["Intro"]
+    assert intro.total_users == 2
+    assert intro.mastered_pct == 50.0
+    assert intro.avg_attempts == 1.5
+
+    # Topic with no rows at all defaults to zeros
+    loops = by_topic["Loops"]
+    assert loops.total_users == 0
+    assert loops.mastered_pct == 0.0
+    assert loops.avg_attempts == 0.0
