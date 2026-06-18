@@ -78,5 +78,18 @@ def extract_text_from_docx(file_path: str, max_sections: int = 16) -> str:
     return doc.to_json()
 
 
+@mcp.tool()
+def extract_text_from_vtt(file_path: str, max_sections: int = 16) -> str:
+    """Extract structured text from a WebVTT transcript file.
+
+    Returns the JSON-encoded `Document` model (see backend.ingestion.models).
+    Strips speaker names, filters chatter, and captures Q&A exchanges.
+    """
+    from backend.ingestion.vtt_parser import parse_vtt
+
+    doc = parse_vtt(file_path, max_sections=max_sections)
+    return doc.to_json()
+
+
 if __name__ == "__main__":
     mcp.run()
