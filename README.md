@@ -59,10 +59,12 @@ uv sync
 # 3. Configure environment — pick ONE provider below and edit .env
 
 # 4. Run the app
-PYTHONPATH=. uv run streamlit run app.py
+uv run python run.py
 ```
 
 Then open http://localhost:8501 in your browser.
+
+> **Note:** `run.py` sets `PYTHONPATH` automatically and launches Streamlit — no manual env-var prefix needed, works on both Linux/macOS and Windows.
 
 ## LLM Provider Setup
 
@@ -130,7 +132,7 @@ AI Tutor instruments every LLM call with OpenTelemetry and sends traces to a loc
 PYTHONPATH=. uv run phoenix serve
 
 # Terminal 2 — start the AI Tutor app
-PYTHONPATH=. uv run streamlit run app.py
+uv run python run.py
 ```
 
 Open **http://localhost:6006** to see the Phoenix trace UI. Every Anthropic SDK call, LangGraph node execution, and pipeline step (enrich / diagram / audio) appears as a named span.
@@ -178,6 +180,7 @@ No new package is required — LangGraph picks this up automatically.
 
 ```
 course_project/
+├── run.py                          # App runner — sets PYTHONPATH and launches Streamlit
 ├── app.py                          # Streamlit entry point, sidebar, page router
 ├── backend/
 │   ├── core/
