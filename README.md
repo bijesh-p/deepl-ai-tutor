@@ -7,12 +7,13 @@ A web application that transforms PDF documents into interactive, adaptive learn
 - **Phase 1 (PDF POC):** ✅ Complete
 - **Phase 2 (Functional Skeleton):** ✅ Complete — LLM factory, MCP tool servers, LangGraph adaptive tutor, JIT content pipeline, audio narration, ChromaDB vector store, and observability (Phoenix + DeepEval) are all implemented and tested.
 - **Phase 3 (Refined Platform):** 🔄 In Progress — admin-curated module library ✅, ChromaDB wired into the LangGraph tutor ✅, PPTX/DOCX ingestion ✅, observability dashboard ✅, structured error messages + partial-failure recovery ✅, live Portkey/Ollama end-to-end validation.
+- **Phase 4 (VTT Transcript Ingestion):** ✅ Complete — parse training/classroom `.vtt` transcripts into learning modules with teaching content extraction, Q&A capture, and speaker name privacy.
 
 See [SPEC.md](SPEC.md) for the full phase breakdown and definitions of done.
 
 ## Features
 
-- **Multi-Format Ingestion** — Upload a PDF, PowerPoint (`.pptx`), or Word (`.docx`) document. Each format has a dedicated parser (`pdf_parser`, `pptx_parser`, `docx_parser`) exposed as an MCP tool via `document_server`, all producing the same `Document`/`Section` model consumed by the content pipeline.
+- **Multi-Format Ingestion** — Upload a PDF, PowerPoint (`.pptx`), Word (`.docx`), or WebVTT transcript (`.vtt`). Each format has a dedicated parser (`pdf_parser`, `pptx_parser`, `docx_parser`, `vtt_parser`) exposed as an MCP tool via `document_server`, all producing the same `Document`/`Section` model consumed by the content pipeline. VTT transcripts from training recordings (Zoom, Teams, etc.) are parsed with teaching-content extraction, Q&A detection, chatter filtering, and speaker-name scrubbing (privacy).
 - **Multi-LLM Support** — Switch between Anthropic Claude, Portkey, or Ollama via sidebar or `.env`. All three adapters are covered by mocked unit tests (`tests/test_content/test_llm_client.py`); see `references.md` for the live Portkey/Ollama validation checklist.
 - **Just-in-Time Content** — Upload and start learning within ~30 seconds. Topics are delivered as they are enriched; the rest generates in the background.
 - **Personalised Adaptive Tutor** — LangGraph state machine (diagnostic quiz → depth-adapted slide → Q&A loop). Depth preference and topic mastery persist across sessions per username. **Session resume:** if a session ends before a module is finished, the tutor's full state (current concept, chat history, mastered topics) is saved to a `tutor_sessions` table and restored — with a "Resuming your previous session" banner and a "Restart from scratch" option — the next time that user opens the same module. Per-topic mastery (mastered/in-progress, difficulty, attempts) is also tracked incrementally in the `topic_mastery` table as each concept is completed.
@@ -36,9 +37,9 @@ See [SPEC.md](SPEC.md) for the full phase breakdown and definitions of done.
 | Adaptive Tutor | LangGraph (diagnostic + 8-node state machine) |
 | LLM Providers | Anthropic SDK, Portkey, Ollama (OpenAI-compat) |
 | Tool Protocol | MCP (Model Context Protocol) — 3 standalone servers |
-| Vector Store | ChromaDB + sentence-transformers (`all-MiniLM-L6-v2`) |
+| Vector Store | ChromaDB + ONNX `all-MiniLM-L6-v2` (via `onnxruntime`, no torch) |
 | Database | SQLite — per-user DB + separate shared DB for published modules |
-| Document Parsing | PyMuPDF (PDF), python-pptx, python-docx |
+| Document Parsing | PyMuPDF (PDF), python-pptx, python-docx, WebVTT (stdlib) |
 | Audio TTS | edge-tts (Microsoft Edge voices) |
 | Diagrams | Mermaid (via `streamlit-mermaid`) |
 | Tracing | Arize Phoenix (local OTLP) + openinference auto-instrumentation |
@@ -65,6 +66,8 @@ uv run python run.py
 Then open http://localhost:8501 in your browser.
 
 > **Note:** `run.py` sets `PYTHONPATH` automatically and launches Streamlit — no manual env-var prefix needed, works on both Linux/macOS and Windows.
+
+> **Upgrading from before the ONNX embedding switch?** If you already ran the app and have a local `data/chroma/` directory, delete it once after pulling (`rm -rf data/chroma`): its stored collection config points at the old `sentence-transformers` embedding function and will fail with `Could not build embedding function sentence_transformer` until removed. It's gitignored, local-only, and regenerates automatically on next use.
 
 ## LLM Provider Setup
 
@@ -187,7 +190,7 @@ course_project/
 │   │   ├── llm_client/             # LLM factory + adapters (Anthropic, Portkey, Ollama)
 │   │   └── mcp_client.py           # MCP tool dispatcher
 │   ├── interactive_tutor/          # LangGraph state machine (graph.py)
-│   ├── ingestion/                  # PDF/PPTX/DOCX parsing → Document model
+│   ├── ingestion/                  # PDF/PPTX/DOCX/VTT parsing → Document model
 │   ├── content/                    # Enricher, diagram generator, audio, questions
 │   ├── quiz/                       # Question bank, assembly, scoring
 │   ├── analytics/                  # SQLite persistence, admin auth, cohort + mastery stats

@@ -9,6 +9,7 @@ class SourceType(Enum):
     PDF = "pdf"
     PPTX = "pptx"
     DOCX = "docx"
+    VTT = "vtt"
 
 
 @dataclass

@@ -29,6 +29,7 @@ _TOOL_FOR_EXT: dict[str, str] = {
     ".pdf": "extract_text_from_pdf",
     ".pptx": "extract_text_from_pptx",
     ".docx": "extract_text_from_docx",
+    ".vtt": "extract_text_from_vtt",
 }
 
 
@@ -77,8 +78,8 @@ def render_upload_page() -> None:
     with st.form("upload_form"):
         uploaded = st.file_uploader(
             "Choose a document",
-            type=["pdf", "pptx", "docx"],
-            help="PDF, PowerPoint (.pptx), or Word (.docx) — up to 10 pages processed.",
+            type=["pdf", "pptx", "docx", "vtt"],
+            help="PDF, PowerPoint (.pptx), Word (.docx), or VTT transcript (.vtt) — up to 10 pages processed.",
             label_visibility="collapsed",
         )
         cached_name = st.session_state.get("_cached_upload_name")
@@ -100,7 +101,7 @@ def render_upload_page() -> None:
     if uploaded is None:
         cached = st.session_state.get("_cached_upload_bytes")
         if cached is None:
-            st.error("Please upload a PDF, PPTX, or DOCX file.")
+            st.error("Please upload a PDF, PPTX, DOCX, or VTT file.")
             return
         uploaded_bytes = cached
         file_ext = Path(st.session_state.get("_cached_upload_name", ".pdf")).suffix.lower()
@@ -111,7 +112,7 @@ def render_upload_page() -> None:
         st.session_state["_cached_upload_name"] = uploaded.name
 
     if file_ext not in _TOOL_FOR_EXT:
-        st.error(f"Unsupported file type: {file_ext!r}. Please upload a PDF, PPTX, or DOCX.")
+        st.error(f"Unsupported file type: {file_ext!r}. Please upload a PDF, PPTX, DOCX, or VTT.")
         return
 
     with tempfile.NamedTemporaryFile(suffix=file_ext, delete=False) as tmp:
