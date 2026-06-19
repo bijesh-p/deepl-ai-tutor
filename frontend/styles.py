@@ -87,37 +87,14 @@ p  { font-weight: 400 !important; line-height: 1.6 !important; }
  *   Font       : Inter — clean, modern, web-standard
  *
  * Collapsible: sidebar starts collapsed after login (initial_sidebar_state
- * = "collapsed" in set_page_config). A styled pull-tab lets the user expand
- * and collapse freely. Do NOT override transform here — that breaks the
- * natural slide-in/out animation.
+ * = "collapsed" in set_page_config), using Streamlit's own native collapse
+ * control — unstyled. A prior custom pull-tab styled `[data-testid=
+ * "stSidebarCollapsedControl"]`, but that testid was renamed to
+ * `stSidebarCollapseButton` in Streamlit 1.38 and no longer exists; the old
+ * rules were dead code and have been removed (see SPEC.md Open Questions
+ * for the known "can't re-expand once collapsed" limitation this leaves).
+ * Do NOT override transform here — that breaks the slide-in/out animation.
  */
-
-/* Expand pull-tab — blue handle on the left edge when sidebar is collapsed.
-   font-family intentionally omitted to preserve the Material Symbols chevron. */
-[data-testid="stSidebarCollapsedControl"] {
-    display: flex !important;
-    visibility: visible !important;
-    opacity: 1 !important;
-    z-index: 99999 !important;
-    pointer-events: all !important;
-}
-[data-testid="stSidebarCollapsedControl"] button {
-    background: linear-gradient(180deg, #4F46E5 0%, #2563EB 100%) !important;
-    border: none !important;
-    border-radius: 0 10px 10px 0 !important;
-    color: #FFFFFF !important;
-    min-height: 56px !important;
-    min-width: 22px !important;
-    padding: 0 !important;
-    box-shadow: 3px 0 14px rgba(37,99,235,0.35) !important;
-    transition: min-width 0.2s ease, box-shadow 0.2s ease !important;
-    cursor: pointer !important;
-}
-[data-testid="stSidebarCollapsedControl"] button:hover {
-    min-width: 30px !important;
-    box-shadow: 4px 0 20px rgba(37,99,235,0.5) !important;
-    background: linear-gradient(180deg, #4338CA 0%, #1D4ED8 100%) !important;
-}
 
 [data-testid="stSidebar"] > div:first-child {
     background: linear-gradient(170deg, #EEF2FF 0%, #F5F0FF 100%) !important;

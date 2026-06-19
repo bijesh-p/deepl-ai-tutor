@@ -1,8 +1,8 @@
 # plan.md — AI Tutor Implementation
 
 > **Goal:** Deliver a fully working AI Tutor with adaptive tutoring, observability, and admin-curated module sharing.
-> **Spec:** SPEC.md v0.12
-> **Last updated:** 2026-06-19
+> **Spec:** SPEC.md v0.14
+> **Last updated:** 2026-06-20
 
 ---
 
@@ -266,6 +266,27 @@ Integration tests for MCP servers, LLM factory adapters, and the LangGraph graph
 
 **Files:**
 - `frontend/styles.py` — `_theme_overrides_css()`, `_DARK_PALETTE`, and every `.stButton > button` occurrence throughout `_GLOBAL_CSS`
+
+---
+
+## Phase 46 — Streamlit upgrade check + Windows/Linux dependency audit ✅ Done
+
+**Goal:** Follow up on Phase 45's open question — try a Streamlit version bump to fix the sidebar-collapse bug, and separately audit dependencies for Windows/Linux compatibility risk.
+
+**Findings:**
+- **No Streamlit upgrade is possible.** `pyproject.toml` already pins `streamlit>=1.58.0` (no ceiling); 1.58.0 (installed) is the current latest stable release (2026-05-28, confirmed via PyPI). Only `streamlit-nightly` (`1.58.1.dev20260616`) is newer — a pre-release dev build, not appropriate for this project.
+- The sidebar-collapse bug is a recurring, not-version-specific class of issue in Streamlit's sidebar control (GitHub issues/forum reports going back to 1.25 and 1.38) — there's no specific fix version to wait for. The `collapsedControl` → `stSidebarCollapseButton` testid rename happened in 1.38; this app's CSS was still targeting the old name.
+- Windows/Linux dependency audit: clean. Only `onnxruntime` has an active platform-specific pin (Intel-macOS-only; Windows/Linux unaffected). `pymupdf` has full prebuilt-wheel coverage across Windows/macOS/Linux (verified by reading `uv.lock` directly — `cp310-abi3` wheels cover Python 3.10 through 3.14 on regular builds). `sqlean-py` already has an automatic Windows/non-Windows split. No OS-specific code in this project's own source. Gap noted, not fixed: no CI/multi-platform test matrix exists.
+
+**What shipped:**
+- Removed the now-fully-confirmed-dead `stSidebarCollapsedControl` CSS block from `frontend/styles.py` (`_GLOBAL_CSS`, light mode) — verified via vanilla-Streamlit testing in Phase 45 that this testid no longer exists in 1.58.0's DOM.
+- Updated the same stale testid reference in `frontend/login_page.py`'s defensive "hide sidebar on login page" guard to the correct current name, `stSidebarCollapseButton`.
+- Updated comments explaining the sidebar's collapse behavior to reflect that it's now unstyled native Streamlit behavior, not a custom pull-tab.
+- `SPEC.md` Open Questions updated to close out the version-bump option and document the dependency audit as resolved.
+
+**Files:**
+- `frontend/styles.py` — removed dead CSS block, updated comment
+- `frontend/login_page.py` — corrected stale testid reference
 
 ---
 

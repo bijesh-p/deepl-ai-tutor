@@ -10,12 +10,12 @@ _LOGIN_CSS = """
 <style>
 /* ── Login page — full-viewport centred canvas ─────────────────────────── */
 
-/* Sidebar and its pull-tab are completely absent on the login page.
+/* Sidebar and its collapse control are completely absent on the login page.
    _render_sidebar() is skipped in app.py so no sidebar content is rendered.
    These rules are a belt-and-braces guard against any leftover sidebar DOM. */
 [data-testid="stSidebar"],
 section[data-testid="stSidebar"],
-[data-testid="stSidebarCollapsedControl"] {
+[data-testid="stSidebarCollapseButton"] {
     display: none !important;
     width: 0 !important;
     min-width: 0 !important;
