@@ -221,6 +221,8 @@ def main() -> None:
 
     if st.session_state["page"] != "login":
         _render_sidebar()
+        from frontend.sidebar_toggle import render_sidebar_toggle
+        render_sidebar_toggle()
 
     # ── Global pipeline progress banner (non-upload pages only) ──────────────
     progress = st.session_state.get("pipeline_progress")

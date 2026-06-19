@@ -86,15 +86,26 @@ p  { font-weight: 400 !important; line-height: 1.6 !important; }
  *   Label hint : #818CF8  contrast  3.5:1       (9px decorative, uppercase)
  *   Font       : Inter — clean, modern, web-standard
  *
- * Collapsible: sidebar starts collapsed after login (initial_sidebar_state
- * = "collapsed" in set_page_config), using Streamlit's own native collapse
- * control — unstyled. A prior custom pull-tab styled `[data-testid=
- * "stSidebarCollapsedControl"]`, but that testid was renamed to
- * `stSidebarCollapseButton` in Streamlit 1.38 and no longer exists; the old
- * rules were dead code and have been removed (see SPEC.md Open Questions
- * for the known "can't re-expand once collapsed" limitation this leaves).
- * Do NOT override transform here — that breaks the slide-in/out animation.
+ * Collapsible: uses Streamlit's own native collapse control, which is
+ * `visibility:hidden` by default and unreliable to reach via hover in this
+ * Streamlit version (1.58.0) — see SPEC.md Open Questions, Phase 45/46/47.
+ * `frontend/sidebar_toggle.py::render_sidebar_toggle()` renders a small
+ * always-visible custom button (via `st.iframe()`) that forwards clicks to
+ * the real hidden control; the rule below just pins that iframe
+ * (`[data-testid="stIFrame"]`) to a fixed spot on the page edge.
+ * Do NOT override transform on the sidebar itself — that breaks the
+ * slide-in/out animation.
  */
+[data-testid="stIFrame"] {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 30px !important;
+    height: 80px !important;
+    z-index: 999999 !important;
+    border: none !important;
+    background: transparent !important;
+}
 
 [data-testid="stSidebar"] > div:first-child {
     background: linear-gradient(170deg, #EEF2FF 0%, #F5F0FF 100%) !important;
