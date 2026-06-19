@@ -29,8 +29,8 @@
 
 - [ChromaDB Documentation](https://docs.trychroma.com/) — Embedding database for semantic search over document chunks in `mcp_servers/storage_server/`.
 - [ChromaDB GitHub](https://github.com/chroma-core/chroma) — Source and issue tracker.
-- [Sentence Transformers](https://www.sbert.net/) — Framework for sentence embeddings; uses `all-MiniLM-L6-v2` model.
-- [all-MiniLM-L6-v2 on HuggingFace](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) — Lightweight embedding model (384 dimensions, 22M params).
+- [ChromaDB `DefaultEmbeddingFunction`](https://github.com/chroma-core/chroma/blob/main/chromadb/utils/embedding_functions/onnx_mini_lm_l6_v2.py) — ONNX export of `all-MiniLM-L6-v2`, run via `onnxruntime` instead of `sentence-transformers`/`torch`. Used in `_get_chroma_collection()` because `torch` has no wheel for Python 3.13 on Intel macOS (`macosx_x86_64`).
+- [all-MiniLM-L6-v2 on HuggingFace](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) — Lightweight embedding model (384 dimensions, 22M params); same weights, ONNX runtime instead of PyTorch.
 
 ## Audio / Text-to-Speech
 

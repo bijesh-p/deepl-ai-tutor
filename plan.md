@@ -194,6 +194,20 @@ Integration tests for MCP servers, LLM factory adapters, and the LangGraph graph
 
 ---
 
+### Fix — onnxruntime/torch wheel unavailable on Intel macOS + Python 3.13
+
+`uv sync` failed: `onnxruntime==1.26.0` (pulled in by `chromadb`) dropped `macosx_x86_64` wheels from 1.24.0 onward, and `torch` (pulled in transitively by `sentence-transformers`) has never shipped a `cp313`+`macosx_x86_64` wheel for any version — so this combination cannot be resolved on an Intel Mac running Python 3.13, regardless of pinning.
+
+**Fix:**
+- Pinned `onnxruntime<1.24` for `sys_platform == 'darwin' and platform_machine == 'x86_64'` in `pyproject.toml` (last version with Intel-Mac wheels is 1.23.2); other platforms keep resolving to the latest version `chromadb` requests.
+- Replaced `SentenceTransformerEmbeddingFunction` with ChromaDB's built-in `DefaultEmbeddingFunction` (`mcp_servers/storage_server/server.py`) — an ONNX export of the same `all-MiniLM-L6-v2` model, run via `onnxruntime` instead of `sentence-transformers`/`torch`. This removes the `torch` dependency entirely (no version of which supports this platform/Python combo), and also drops ~20 transitive CUDA/`transformers` packages from `uv.lock`.
+- Removed `sentence-transformers` from `pyproject.toml` dependencies (no longer used anywhere in the codebase).
+- Deleted local `data/chroma/` (gitignored, regenerable dev data) since its collection metadata referenced the old `sentence_transformer` embedding function config and would otherwise fail to load with the new one.
+
+**Files:** `pyproject.toml`, `uv.lock`, `mcp_servers/storage_server/server.py`, `SPEC.md`, `ARCHITECTURE.md`, `README.md`, `references.md`
+
+---
+
 ## Commit convention
 
 Format: `[Phase N] <short description>`

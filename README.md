@@ -36,7 +36,7 @@ See [SPEC.md](SPEC.md) for the full phase breakdown and definitions of done.
 | Adaptive Tutor | LangGraph (diagnostic + 8-node state machine) |
 | LLM Providers | Anthropic SDK, Portkey, Ollama (OpenAI-compat) |
 | Tool Protocol | MCP (Model Context Protocol) — 3 standalone servers |
-| Vector Store | ChromaDB + sentence-transformers (`all-MiniLM-L6-v2`) |
+| Vector Store | ChromaDB + ONNX `all-MiniLM-L6-v2` (via `onnxruntime`, no torch) |
 | Database | SQLite — per-user DB + separate shared DB for published modules |
 | Document Parsing | PyMuPDF (PDF), python-pptx, python-docx |
 | Audio TTS | edge-tts (Microsoft Edge voices) |
@@ -65,6 +65,8 @@ uv run python run.py
 Then open http://localhost:8501 in your browser.
 
 > **Note:** `run.py` sets `PYTHONPATH` automatically and launches Streamlit — no manual env-var prefix needed, works on both Linux/macOS and Windows.
+
+> **Upgrading from before the ONNX embedding switch?** If you already ran the app and have a local `data/chroma/` directory, delete it once after pulling (`rm -rf data/chroma`): its stored collection config points at the old `sentence-transformers` embedding function and will fail with `Could not build embedding function sentence_transformer` until removed. It's gitignored, local-only, and regenerates automatically on next use.
 
 ## LLM Provider Setup
 

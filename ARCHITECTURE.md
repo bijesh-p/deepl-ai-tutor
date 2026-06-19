@@ -52,7 +52,7 @@ Streamlit Frontend (entry point: app.py)
 | LLM providers | Anthropic SDK, Portkey, Ollama (OpenAI-compat) | 1 / 2 / 2 |
 | LLM abstraction | Strategy + factory pattern (`BaseLLMClient`, `LLMFactory`) | 2 |
 | Tool protocol | MCP (Model Context Protocol) | 2 |
-| Vector store | ChromaDB + `sentence-transformers` (`all-MiniLM-L6-v2`) | 2 |
+| Vector store | ChromaDB + ONNX `all-MiniLM-L6-v2` via `onnxruntime` (`DefaultEmbeddingFunction`, no torch) | 2 |
 | Relational DB | SQLite (`sqlite3` stdlib), per-user DB + shared DB for published modules | 1 / 2 / 3 |
 | Document parsing | PyMuPDF (PDF), `python-pptx`, `python-docx` | 1 / 3 (Phase 35) |
 | Diagrams | Mermaid (LLM-generated, diagram-first approach) | 1 / 2 |
