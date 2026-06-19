@@ -18,11 +18,13 @@ _CHROMA_DIR = os.environ.get("AI_TUTOR_CHROMA_DIR", "data/chroma")
 
 def _get_chroma_collection():
     import chromadb
-    from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
+    from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
 
     Path(_CHROMA_DIR).mkdir(parents=True, exist_ok=True)
     client = chromadb.PersistentClient(path=_CHROMA_DIR)
-    ef = SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
+    # ONNX-based "all-MiniLM-L6-v2" — avoids the sentence-transformers/torch
+    # dependency, which has no wheel for Python 3.13 on Intel macOS.
+    ef = DefaultEmbeddingFunction()
     return client.get_or_create_collection(
         name="document_chunks",
         embedding_function=ef,

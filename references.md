@@ -5,6 +5,11 @@
 - [PyMuPDF Documentation](https://pymupdf.readthedocs.io/) — Python bindings for MuPDF; used for PDF text extraction and TOC parsing in `backend/ingestion/pdf_parser.py`.
 - [PyMuPDF GitHub](https://github.com/pymupdf/PyMuPDF) — Source and issue tracker.
 
+## WebVTT Transcript Parsing
+
+- [WebVTT Spec (W3C)](https://www.w3.org/TR/webvtt1/) — W3C standard for timed text tracks; defines the `.vtt` format parsed by `backend/ingestion/vtt_parser.py`.
+- [WebVTT on MDN](https://developer.mozilla.org/en-US/docs/Web/API/WebVTT_API) — MDN reference for WebVTT cue formatting, voice tags (`<v>`), and timestamp syntax.
+
 ## LLM Integration
 
 - [Anthropic Python SDK](https://github.com/anthropic/anthropic-sdk-python) — Official SDK used in `backend/core/llm_client/adapters/anthropic_adapter.py`.
@@ -29,8 +34,8 @@
 
 - [ChromaDB Documentation](https://docs.trychroma.com/) — Embedding database for semantic search over document chunks in `mcp_servers/storage_server/`.
 - [ChromaDB GitHub](https://github.com/chroma-core/chroma) — Source and issue tracker.
-- [Sentence Transformers](https://www.sbert.net/) — Framework for sentence embeddings; uses `all-MiniLM-L6-v2` model.
-- [all-MiniLM-L6-v2 on HuggingFace](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) — Lightweight embedding model (384 dimensions, 22M params).
+- [ChromaDB `DefaultEmbeddingFunction`](https://github.com/chroma-core/chroma/blob/main/chromadb/utils/embedding_functions/onnx_mini_lm_l6_v2.py) — ONNX export of `all-MiniLM-L6-v2`, run via `onnxruntime` instead of `sentence-transformers`/`torch`. Used in `_get_chroma_collection()` because `torch` has no wheel for Python 3.13 on Intel macOS (`macosx_x86_64`).
+- [all-MiniLM-L6-v2 on HuggingFace](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) — Lightweight embedding model (384 dimensions, 22M params); same weights, ONNX runtime instead of PyTorch.
 
 ## Audio / Text-to-Speech
 
