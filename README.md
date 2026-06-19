@@ -36,7 +36,7 @@ See [SPEC.md](SPEC.md) for the full phase breakdown and definitions of done.
 | Adaptive Tutor | LangGraph (diagnostic + 8-node state machine) |
 | LLM Providers | Anthropic SDK, Portkey, Ollama (OpenAI-compat) |
 | Tool Protocol | MCP (Model Context Protocol) — 3 standalone servers |
-| Vector Store | ChromaDB + sentence-transformers (`all-MiniLM-L6-v2`) |
+| Vector Store | ChromaDB + ONNX `all-MiniLM-L6-v2` (via `onnxruntime`, no torch) |
 | Database | SQLite — per-user DB + separate shared DB for published modules |
 | Document Parsing | PyMuPDF (PDF), python-pptx, python-docx |
 | Audio TTS | edge-tts (Microsoft Edge voices) |
