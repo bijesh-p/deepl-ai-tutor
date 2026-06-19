@@ -233,7 +233,7 @@ Integration tests for MCP servers, LLM factory adapters, and the LangGraph graph
 
 ---
 
-## Phase 43 — UI/UX overhaul: topic highlighting 🔲 Planned
+## Phase 43 — UI/UX overhaul: topic highlighting ✅ Done
 
 **Goal:** Give the user a clear "where am I" indicator among topics — a concept rail in the adaptive tutor, and tabs (replacing stacked always-expanded expanders) in the early module view.
 

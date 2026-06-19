@@ -789,6 +789,53 @@ def slide_chips_html(enriched_topics: list, current_topic: str, total_topics: in
     )
 
 
+def concept_rail_html(mastered: list[str], current: str, remaining: list[str]) -> str:
+    """Row of concept chips for the adaptive tutor: green for mastered, pulsing
+    blue for the current concept, grey for ones not yet reached — gives a clear
+    "where am I" indicator across the whole module, in canonical topic order.
+    """
+    if not mastered and not current and not remaining:
+        return ""
+
+    chips: list[str] = []
+
+    for title in mastered:
+        short = (title[:22] + "…") if len(title) > 22 else title
+        chips.append(
+            f'<div style="display:inline-flex;align-items:center;gap:5px;'
+            f'padding:4px 10px;background:#D1FAE5;border:1px solid #6EE7B7;'
+            f'border-radius:999px;font-size:11px;color:#065F46;font-weight:500;">'
+            f'<span style="font-size:10px;">✓</span>{short}</div>'
+        )
+
+    if current:
+        short = (current[:22] + "…") if len(current) > 22 else current
+        chips.append(
+            f'<div style="display:inline-flex;align-items:center;gap:6px;'
+            f'padding:4px 12px;background:#DBEAFE;border:1px solid #93C5FD;'
+            f'border-radius:999px;font-size:11px;color:#1E40AF;font-weight:600;'
+            f'animation:ai-pulse 1.4s ease-in-out infinite;">'
+            f'<span style="width:7px;height:7px;border-radius:50%;background:#2563EB;'
+            f'animation:ai-pulse 0.9s ease-in-out infinite;display:inline-block;"></span>'
+            f'{short}</div>'
+        )
+
+    for title in remaining:
+        short = (title[:22] + "…") if len(title) > 22 else title
+        chips.append(
+            f'<div style="display:inline-flex;align-items:center;gap:5px;'
+            f'padding:4px 10px;background:#F3F4F6;border:1px solid #E5E7EB;'
+            f'border-radius:999px;font-size:11px;color:#9CA3AF;font-weight:500;">'
+            f'{short}</div>'
+        )
+
+    inner = "\n".join(chips)
+    return (
+        f'<div style="display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 14px;">'
+        f'{inner}</div>'
+    )
+
+
 def skeleton_slide_html(label: str = "Generating slide content…") -> str:
     """Shimmering skeleton card indicating an LLM call is in flight."""
     shimmer = (

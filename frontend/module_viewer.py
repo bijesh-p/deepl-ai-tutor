@@ -29,34 +29,39 @@ def render_module_viewer(module: LearningModule) -> None:
     st.title(module.title)
     st.caption(f"{done_count}/{total_expected} topics ready" if generating else f"{done_count} topics")
 
-    for et in module.topics:
-        with st.expander(f"**{et.topic.title}**", expanded=True):
-            if et.top_concepts:
-                concepts_text = " | ".join(f"**{c}**" for c in et.top_concepts)
-                st.info(f"Top concepts: {concepts_text}")
+    if module.topics:
+        # Tabs give an always-visible topic index — clearer "where am I" than
+        # stacking every topic as an always-expanded expander, and they don't
+        # need per-topic expand/collapse state as new topics stream in below.
+        tabs = st.tabs([et.topic.title for et in module.topics])
+        for tab, et in zip(tabs, module.topics):
+            with tab:
+                if et.top_concepts:
+                    concepts_text = " | ".join(f"**{c}**" for c in et.top_concepts)
+                    st.info(f"Top concepts: {concepts_text}")
 
-            if et.audio_path:
-                st.audio(et.audio_path, format="audio/mp3")
+                if et.audio_path:
+                    st.audio(et.audio_path, format="audio/mp3")
 
-            st.markdown(et.content_md)
+                st.markdown(et.content_md)
 
-            if et.key_takeaways:
-                st.markdown("**Key takeaways:**")
-                for kt in et.key_takeaways:
-                    st.markdown(f"- {kt}")
+                if et.key_takeaways:
+                    st.markdown("**Key takeaways:**")
+                    for kt in et.key_takeaways:
+                        st.markdown(f"- {kt}")
 
-            for diagram in et.diagrams:
-                if diagram.diagram_type == "mermaid":
-                    st.markdown(f"*{diagram.caption}*")
-                    if _HAS_MERMAID:
-                        st_mermaid(diagram.content)
-                    else:
-                        st.code(diagram.content, language="text")
+                for diagram in et.diagrams:
+                    if diagram.diagram_type == "mermaid":
+                        st.markdown(f"*{diagram.caption}*")
+                        if _HAS_MERMAID:
+                            st_mermaid(diagram.content)
+                        else:
+                            st.code(diagram.content, language="text")
 
-            if et.inline_questions:
-                st.markdown("---")
-                st.markdown("**Check your understanding**")
-                _render_inline_questions(et.topic.topic_id, et.inline_questions)
+                if et.inline_questions:
+                    st.markdown("---")
+                    st.markdown("**Check your understanding**")
+                    _render_inline_questions(et.topic.topic_id, et.inline_questions)
 
     if generating and progress:
         _pending_topics_fragment()

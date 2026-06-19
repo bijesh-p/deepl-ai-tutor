@@ -16,6 +16,7 @@ from backend.analytics.persistence import (
     save_user_profile,
 )
 from backend.interactive_tutor import build_tutor_graph
+from frontend.styles import concept_rail_html
 
 try:
     from streamlit_mermaid import st_mermaid
@@ -71,6 +72,16 @@ def render_tutor_room() -> None:
                     st.session_state.pop(key, None)
                 st.rerun()
         st.markdown("---")
+
+    # ── Concept rail — "where am I" indicator across the whole module ────────
+    st.markdown(
+        concept_rail_html(
+            mastered=state.get("mastered_concepts", []),
+            current=state.get("current_concept", "") if phase != "done" else "",
+            remaining=state.get("remaining_concepts", []),
+        ),
+        unsafe_allow_html=True,
+    )
 
     # Progress + end session in sidebar-style column
     col_main, col_meta = st.columns([4, 1])

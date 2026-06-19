@@ -104,7 +104,7 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
 - [x] All pipeline failures surface a structured, user-actionable error message
 - [x] Dark mode toggle persists per-user and is legible (WCAG-checked) across every page
 - [x] Every page has a single, consistent top-of-page back affordance
-- [ ] Adaptive tutor and module viewer show a clear position/progress indicator among topics
+- [x] Adaptive tutor and module viewer show a clear position/progress indicator among topics
 
 ---
 
