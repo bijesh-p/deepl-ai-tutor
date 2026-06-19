@@ -81,10 +81,34 @@ def _render_sidebar() -> None:
 
     logged_in = bool(st.session_state.get("username"))
 
+    # Keep sidebar permanently visible — force expanded state via CSS
+    st.markdown(
+        """<style>
+        section[data-testid="stSidebar"] {
+            display: flex !important;
+            min-width: 280px !important;
+            width: 280px !important;
+            transform: none !important;
+            position: relative !important;
+            transition: none !important;
+        }
+        section[data-testid="stSidebar"][aria-expanded="false"] {
+            display: flex !important;
+            min-width: 280px !important;
+            width: 280px !important;
+            transform: none !important;
+            margin-left: 0 !important;
+        }
+        [data-testid="stSidebarCollapsedControl"] { display: none !important; }
+        [data-testid="stSidebarContent"] button[kind="headerNoPadding"] { display: none !important; }
+        </style>""",
+        unsafe_allow_html=True,
+    )
+
     with st.sidebar:
         # ── App name ──────────────────────────────────────────────────────────
         st.markdown(
-            "<div style='font-size:15px;font-weight:700;color:#1E1B4B;"
+            "<div style='font-size:17px;font-weight:800;color:#F1F5F9;"
             "letter-spacing:-0.02em;padding-bottom:8px;"
             "font-family:Inter,-apple-system,sans-serif;'>📚 AI Tutor</div>",
             unsafe_allow_html=True,
@@ -96,8 +120,8 @@ def _render_sidebar() -> None:
             role_label = "Admin" if st.session_state.get("is_admin") else "Student"
             st.markdown(
                 f"<div style='font-family:Inter,sans-serif;padding:4px 2px 6px;line-height:1.35;'>"
-                f"<div style='font-size:15px;font-weight:700;color:#1E1B4B;letter-spacing:-0.01em;'>{username}</div>"
-                f"<div style='font-size:10px;font-weight:500;color:#818CF8;letter-spacing:0.05em;"
+                f"<div style='font-size:16px;font-weight:700;color:#F1F5F9;letter-spacing:-0.01em;'>{username}</div>"
+                f"<div style='font-size:11px;font-weight:600;color:#38BDF8;letter-spacing:0.05em;"
                 f"text-transform:uppercase;'>{role_label}</div>"
                 f"</div>",
                 unsafe_allow_html=True,
