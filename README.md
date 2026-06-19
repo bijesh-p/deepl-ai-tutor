@@ -66,6 +66,8 @@ Then open http://localhost:8501 in your browser.
 
 > **Note:** `run.py` sets `PYTHONPATH` automatically and launches Streamlit — no manual env-var prefix needed, works on both Linux/macOS and Windows.
 
+> **Upgrading from before the ONNX embedding switch?** If you already ran the app and have a local `data/chroma/` directory, delete it once after pulling (`rm -rf data/chroma`): its stored collection config points at the old `sentence-transformers` embedding function and will fail with `Could not build embedding function sentence_transformer` until removed. It's gitignored, local-only, and regenerates automatically on next use.
+
 ## LLM Provider Setup
 
 The app supports three LLM backends. Set `AI_TUTOR_LLM_PROVIDER` in `.env` to switch between them. Only configure the variables for the provider you choose.
