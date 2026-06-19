@@ -1,8 +1,8 @@
 # plan.md — AI Tutor Implementation
 
 > **Goal:** Deliver a fully working AI Tutor with adaptive tutoring, observability, and admin-curated module sharing.
-> **Spec:** SPEC.md v0.7
-> **Last updated:** 2026-06-15
+> **Spec:** SPEC.md v0.12
+> **Last updated:** 2026-06-19
 
 ---
 
@@ -205,6 +205,51 @@ Integration tests for MCP servers, LLM factory adapters, and the LangGraph graph
 - Deleted local `data/chroma/` (gitignored, regenerable dev data) since its collection metadata referenced the old `sentence_transformer` embedding function config and would otherwise fail to load with the new one.
 
 **Files:** `pyproject.toml`, `uv.lock`, `mcp_servers/storage_server/server.py`, `SPEC.md`, `ARCHITECTURE.md`, `README.md`, `references.md`
+
+---
+
+## Phase 41 — UI/UX overhaul: dark mode color system + toggle 🔲 Planned
+
+**Goal:** Add a per-user-persisted dark mode toggle. Since `.streamlit/config.toml` theming is process-wide and can't be switched per-user at runtime, dark mode is implemented entirely via the existing custom-CSS-injection mechanism in `frontend/styles.py`.
+
+**Files:**
+- `backend/analytics/db.py` — `_MIGRATIONS`: add `dark_mode INTEGER NOT NULL DEFAULT 0` column to `user_profiles`
+- `backend/analytics/persistence.py` — `load_user_profile()` returns `dark_mode: bool`; new `save_dark_mode(user_id, dark_mode, db=None)` lightweight upsert (separate from the heavier `save_user_profile`)
+- `frontend/login_page.py` — restore `st.session_state["dark_mode"]` from the loaded profile on login, alongside existing LLM-pref restore
+- `frontend/styles.py` — light/dark palette tokens (app bg, card bg, text, sidebar gradient, borders); new teal accent `#14B8A6`; `_theme_overrides_css()` appended after the existing static `_GLOBAL_CSS`, gated on `st.session_state["dark_mode"]`
+- `app.py` — `_render_sidebar()`: new "Dark mode" toggle alongside Audio/Tracing/Evals, persists via `save_dark_mode`
+
+---
+
+## Phase 42 — UI/UX overhaul: top-of-page back navigation 🔲 Planned
+
+**Goal:** Every page gets a single, consistent back affordance at the top (not buried at the bottom), deduplicating the pattern already triplicated across pages.
+
+**Files:**
+- `frontend/nav.py` (new) — `render_back_button(label, target_page, key)`
+- `mastery_report_page.py`, `observability_page.py`, `results_page.py` — move existing bottom back-button call to the top
+- `quiz_page.py`, `module_viewer.py`, `upload_page.py`, `system_check_page.py` — add a back button (none exists today)
+- `tutor_room.py` — back button routes through the existing end-session cleanup path, not a bare page-state swap
+
+---
+
+## Phase 43 — UI/UX overhaul: topic highlighting 🔲 Planned
+
+**Goal:** Give the user a clear "where am I" indicator among topics — a concept rail in the adaptive tutor, and tabs (replacing stacked always-expanded expanders) in the early module view.
+
+**Files:**
+- `frontend/styles.py` — new `concept_rail_html(mastered, current, remaining)`, modeled on the existing `slide_chips_html()` pattern plus a new "pending" chip variant
+- `frontend/tutor_room.py` — render the concept rail from `tutor_state["mastered_concepts"]`/`["current_concept"]`/`["remaining_concepts"]` (already in canonical module order)
+- `frontend/module_viewer.py` — replace the per-topic `st.expander(expanded=True)` loop with `st.tabs()`
+
+---
+
+## Phase 44 — UI/UX overhaul: color/visual polish pass 🔲 Planned
+
+**Goal:** Apply the new teal accent and refined contrast to the highest-impact surfaces; verify dark-mode contrast against this repo's own documented WCAG standard.
+
+**Files:**
+- `frontend/styles.py` — `score_banner_html()`, `page_header_html()`, `module_card_html()`, `concept_rail_html()` (from Phase 43)
 
 ---
 

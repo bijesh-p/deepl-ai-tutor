@@ -137,6 +137,7 @@ def _do_login(name: str, is_admin: bool) -> None:
         st.session_state["llm_provider"] = saved_provider
     if saved_model:
         st.session_state["llm_model"] = saved_model
+    st.session_state["dark_mode"] = bool(profile.get("dark_mode"))
 
     st.session_state["page"] = "upload"
     st.rerun()

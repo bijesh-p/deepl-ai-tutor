@@ -80,11 +80,12 @@ def _render_sidebar() -> None:
     import os
 
     logged_in = bool(st.session_state.get("username"))
+    header_text_color = "#F1F5F9" if st.session_state.get("dark_mode") else "#1E1B4B"
 
     with st.sidebar:
         # ── App name ──────────────────────────────────────────────────────────
         st.markdown(
-            "<div style='font-size:15px;font-weight:700;color:#1E1B4B;"
+            f"<div style='font-size:15px;font-weight:700;color:{header_text_color};"
             "letter-spacing:-0.02em;padding-bottom:8px;"
             "font-family:Inter,-apple-system,sans-serif;'>📚 AI Tutor</div>",
             unsafe_allow_html=True,
@@ -96,7 +97,7 @@ def _render_sidebar() -> None:
             role_label = "Admin" if st.session_state.get("is_admin") else "Student"
             st.markdown(
                 f"<div style='font-family:Inter,sans-serif;padding:4px 2px 6px;line-height:1.35;'>"
-                f"<div style='font-size:15px;font-weight:700;color:#1E1B4B;letter-spacing:-0.01em;'>{username}</div>"
+                f"<div style='font-size:15px;font-weight:700;color:{header_text_color};letter-spacing:-0.01em;'>{username}</div>"
                 f"<div style='font-size:10px;font-weight:500;color:#818CF8;letter-spacing:0.05em;"
                 f"text-transform:uppercase;'>{role_label}</div>"
                 f"</div>",
@@ -165,9 +166,28 @@ def _render_sidebar() -> None:
                 help="Run DeepEval quality metrics using the active LLM as judge",
                 key="_evals_toggle",
             )
+            dark_mode_on = st.toggle(
+                "Dark mode",
+                value=st.session_state.get("dark_mode", False),
+                help="Switch the app to a dark color theme",
+                key="_dark_mode_toggle",
+            )
             st.session_state["audio_enabled"] = audio_on
             st.session_state["tracing_enabled"] = tracing_on
             st.session_state["evals_enabled"] = evals_on
+            if dark_mode_on != st.session_state.get("dark_mode", False):
+                st.session_state["dark_mode"] = dark_mode_on
+                try:
+                    from backend.analytics.db import get_db
+                    from backend.analytics.persistence import save_dark_mode
+                    save_dark_mode(
+                        st.session_state["user_id"],
+                        dark_mode_on,
+                        db=get_db(st.session_state.get("db_path")),
+                    )
+                except Exception:
+                    pass  # don't let a DB hiccup break the toggle
+                st.rerun()
 
             # ── Navigation ────────────────────────────────────────────────────
             st.markdown("<div class='sb-label'>Navigate</div>", unsafe_allow_html=True)

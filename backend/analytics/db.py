@@ -83,6 +83,7 @@ _MIGRATIONS = [
     "ALTER TABLE user_profiles ADD COLUMN llm_provider TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE user_profiles ADD COLUMN llm_model TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE modules ADD COLUMN is_published INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE user_profiles ADD COLUMN dark_mode INTEGER NOT NULL DEFAULT 0",
 ]
 
 _SHARED_SCHEMA = """

@@ -1,6 +1,6 @@
 # SPEC.md — AI Tutor System Specification
 
-> **Version:** 0.11 | **Last updated:** 2026-06-15
+> **Version:** 0.12 | **Last updated:** 2026-06-19
 > Architecture, directory layout, and component design are in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
@@ -92,6 +92,7 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
 | Observability dashboard (Phase 37) | Dedicated Streamlit page: Phoenix link + DeepEval per-session metric table + avg score bar chart; nav from sidebar and module library home page | ✅ Done |
 | Error handling polish (Phase 36) | Structured user-facing error messages at each pipeline step; retry buttons; partial-failure recovery. Pipeline: per-step try/except (parse/LLM/enrich/quiz/save) with `_fail()` helper, step label, technical expander, and "Learn with N topic(s) / Retry from scratch" recovery buttons. Tutor: `_run_node` catches graph exceptions → `tutor_error` in session state → "Try again / Reset session" UI. Single-topic enrichment failure skips that topic instead of killing the pipeline. | ✅ Done |
 | Test coverage (Phase 38) | MCP server tool tests (assessment validate_json_schema; document_server PPTX/DOCX); all LangGraph graph nodes tested with mock LLM; sliding pipeline end-to-end + skip-on-error | ✅ Done |
+| UI/UX overhaul (Phase 41) | Dark mode (per-user persisted toggle, CSS-injection based since Streamlit config.toml can't be switched per-user at runtime); topic-highlighting "where am I" indicators (concept rail in the adaptive tutor, tabs per topic in the early module view); consistent top-of-page back navigation on every page; refined indigo/blue/purple color system with a new teal accent and matching dark palette | 🔄 In Progress |
 
 **Definition of done for Phase 3:**
 - [x] Admin user can publish a module to the shared library; all other users see it in their module library without generating it themselves
@@ -101,6 +102,9 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
 - [x] Mastery state is persisted across sessions (user can resume a tutor session)
 - [x] Upload page accepts `.pptx` and `.docx` in addition to `.pdf`
 - [x] All pipeline failures surface a structured, user-actionable error message
+- [ ] Dark mode toggle persists per-user and is legible (WCAG-checked) across every page
+- [ ] Every page has a single, consistent top-of-page back affordance
+- [ ] Adaptive tutor and module viewer show a clear position/progress indicator among topics
 
 ---
 
@@ -148,6 +152,9 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
 - [x] **PPTX/DOCX parsing (Phase 35)** — **Resolved:** `backend/ingestion/pptx_parser.py` (`parse_pptx`, max 16 slides, title from `core_properties` or filename stem, each slide → `Section`) and `backend/ingestion/docx_parser.py` (`parse_docx`, max 16 sections, sections from heading paragraphs, fallback to single section when no headings). Both return `Document` with the matching `SourceType`. MCP `document_server` exposes `extract_text_from_pptx`/`extract_text_from_docx` tools following the same pattern as `extract_text_from_pdf`. `frontend/upload_page.py` accepts `["pdf", "pptx", "docx"]` and routes to the right tool via `_TOOL_FOR_EXT`.
 - [x] **Observability dashboard (Phase 37)** — **Resolved:** `frontend/observability_page.py` with two sections: (1) Phoenix trace explorer — derives base URL from `OTEL_EXPORTER_OTLP_ENDPOINT`, shows `st.link_button` to open Phoenix UI; (2) DeepEval quality metrics — queries `eval_results` via `get_eval_results()` in `stats.py` (LEFT JOIN modules for title), renders per-session table + avg score bar chart. Navigation: "Observability" sidebar button + "📊 Observability" button on module library home page.
 - [ ] **Portkey virtual key management** — One shared virtual key or per-user? **Pending.**
+- [x] **Dark mode persistence & theming mechanism (Phase 41)** — **Resolved:** Streamlit's `[theme]` in `.streamlit/config.toml` is process-wide and can't be switched per-user at runtime (one shared server, many users), so dark mode is implemented entirely via the existing custom-CSS-injection mechanism (`frontend/styles.py::inject_global_css()`), gated on `st.session_state["dark_mode"]`. Persisted per-user via a new `user_profiles.dark_mode` column (same idempotent `_MIGRATIONS` pattern as `llm_provider`), restored on login alongside the existing LLM-provider preference restore.
+- [x] **Color direction for the visual refresh (Phase 41)** — **Resolved:** keep the existing indigo/blue (`#2563EB`)/purple (`#7C3AED`) brand identity rather than replace it; add one new teal accent (`#14B8A6`) for variety/highlights, and a matching dark palette (`#0F1117` app bg / `#1A1D29` card bg / `#F1F5F9` text). User-confirmed direction over two more vibrant/warmer alternatives.
+- [x] **Module viewer topic display (Phase 41)** — **Resolved:** `frontend/module_viewer.py` converts its stacked always-expanded `st.expander` list to `st.tabs()` (one per topic) — gives an always-visible topic index for free and avoids per-topic expand/collapse state tracking as topics stream in during generation. Accepted tradeoff: `st.tabs()` has no overflow/scroll handling for very large topic counts (typical modules are well under 10 topics).
 
 ---
 

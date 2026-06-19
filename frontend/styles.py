@@ -468,9 +468,122 @@ p  { font-weight: 400 !important; line-height: 1.6 !important; }
 """
 
 
+# ── Dark mode ────────────────────────────────────────────────────────────────
+# Streamlit's own [theme] in .streamlit/config.toml is process-wide and can't be
+# switched per user at runtime (one shared server, many users), so dark mode is
+# implemented entirely as an extra stylesheet appended after _GLOBAL_CSS — it wins
+# by source order, no !important escalation needed against Streamlit's own CSS.
+# Custom HTML cards (the helper functions below) keep their explicit light inline
+# colors and simply float on the dark canvas — a deliberate "light card on dark
+# page" choice, not an oversight; see plan.md Phase 41/44.
+
+_DARK_PALETTE: dict[str, str] = {
+    "app_bg": "#0F1117",
+    "text_primary": "#F1F5F9",      # vs app_bg: ~15:1 contrast, WCAG AAA
+    "text_secondary": "#94A3B8",    # vs app_bg: ~7:1 contrast, WCAG AA
+    "sidebar_grad_start": "#1E1B4B",
+    "sidebar_grad_end": "#161335",
+    "sidebar_border": "#3730A3",
+    "sidebar_text": "#CBD5E1",      # vs sidebar bg: ~9:1 contrast, WCAG AAA
+    "card_bg": "#1A1D29",
+    "card_border": "#2D2F3D",
+    "metric_grad_start": "#1E2536",
+    "metric_grad_end": "#241F38",
+    "metric_border": "#3730A3",
+    "form_bg": "#161821",
+}
+
+# New accent for the colorful-yet-soothing refresh (Phase 41/44) — used sparingly
+# for variety beyond the primary blue/purple (e.g. concept-rail mastery chips).
+ACCENT_TEAL = "#14B8A6"
+
+
+def _theme_overrides_css(dark: bool) -> str:
+    """Background/text overrides applied on top of _GLOBAL_CSS when dark mode is on."""
+    if not dark:
+        return ""
+    p = _DARK_PALETTE
+    return f"""
+<style>
+/* Root containers — color cascades to plain text via inheritance; anything with
+   its own inline color (our HTML helper cards) is untouched by inheritance. */
+.stApp, [data-testid="stAppViewContainer"], [data-testid="stMain"], [data-testid="stHeader"] {{
+    background: {p['app_bg']} !important;
+    color: {p['text_primary']} !important;
+}}
+
+[data-testid="stCaptionContainer"] {{ color: {p['text_secondary']} !important; }}
+
+[data-testid="stSidebar"] > div:first-child {{
+    background: linear-gradient(170deg, {p['sidebar_grad_start']} 0%, {p['sidebar_grad_end']} 100%) !important;
+    border-right: 1px solid {p['sidebar_border']} !important;
+}}
+[data-testid="stSidebar"] p,
+[data-testid="stSidebar"] span,
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] .stMarkdown,
+[data-testid="stSidebar"] .stCaption {{
+    color: {p['sidebar_text']} !important;
+}}
+[data-testid="stSidebar"] .sb-label {{ color: #A5B4FC !important; border-top-color: {p['sidebar_border']} !important; }}
+/* Checked toggle/checkbox labels get an extra Streamlit-internal blue tint with
+   higher specificity than the generic sidebar text rule above — out-specify it. */
+[data-testid="stSidebar"] [data-testid="stCheckbox"] [data-testid="stWidgetLabel"] p {{
+    color: {p['sidebar_text']} !important;
+}}
+[data-testid="stSidebar"] .stSelectbox > div > div {{
+    background: {p['card_bg']} !important;
+    border-color: {p['sidebar_border']} !important;
+    color: {p['text_primary']} !important;
+}}
+[data-testid="stSidebar"] .element-container .stButton > button {{
+    background: rgba(255,255,255,0.06) !important;
+    border-color: {p['sidebar_border']} !important;
+    color: {p['sidebar_text']} !important;
+}}
+[data-testid="stSidebar"] .element-container .stButton > button:hover {{
+    background: rgba(255,255,255,0.12) !important;
+}}
+
+[data-testid="stMetric"] {{
+    background: linear-gradient(135deg, {p['metric_grad_start']} 0%, {p['metric_grad_end']} 100%) !important;
+    border-color: {p['metric_border']} !important;
+}}
+[data-testid="stMetricValue"] {{ color: #93C5FD !important; }}
+[data-testid="stMetricLabel"] {{ color: #A5B4FC !important; }}
+
+[data-testid="stExpander"] {{ background: {p['card_bg']} !important; border-color: {p['card_border']} !important; }}
+[data-testid="stForm"] {{ background: {p['form_bg']} !important; border-color: {p['card_border']} !important; }}
+[data-testid="stFileUploader"] section {{ background: {p['form_bg']} !important; border-color: {p['card_border']} !important; }}
+[data-testid="stFileUploaderDropzoneInstructions"] span,
+[data-testid="stFileUploaderDropzoneInstructions"] small {{ color: {p['text_secondary']} !important; }}
+
+/* Quiz option cards — base (unchecked) state only; hover/checked accent colors
+   defined in _GLOBAL_CSS stay the same blue in both themes. */
+[data-testid="stRadio"] [role="radiogroup"] > label,
+[data-testid="stCheckbox"] label {{
+    background: {p['card_bg']} !important;
+    border-color: {p['card_border']} !important;
+}}
+[data-testid="stRadio"] [role="radiogroup"] > label p,
+[data-testid="stRadio"] [role="radiogroup"] > label div,
+[data-testid="stCheckbox"] label p,
+[data-testid="stCheckbox"] label span {{
+    color: {p['text_primary']} !important;
+}}
+</style>
+"""
+
+
 def inject_global_css() -> None:
-    """Inject global CSS. Call once at the top of app.py after set_page_config."""
+    """Inject global CSS, then dark-mode overrides if enabled for this session.
+
+    Call once at the top of app.py after set_page_config.
+    """
     st.markdown(_GLOBAL_CSS, unsafe_allow_html=True)
+    overrides = _theme_overrides_css(bool(st.session_state.get("dark_mode", False)))
+    if overrides:
+        st.markdown(overrides, unsafe_allow_html=True)
 
 
 # ── Reusable HTML components ────────────────────────────────────────────────
