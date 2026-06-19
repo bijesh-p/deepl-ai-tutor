@@ -131,6 +131,7 @@ def run_sliding_pipeline(
             enriched = _enrich_one(
                 topic, source_text, llm, tracer, abort_event,
                 audio_enabled=progress.get("audio_enabled", True),
+                tts_backend=progress.get("tts_backend", "edge-tts"),
             )
             if enriched is not None:
                 published.append(enriched)
@@ -165,6 +166,7 @@ def run_sliding_pipeline(
             enriched = _enrich_one(
                 topic, source_text, llm, tracer, abort_event,
                 audio_enabled=progress.get("audio_enabled", True),
+                tts_backend=progress.get("tts_backend", "edge-tts"),
             )
             if enriched is not None:
                 published.append(enriched)
@@ -280,6 +282,7 @@ def _enrich_one(
     tracer,
     abort_event: threading.Event,
     audio_enabled: bool = True,
+    tts_backend: str = "edge-tts",
 ) -> EnrichedTopic | None:
     """Enrich a single topic using a diagram-first approach.
 
@@ -348,6 +351,7 @@ def _enrich_one(
                     diagram_mermaid=diagram.content if diagram else "",
                     bullets=anchor.bullets if not anchor.has_diagram else [],
                     topic_title=topic.title,
+                    backend=tts_backend,
                 )
         except Exception:
             return ""

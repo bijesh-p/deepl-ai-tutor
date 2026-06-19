@@ -104,6 +104,46 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
 
 ---
 
+## Experimental Features
+
+These items are research/exploration tracks that run in parallel with the production roadmap. They are not blocking any Phase 3 deliverable. Each has a clear evaluation criterion; if it meets the bar it can be promoted to a planned phase.
+
+---
+
+### Exp-1 — Kokoro-82M Local TTS
+
+**Motivation:** `edge-tts` requires an outbound network call to the Microsoft Azure Speech endpoint and introduces ~2–4 s of network latency per slide. [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) is a fully local, MIT-licensed 82 M-parameter TTS model that runs on CPU or GPU with no network dependency.
+
+**Scope:**
+- Add a `backend` parameter to `generate_audio()` in `backend/content/audio_generator.py`: `"edge-tts"` (default, unchanged) | `"kokoro"`.
+- `kokoro` back-end: install via `uv add kokoro soundfile`; generate audio to a temp WAV, convert to MP3 with `pydub`.
+- Sidebar toggle in `app.py`: **TTS backend** — `edge-tts` / `Kokoro (local)`.
+- Benchmark per slide: wall-clock latency, output file size, subjective naturalness MOS score (1–5, self-assessed).
+- Log benchmark results to the `eval_results` table and surface on the Observability page.
+
+**Evaluation criterion:** Kokoro latency ≤ edge-tts latency on the dev machine AND MOS ≥ 3.5 → promote to planned feature replacing edge-tts.
+
+**Dependencies:** `kokoro`, `soundfile`, `pydub` (already present for edge-tts pipeline).
+
+---
+
+### Exp-2 — Lottie Slide Animations
+
+**Motivation:** Static Mermaid diagrams and bullet points are informative but visually flat. Lottie animations (JSON-based, vector, loop-able) can reinforce the concept category with motion without requiring video assets.
+
+**Scope:**
+- Curate an offline bundle of ~20 Lottie JSON files covering broad categories: `science`, `process`, `data`, `communication`, `achievement`, `loading`.
+- Add a `select_animation_category()` call in `_enrich_one` (sliding pipeline): one LLM call with a small tool schema returning `{"category": "<one of the six>"}`, cached on `EnrichedTopic`.
+- In `frontend/tutor_room.py`: render `st_lottie(lottie_json, height=200)` alongside the Mermaid diagram on each slide (install `streamlit-lottie`).
+- Fallback: if `st_lottie` is not installed or no matching file exists, render the static diagram only.
+- Evaluation: compare **time-on-slide** (seconds before "Next" is clicked) with vs. without animation (A/B via a session-level `animations_enabled` toggle in the sidebar).
+
+**Evaluation criterion:** Mean time-on-slide increases by ≥ 10 % with animations enabled, across ≥ 3 test sessions → promote to planned feature.
+
+**Dependencies:** `streamlit-lottie` (new); Lottie JSON bundle committed to `assets/lottie/`.
+
+---
+
 ## 1. Non-Functional Requirements
 
 ### 1.1 File Constraints
@@ -147,7 +187,7 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
 - [x] **Mastery report page (Phase 40)** — **Resolved:** a standalone `frontend/mastery_report_page.py`, reachable via a "Mastery Report" button per module in the Module Library ("My Modules" section) — viewable any time, not tied to quiz completion. Shows the user's per-topic mastery status/difficulty/attempts plus a cohort comparison (% of all users who mastered each topic) computed from `topic_mastery`.
 - [x] **PPTX/DOCX parsing (Phase 35)** — **Resolved:** `backend/ingestion/pptx_parser.py` (`parse_pptx`, max 16 slides, title from `core_properties` or filename stem, each slide → `Section`) and `backend/ingestion/docx_parser.py` (`parse_docx`, max 16 sections, sections from heading paragraphs, fallback to single section when no headings). Both return `Document` with the matching `SourceType`. MCP `document_server` exposes `extract_text_from_pptx`/`extract_text_from_docx` tools following the same pattern as `extract_text_from_pdf`. `frontend/upload_page.py` accepts `["pdf", "pptx", "docx"]` and routes to the right tool via `_TOOL_FOR_EXT`.
 - [x] **Observability dashboard (Phase 37)** — **Resolved:** `frontend/observability_page.py` with two sections: (1) Phoenix trace explorer — derives base URL from `OTEL_EXPORTER_OTLP_ENDPOINT`, shows `st.link_button` to open Phoenix UI; (2) DeepEval quality metrics — queries `eval_results` via `get_eval_results()` in `stats.py` (LEFT JOIN modules for title), renders per-session table + avg score bar chart. Navigation: "Observability" sidebar button + "📊 Observability" button on module library home page.
-- [ ] **Portkey virtual key management** — One shared virtual key or per-user? **Pending.**
+- [x] **Portkey virtual key management** — **Resolved:** One shared virtual key per deployment, stored as `PORTKEY_API_KEY` in `.env`. All users share the same Portkey gateway key; per-user routing or rate-limiting is handled on the Portkey dashboard side if needed. No per-user key management in the application.
 
 ---
 

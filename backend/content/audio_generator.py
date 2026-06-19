@@ -19,20 +19,21 @@ _DIAGNOSTIC_INTRO = (
 _DIAGNOSTIC_AUDIO_DIR = "data/audio"
 
 
-def generate_diagnostic_audio(topic_title: str = "") -> str:
+def generate_diagnostic_audio(topic_title: str = "", backend: str = "edge-tts") -> str:
     """Generate TTS for the diagnostic framing message — no LLM needed.
 
     Called immediately after PDF parsing so audio is ready when the student
     lands on the diagnostic page (~3s, pure TTS).
     """
     os.makedirs(_DIAGNOSTIC_AUDIO_DIR, exist_ok=True)
-    path = os.path.join(_DIAGNOSTIC_AUDIO_DIR, "diagnostic_intro.mp3")
+    ext = "wav" if backend == "kokoro" else "mp3"
+    path = os.path.join(_DIAGNOSTIC_AUDIO_DIR, f"diagnostic_intro.{ext}")
 
     intro = _DIAGNOSTIC_INTRO
     if topic_title:
         intro = f"Welcome. We will be exploring: {topic_title}. " + intro
 
-    asyncio.run(_synthesize(intro, path))
+    _synthesize(intro, path, backend)
     return path
 
 
@@ -43,18 +44,45 @@ def generate_audio(
     diagram_mermaid: str = "",
     bullets: list[str] | None = None,
     topic_title: str = "",
+    backend: str = "edge-tts",
 ) -> str:
-    """Generate mp3 narration for a topic.
+    """Generate narration for a topic.
 
-    Opens with a short diagnostic framing statement, then describes the slide
-    anchor (diagram or bullet points), then continues with the explanation.
+    Describes the slide anchor (diagram or bullet points) then continues
+    with the explanation.  Output format is mp3 for edge-tts, wav for kokoro.
     """
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    path = os.path.join(OUTPUT_DIR, f"{topic_id}.mp3")
+    ext = "wav" if backend == "kokoro" else "mp3"
+    path = os.path.join(OUTPUT_DIR, f"{topic_id}.{ext}")
 
     script = _build_script(text, diagram_caption, diagram_mermaid, bullets or [], topic_title)
-    asyncio.run(_synthesize(script, path))
+    _synthesize(script, path, backend)
     return path
+
+
+def _synthesize(text: str, output_path: str, backend: str) -> None:
+    if backend == "kokoro":
+        _synthesize_kokoro(text, output_path)
+    else:
+        asyncio.run(_synthesize_edge_tts(text, output_path))
+
+
+def _synthesize_kokoro(text: str, output_path: str) -> None:
+    import numpy as np
+    import soundfile as sf
+    from kokoro import KPipeline
+
+    pipeline = KPipeline(lang_code="a")  # 'a' = American English
+    chunks = []
+    for _, _, audio in pipeline(text, voice="af_heart", speed=1.0):
+        chunks.append(audio)
+    combined = np.concatenate(chunks) if chunks else np.zeros(0, dtype=np.float32)
+    sf.write(output_path, combined, 24000)
+
+
+async def _synthesize_edge_tts(text: str, output_path: str) -> None:
+    communicate = edge_tts.Communicate(text, VOICE)
+    await communicate.save(output_path)
 
 
 def _build_script(
@@ -78,7 +106,7 @@ def _build_script(
     elif bullets:
         parts.append(_describe_bullets(bullets))
 
-    # 4. Main explanation
+    # 3. Main explanation
     parts.append(_strip_markdown(text))
 
     return "\n\n".join(p for p in parts if p.strip())
@@ -116,11 +144,6 @@ def _describe_bullets(bullets: list[str]) -> str:
     intro = "Here are the key ideas for this topic."
     items = " ".join(f"Point {i + 1}: {b}" for i, b in enumerate(bullets))
     return f"{intro} {items}"
-
-
-async def _synthesize(text: str, output_path: str) -> None:
-    communicate = edge_tts.Communicate(text, VOICE)
-    await communicate.save(output_path)
 
 
 def _strip_markdown(text: str) -> str:

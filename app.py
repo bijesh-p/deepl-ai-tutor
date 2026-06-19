@@ -153,6 +153,15 @@ def _render_sidebar() -> None:
                 help="Enable TTS narration for slides and diagnostics",
                 key="_audio_toggle",
             )
+            tts_display = st.selectbox(
+                "TTS backend",
+                options=["edge-tts", "kokoro-82m"],
+                index=0 if st.session_state.get("tts_backend", "edge-tts") == "edge-tts" else 1,
+                help="edge-tts: cloud, fast. kokoro-82m: local model, no network required.",
+                key="_tts_backend_select",
+                disabled=not audio_on,
+            )
+            st.session_state["tts_backend"] = "kokoro" if tts_display == "kokoro-82m" else "edge-tts"
             tracing_on = st.toggle(
                 "Tracing",
                 value=st.session_state.get("tracing_enabled", True),

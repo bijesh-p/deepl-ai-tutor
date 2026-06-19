@@ -24,6 +24,10 @@ except ImportError:
     _HAS_MERMAID = False
 
 
+def _audio_format(path: str) -> str:
+    return "audio/wav" if path.endswith(".wav") else "audio/mp3"
+
+
 def render_tutor_room() -> None:
     st.title("AI Tutor")
     module = st.session_state.get("module")
@@ -217,7 +221,7 @@ def _render_diagnostic(state: dict, graph) -> None:
     # Play diagnostic audio — generated right after PDF parse, no wait
     diag_audio = progress.get("diagnostic_audio_path", "")
     if diag_audio and os.path.exists(diag_audio):
-        st.audio(diag_audio, format="audio/mp3", autoplay=True)
+        st.audio(diag_audio, format=_audio_format(diag_audio), autoplay=True)
 
     generating = progress.get("state") not in ("completed", "failed", "aborted", "")
     if generating:
@@ -282,7 +286,7 @@ def _render_slide(state: dict, graph) -> None:
             st.code(mermaid_code, language="text")
 
     if audio_path and os.path.exists(audio_path):
-        st.audio(audio_path, format="audio/mp3", autoplay=True)
+        st.audio(audio_path, format=_audio_format(audio_path), autoplay=True)
 
     with st.expander("Read transcript", expanded=not bool(audio_path)):
         st.markdown(transcript)
@@ -400,6 +404,7 @@ def _init_tutor_state(module) -> None:
         "topic_top_concepts": [],
         "enriched_topic": None,
         "audio_enabled": st.session_state.get("audio_enabled", True),
+        "tts_backend": st.session_state.get("tts_backend", "edge-tts"),
     }
     st.session_state["tutor_content_map"] = content_map
     st.session_state["tutor_summary_map"] = summary_map

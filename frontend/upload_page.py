@@ -127,6 +127,7 @@ def _start_pipeline(tmp_path: str, file_ext: str, user_id: str, username: str, d
     model = st.session_state.get("llm_model", "claude-sonnet-4-6")
     tracing_enabled = st.session_state.get("tracing_enabled", True)
     audio_enabled = st.session_state.get("audio_enabled", True)
+    tts_backend = st.session_state.get("tts_backend", "edge-tts")
 
     abort_event = threading.Event()
     module_id = str(uuid.uuid4())
@@ -154,6 +155,7 @@ def _start_pipeline(tmp_path: str, file_ext: str, user_id: str, username: str, d
         "db_path": db_path,
         "tracing_enabled": tracing_enabled,
         "audio_enabled": audio_enabled,
+        "tts_backend": tts_backend,
     }
 
     st.session_state["pipeline_progress"] = progress
@@ -237,7 +239,9 @@ def _run_pipeline_bg(
             try:
                 from backend.content.audio_generator import generate_diagnostic_audio
                 first_title = doc.sections[0].title if doc.sections else doc.title
-                progress["diagnostic_audio_path"] = generate_diagnostic_audio(first_title)
+                progress["diagnostic_audio_path"] = generate_diagnostic_audio(
+                    first_title, backend=progress.get("tts_backend", "edge-tts")
+                )
             except Exception:
                 progress["diagnostic_audio_path"] = ""
         else:

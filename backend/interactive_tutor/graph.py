@@ -255,6 +255,7 @@ def present_concept(state: GraphState) -> dict:
             # Fast path: pipeline audio is already diagram-synced and depth-annotated.
             # Only run depth-adaptation LLM when pipeline audio is missing.
             audio_enabled = state.get("audio_enabled", True)
+            tts_backend = state.get("tts_backend", "edge-tts")
             if audio_path:
                 transcript = content_md
             else:
@@ -282,6 +283,7 @@ def present_concept(state: GraphState) -> dict:
                             diagram_caption=diagram_caption,
                             diagram_mermaid=mermaid_code,
                             topic_title=concept,
+                            backend=tts_backend,
                         )
                     except Exception:
                         audio_path = ""
@@ -343,6 +345,7 @@ def present_concept(state: GraphState) -> dict:
                 f"{concept}_tutor_fallback",
                 diagram_mermaid=mermaid_code,
                 topic_title=concept,
+                backend=state.get("tts_backend", "edge-tts"),
             )
         except Exception:
             fallback_audio = ""
@@ -375,15 +378,18 @@ def present_concept(state: GraphState) -> dict:
 
 
 def _estimate_audio_duration(audio_path: str) -> int:
-    """Estimate mp3 duration in seconds from file size.
+    """Estimate audio duration in seconds from file size.
 
-    edge-tts produces ~16 kbps mono mp3. At 16000 bits/s = 2000 bytes/s.
-    We add 15s buffer so the slide never auto-advances while audio is playing.
+    edge-tts mp3: ~16 kbps mono = 2000 bytes/s, +15s buffer.
+    Kokoro wav: 24 kHz mono 32-bit float = 96000 bytes/s, +10s buffer.
     Falls back to 60s if the file is missing or unreadable.
     """
     try:
         if audio_path and os.path.exists(audio_path):
             size_bytes = os.path.getsize(audio_path)
+            if audio_path.endswith(".wav"):
+                estimated_s = size_bytes // 96000
+                return max(30, estimated_s + 10)
             estimated_s = size_bytes // 2000
             return max(30, estimated_s + 15)
     except Exception:

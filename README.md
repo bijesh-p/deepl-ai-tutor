@@ -16,7 +16,7 @@ See [SPEC.md](SPEC.md) for the full phase breakdown and definitions of done.
 - **Multi-LLM Support** — Switch between Anthropic Claude, Portkey, or Ollama via sidebar or `.env`. All three adapters are covered by mocked unit tests (`tests/test_content/test_llm_client.py`); see `references.md` for the live Portkey/Ollama validation checklist.
 - **Just-in-Time Content** — Upload and start learning within ~30 seconds. Topics are delivered as they are enriched; the rest generates in the background.
 - **Personalised Adaptive Tutor** — LangGraph state machine (diagnostic quiz → depth-adapted slide → Q&A loop). Depth preference and topic mastery persist across sessions per username. **Session resume:** if a session ends before a module is finished, the tutor's full state (current concept, chat history, mastered topics) is saved to a `tutor_sessions` table and restored — with a "Resuming your previous session" banner and a "Restart from scratch" option — the next time that user opens the same module. Per-topic mastery (mastered/in-progress, difficulty, attempts) is also tracked incrementally in the `topic_mastery` table as each concept is completed.
-- **Diagram-Aware Audio** — Each topic slide includes TTS narration (edge-tts) that first describes the diagram, then explains the concept.
+- **Diagram-Aware Audio** — Each topic slide includes TTS narration that first describes the diagram, then explains the concept. Choose between **edge-tts** (cloud, fast) or **Kokoro-82M** (fully local, no network) via the sidebar.
 - **MCP Tool Servers** — Document parsing, assessment validation, and storage exposed as standalone MCP servers, dispatched via `backend/core/mcp_client.py`. The content pipeline routes PDF parsing (`extract_text_from_pdf`), vector-store upserts (`upsert_to_vector_db`), and module persistence (`save_module_to_db`) through `mcp_client` rather than calling backend functions directly.
 - **ChromaDB Vector Store** — Each enriched topic is upserted into ChromaDB (`all-MiniLM-L6-v2` embeddings) during generation via `storage_server.upsert_to_vector_db`, enabling semantic search over document chunks in `data/chroma/`. The LangGraph tutor queries this store via `storage_server.query_vector_db`: `provide_hint` grounds hints in retrieved chunks, and `present_concept` falls back to retrieved content when pipeline-enriched content isn't yet available in session state — both non-fatal on error.
 - **Inline Questions** — Reinforcement questions embedded within each sub-topic for active learning.
@@ -39,7 +39,7 @@ See [SPEC.md](SPEC.md) for the full phase breakdown and definitions of done.
 | Vector Store | ChromaDB + sentence-transformers (`all-MiniLM-L6-v2`) |
 | Database | SQLite — per-user DB + separate shared DB for published modules |
 | Document Parsing | PyMuPDF (PDF), python-pptx, python-docx |
-| Audio TTS | edge-tts (Microsoft Edge voices) |
+| Audio TTS | edge-tts (cloud) or Kokoro-82M (local, MIT licence) — switchable in sidebar |
 | Diagrams | Mermaid (via `streamlit-mermaid`) |
 | Tracing | Arize Phoenix (local OTLP) + openinference auto-instrumentation |
 | Eval Metrics | DeepEval (faithfulness, relevancy, clarity) |
@@ -65,6 +65,12 @@ uv run python run.py
 Then open http://localhost:8501 in your browser.
 
 > **Note:** `run.py` sets `PYTHONPATH` automatically and launches Streamlit — no manual env-var prefix needed, works on both Linux/macOS and Windows.
+
+> **Kokoro-82M prerequisite (Linux only):** If you use the Kokoro local TTS backend, install `espeak-ng` first:
+> ```bash
+> sudo apt-get install espeak-ng
+> ```
+> On macOS, `brew install espeak`. On Windows, the `espeakng-loader` Python package handles this automatically.
 
 ## LLM Provider Setup
 
