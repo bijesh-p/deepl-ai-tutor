@@ -652,7 +652,11 @@ def module_card_html(title: str, source: str, date_label: str, is_published: boo
     pub = ('<span style="display:inline-block;background:#D1FAE5;color:#065F46;font-size:10px;'
            'padding:2px 8px;border-radius:999px;font-weight:600;margin-left:8px;">Published</span>'
            if is_published else "")
-    return f"""<div style="padding:14px 18px;background:white;border:1px solid #E5E7EB;border-left:4px solid #2563EB;border-radius:10px;margin-bottom:6px;">
+    # Published (shared-library) modules get the teal accent instead of the
+    # primary blue, so the "My Modules" and "Shared Library" lists are
+    # distinguishable from each other at a glance.
+    accent = ACCENT_TEAL if is_published else "#2563EB"
+    return f"""<div style="padding:14px 18px;background:white;border:1px solid #E5E7EB;border-left:4px solid {accent};border-radius:10px;margin-bottom:6px;">
   <div style="font-weight:600;font-size:15px;color:#111827;margin-bottom:5px;">{title}{pub}</div>
   <div style="font-size:12px;color:#6B7280;">{source}</div>
   <div style="font-size:11px;color:#9CA3AF;margin-top:3px;">{date_label}</div>
@@ -661,7 +665,13 @@ def module_card_html(title: str, source: str, date_label: str, is_published: boo
 
 def score_banner_html(score: int, total: int, pct: float) -> str:
     """Large score display for the quiz results page."""
-    if pct >= 70:
+    if pct >= 95:
+        # Teal tier for a (near-)perfect score — a distinct celebratory accent
+        # rather than just a brighter green, used sparingly per the Phase 41/44
+        # color refresh.
+        fg, bg, border, grade = "#0F766E", "#F0FDFA", "#99F6E4", "Perfect!"
+        ring = ACCENT_TEAL
+    elif pct >= 70:
         fg, bg, border, grade = "#065F46", "#F0FDF4", "#A7F3D0", "Excellent!" if pct >= 90 else "Well done!"
         ring = "#10B981"
     elif pct >= 50:
@@ -698,12 +708,20 @@ def page_header_html(title: str, subtitle: str = "", icon: str = "") -> str:
     """Branded page header banner."""
     icon_html = f'<div style="font-size:2rem;margin-bottom:0.4rem;">{icon}</div>' if icon else ""
     sub_html = f'<div style="font-size:0.95rem;color:#6B7280;margin-top:4px;">{subtitle}</div>' if subtitle else ""
+    # Slim three-color accent bar on top of the banner — ties the primary blue,
+    # the new teal accent, and the existing purple accent together on the
+    # page's most visible card, without changing its light palette.
+    accent_bar = (
+        f'<div style="height:3px;border-radius:14px 14px 0 0;'
+        f'background:linear-gradient(90deg,#2563EB 0%,{ACCENT_TEAL} 50%,#7C3AED 100%);"></div>'
+    )
     return (
-        f'<div style="padding:1.5rem 2rem;background:linear-gradient(135deg,#EFF6FF 0%,#F5F3FF 100%);'
-        f'border-radius:14px;border:1px solid #DBEAFE;margin-bottom:1.5rem;">'
+        f'<div style="border-radius:14px;border:1px solid #DBEAFE;margin-bottom:1.5rem;overflow:hidden;">'
+        f'{accent_bar}'
+        f'<div style="padding:1.5rem 2rem;background:linear-gradient(135deg,#EFF6FF 0%,#F5F3FF 100%);">'
         f'{icon_html}'
         f'<h1 style="margin:0;font-size:1.6rem;font-weight:800;color:#1E1B4B;">{title}</h1>'
-        f'{sub_html}</div>'
+        f'{sub_html}</div></div>'
     )
 
 

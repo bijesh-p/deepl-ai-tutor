@@ -244,7 +244,7 @@ Integration tests for MCP servers, LLM factory adapters, and the LangGraph graph
 
 ---
 
-## Phase 44 — UI/UX overhaul: color/visual polish pass 🔲 Planned
+## Phase 44 — UI/UX overhaul: color/visual polish pass ✅ Done
 
 **Goal:** Apply the new teal accent and refined contrast to the highest-impact surfaces; verify dark-mode contrast against this repo's own documented WCAG standard.
 

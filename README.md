@@ -29,6 +29,7 @@ See [SPEC.md](SPEC.md) for the full phase breakdown and definitions of done.
 - **Dark Mode** — Toggle in the sidebar under Settings. Persists per-user (stored in `user_profiles.dark_mode`, restored automatically on login). Implemented via CSS injection in `frontend/styles.py` rather than `.streamlit/config.toml`, since Streamlit's native theme is process-wide and can't be switched per user on a shared server.
 - **Consistent Back Navigation** — Every page (Upload, Module Viewer, Quiz, Results, Tutor Room, Mastery Report, Observability, System Check) has a single "← Back to Module Library" button at the top, via the shared `frontend/nav.py::render_back_button`. The Tutor Room's back button runs the same end-session cleanup as its "End Session" button so a session is never orphaned.
 - **Topic Highlighting** — The Module Viewer shows topics as tabs (one click to jump between any topic, always-visible index) instead of stacked expanders. The Adaptive Tutor shows a concept rail above the slide — green ✓ chips for mastered concepts, a pulsing blue chip for the current one, and grey chips for what's still ahead — so you always know where you are in the module.
+- **Visual Polish** — A new teal accent (`#14B8A6`) complements the existing blue/purple palette: a three-color gradient bar tops every page header banner, a "Perfect!" teal tier appears on the quiz results banner for scores ≥95%, and published/shared modules get a teal left-border in the Module Library to distinguish them from personal modules at a glance.
 
 ## Tech Stack
 
