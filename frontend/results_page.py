@@ -6,10 +6,16 @@ from backend.analytics.models import ModuleStats
 from backend.analytics.stats import get_module_stats
 from backend.analytics.db import get_db
 from backend.quiz.models import QuizResult
+from frontend.nav import render_back_button
 from frontend.styles import score_banner_html
+
+_LIBRARY_CLEAR_KEYS = ["module", "bank", "quiz", "quiz_answers", "quiz_result", "quiz_difficulty"]
 
 
 def render_results_page(result: QuizResult) -> None:
+    render_back_button(
+        "← Back to Library", "module_library", key="_back_results_top", clear_keys=_LIBRARY_CLEAR_KEYS
+    )
     st.markdown("## Quiz Results")
 
     # ── Big score banner ──────────────────────────────────────────────────────
@@ -103,19 +109,11 @@ def render_results_page(result: QuizResult) -> None:
 
     # ── Actions ───────────────────────────────────────────────────────────────
     st.markdown("---")
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("🔄 Retake Quiz", type="secondary", use_container_width=True):
-            st.session_state["page"] = "quiz"
-            for key in ["quiz", "quiz_answers", "quiz_result", "quiz_difficulty"]:
-                st.session_state.pop(key, None)
-            st.rerun()
-    with col2:
-        if st.button("📚 Back to Library", type="secondary", use_container_width=True):
-            for key in ["module", "bank", "quiz", "quiz_answers", "quiz_result", "quiz_difficulty"]:
-                st.session_state.pop(key, None)
-            st.session_state["page"] = "module_library"
-            st.rerun()
+    if st.button("🔄 Retake Quiz", type="secondary", use_container_width=True):
+        st.session_state["page"] = "quiz"
+        for key in ["quiz", "quiz_answers", "quiz_result", "quiz_difficulty"]:
+            st.session_state.pop(key, None)
+        st.rerun()
 
 
 def _render_cohort_chart(stats: ModuleStats) -> None:

@@ -7,6 +7,8 @@ import urllib.error
 
 import streamlit as st
 
+from frontend.nav import render_back_button
+
 _PACKAGES = [
     "anthropic",
     "openai",
@@ -29,6 +31,7 @@ _ENV_VARS = {
 
 
 def render_system_check_page() -> None:
+    render_back_button("← Back to Module Library", "module_library", key="_back_system_check")
     st.title("System Health Check")
 
     provider = st.session_state.get(

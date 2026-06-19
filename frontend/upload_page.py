@@ -14,6 +14,7 @@ from pathlib import Path
 import streamlit as st
 
 from backend.core.llm_client import LLMFactory
+from frontend.nav import render_back_button
 from frontend.styles import (
     step_progress_html,
     page_header_html,
@@ -41,6 +42,8 @@ def render_upload_page() -> None:
         st.session_state["page"] = "login"
         st.rerun()
         return
+
+    render_back_button("← Back to Module Library", "module_library", key="_back_upload")
 
     # ── If pipeline is running or just finished, show status / redirect ──────
     progress = st.session_state.get("pipeline_progress")

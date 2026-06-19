@@ -102,8 +102,8 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
 - [x] Mastery state is persisted across sessions (user can resume a tutor session)
 - [x] Upload page accepts `.pptx` and `.docx` in addition to `.pdf`
 - [x] All pipeline failures surface a structured, user-actionable error message
-- [ ] Dark mode toggle persists per-user and is legible (WCAG-checked) across every page
-- [ ] Every page has a single, consistent top-of-page back affordance
+- [x] Dark mode toggle persists per-user and is legible (WCAG-checked) across every page
+- [x] Every page has a single, consistent top-of-page back affordance
 - [ ] Adaptive tutor and module viewer show a clear position/progress indicator among topics
 
 ---

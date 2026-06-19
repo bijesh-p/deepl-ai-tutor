@@ -25,15 +25,20 @@ except ImportError:
 
 
 def render_tutor_room() -> None:
-    st.title("AI Tutor")
     module = st.session_state.get("module")
     if module is None:
+        st.title("AI Tutor")
         st.warning("No module selected. Go to Module Library first.")
         if st.button("Go to Module Library"):
             st.session_state["page"] = "module_library"
             st.rerun()
         return
 
+    if st.button("← Back to Module Library", type="secondary", key="_back_tutor_room"):
+        _end_session(st.session_state.get("tutor_state"))
+        st.rerun()
+
+    st.title("AI Tutor")
     st.caption(f"Module: **{module.title}**")
 
     if "tutor_state" not in st.session_state:

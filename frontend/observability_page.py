@@ -6,6 +6,7 @@ import streamlit as st
 
 from backend.analytics.db import get_db
 from backend.analytics.stats import get_eval_results
+from frontend.nav import render_back_button
 
 _KNOWN_METRIC_LABELS = {
     "AnswerRelevancyMetric": "Answer Relevancy",
@@ -15,16 +16,12 @@ _KNOWN_METRIC_LABELS = {
 
 
 def render_observability_page() -> None:
+    render_back_button("← Back to Module Library", "module_library", key="_back_observability")
     st.title("Observability Dashboard")
 
     _render_phoenix_section()
     st.markdown("---")
     _render_deepeval_section()
-    st.markdown("---")
-
-    if st.button("Back to Module Library", type="secondary"):
-        st.session_state["page"] = "module_library"
-        st.rerun()
 
 
 def _render_phoenix_section() -> None:

@@ -5,9 +5,11 @@ import streamlit as st
 from backend.analytics.db import get_db
 from backend.analytics.models import CohortMastery, MasteryReport
 from backend.analytics.stats import get_cohort_mastery, get_mastery_report
+from frontend.nav import render_back_button
 
 
 def render_mastery_report_page(module) -> None:
+    render_back_button("← Back to Module Library", "module_library", key="_back_mastery")
     st.title(f"Mastery Report — {module.title}")
 
     topic_order = [t.topic.title for t in module.topics]
@@ -22,11 +24,6 @@ def render_mastery_report_page(module) -> None:
 
     st.markdown("---")
     _render_cohort_chart(cohort)
-
-    st.markdown("---")
-    if st.button("Back to Module Library", type="secondary"):
-        st.session_state["page"] = "module_library"
-        st.rerun()
 
 
 def _render_topic_list(report: MasteryReport) -> None:

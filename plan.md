@@ -221,7 +221,7 @@ Integration tests for MCP servers, LLM factory adapters, and the LangGraph graph
 
 ---
 
-## Phase 42 — UI/UX overhaul: top-of-page back navigation 🔲 Planned
+## Phase 42 — UI/UX overhaul: top-of-page back navigation ✅ Done
 
 **Goal:** Every page gets a single, consistent back affordance at the top (not buried at the bottom), deduplicating the pattern already triplicated across pages.
 

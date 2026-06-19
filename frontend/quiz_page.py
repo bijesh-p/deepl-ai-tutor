@@ -4,6 +4,7 @@ import streamlit as st
 from backend.quiz.assembler import assemble_quiz
 from backend.quiz.evaluator import evaluate
 from backend.quiz.models import QuestionBank, QuizQuestion
+from frontend.nav import render_back_button
 from frontend.styles import question_card_html, page_header_html
 
 
@@ -96,6 +97,12 @@ def _collect_answers(quiz) -> dict[str, list[int]]:
 # ── Pages ────────────────────────────────────────────────────────────────────
 
 def render_quiz_page(bank: QuestionBank) -> None:
+    render_back_button(
+        "← Back to Library",
+        "module_library",
+        key="_back_quiz",
+        clear_keys=["module", "bank", "quiz", "quiz_answers", "quiz_result", "quiz_difficulty"],
+    )
     if "quiz" not in st.session_state:
         _render_difficulty_selector(bank)
         return

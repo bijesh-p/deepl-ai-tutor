@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 import streamlit as st
 from backend.content.models import LearningModule, Question
+from frontend.nav import render_back_button
 
 try:
     from streamlit_mermaid import st_mermaid
@@ -14,6 +15,8 @@ except ImportError:
 
 
 def render_module_viewer(module: LearningModule) -> None:
+    render_back_button("← Back to Module Library", "module_library", key="_back_module_viewer")
+
     progress = st.session_state.get("pipeline_progress")
     generating = progress and progress["state"] not in ("completed", "failed", "aborted")
 
