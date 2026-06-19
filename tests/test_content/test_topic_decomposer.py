@@ -63,7 +63,8 @@ def test_assess_handles_exception_gracefully():
     words = _words("Some text.", sid)
     result = _assess(_BrokenLLM(), words)
     assert isinstance(result, dict)
-    assert result.get("is_presentable") is False
+    # fail-open: on error the pipeline defaults to presentable so force-publish fires
+    assert result.get("is_presentable") is True
 
 
 def test_make_topic_fields():
