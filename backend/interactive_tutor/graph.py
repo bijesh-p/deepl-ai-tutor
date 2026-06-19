@@ -11,6 +11,7 @@ Flow:
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import TypedDict
 
@@ -247,6 +248,7 @@ def present_concept(state: GraphState) -> dict:
     if enriched:
         diagrams = enriched.get("diagrams", [])
         raw_mermaid = diagrams[0]["content"] if diagrams else ""
+        diagram_caption = diagrams[0].get("caption", "") if diagrams else ""
         if raw_mermaid:
             from backend.content.diagram_generator import _sanitize_mermaid
             mermaid_code = _sanitize_mermaid(raw_mermaid)
@@ -269,6 +271,7 @@ def present_concept(state: GraphState) -> dict:
                 _diag = _try_diagram(content_md[:2000], _topic, _llm)
                 if _diag:
                     mermaid_code = _diag.content
+                    diagram_caption = _diag.caption or diagram_caption
             except Exception:
                 pass
 
@@ -320,6 +323,7 @@ def present_concept(state: GraphState) -> dict:
                 "top_concepts": top_concepts,
                 "transcript": transcript,
                 "mermaid_code": mermaid_code,
+                "diagram_caption": diagram_caption,
                 "audio_path": audio_path,
                 "audio_duration_s": audio_duration_s,
             }

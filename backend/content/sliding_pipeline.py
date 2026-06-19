@@ -102,6 +102,8 @@ def run_sliding_pipeline(
     idx = 0
     total_words = len(all_words)
     module_id = progress.get("module_id", "")
+    # Initial estimate: one topic per MAX_ACCUMULATE_WORDS words
+    progress["total_topics"] = max(1, total_words // MAX_ACCUMULATE_WORDS)
 
     for start in range(0, total_words, chunk_words):
         if abort_event.is_set():
@@ -144,6 +146,10 @@ def run_sliding_pipeline(
                 progress["last_topic_at"] = now
                 elapsed_so_far = now - progress.get("started_at", now)
                 progress["avg_seconds_per_topic"] = elapsed_so_far / len(published)
+                # Refine total estimate using actual words-per-topic rate
+                words_processed = start + len(chunk)
+                words_per_topic = words_processed / len(published)
+                progress["total_topics"] = max(len(published), round(total_words / words_per_topic))
 
                 if len(published) == 1:
                     progress["ready"] = True   # triggers redirect to tutor room

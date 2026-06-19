@@ -101,6 +101,41 @@ def render_results_page(result: QuizResult) -> None:
                     unsafe_allow_html=True,
                 )
 
+    # ── Download report ───────────────────────────────────────────────────────
+    st.markdown("---")
+    lines = []
+    lines.append(f"Quiz Results — {result.module_id}")
+    lines.append(f"Score: {result.score} / {result.total} ({result.percentage}%)")
+    lines.append(f"Difficulty: {st.session_state.get('quiz_difficulty', '').capitalize()}")
+    lines.append("")
+    lines.append("--- Question Breakdown ---")
+    for i, ar in enumerate(result.answers):
+        q = questions_map.get(ar.question_id)
+        status = "CORRECT" if ar.is_correct else "INCORRECT"
+        q_text = q.question_text if q else f"Question {i + 1}"
+        lines.append(f"\nQ{i + 1}. [{status}] {q_text}")
+        if q and q.options:
+            for j, opt in enumerate(q.options):
+                if j in ar.correct and j in ar.selected:
+                    marker = " ✓ (your correct answer)"
+                elif j in ar.correct:
+                    marker = " ✓ (correct answer)"
+                elif j in ar.selected:
+                    marker = " ✗ (your wrong answer)"
+                else:
+                    marker = ""
+                lines.append(f"   {opt}{marker}")
+        if ar.explanation:
+            lines.append(f"   Explanation: {ar.explanation}")
+    text_output = "\n".join(lines)
+    st.download_button(
+        label="📥 Download Results",
+        data=text_output,
+        file_name=f"quiz_results_{result.module_id}.txt",
+        mime="text/plain",
+        use_container_width=True,
+    )
+
     # ── Actions ───────────────────────────────────────────────────────────────
     st.markdown("---")
     col1, col2 = st.columns(2)

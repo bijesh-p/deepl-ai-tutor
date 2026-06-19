@@ -67,6 +67,8 @@ def render_module_viewer(module: LearningModule) -> None:
                             st.info(et.topic.summary or diagram.caption)
                     else:
                         st.info(et.topic.summary or diagram.caption)
+                    if diagram.caption:
+                        st.caption(f"↑ {diagram.caption}")
                 st.markdown("")
 
             st.markdown(et.content_md)

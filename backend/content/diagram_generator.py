@@ -50,12 +50,15 @@ _DIAGRAM_TOOL_SCHEMA = {
 _DIAGRAM_SYSTEM = (
     "You are an expert at creating clear, colorful educational diagrams. "
     "Follow ALL rules — no exceptions:\n"
-    "1. Choose the best Mermaid flowchart direction for the content: "
-    "   - Use 'LR' (left-to-right) ONLY for simple 3-5 node linear flows or pipelines. "
-    "   - Use 'TD' (top-down) for hierarchies, taxonomies, branching, or anything with 5+ nodes. "
-    "2. Use AT MOST 6 nodes total — this is a hard limit, do not exceed it. "
-    "   If the topic has many ideas, pick only the 3-6 most important ones. "
-    "   Every node label must be 1-4 words — no full sentences. "
+    "1. Choose diagram direction based on content type: "
+    "   - Use 'flowchart LR' (left-to-right) when the content describes a PROCESS or SEQUENCE "
+    "     (steps that happen in order, pipelines, workflows). "
+    "   - Use 'flowchart TD' (top-down) when the content describes a HIERARCHY or TAXONOMY "
+    "     (categories, types, components of something). "
+    "   - Default to TD when unsure. "
+    "2. HARD LIMIT: Maximum 6 nodes total including the root. Count carefully before outputting. "
+    "   If you have more than 6 concepts, merge the least important ones into a single grouped "
+    "   node labelled 'Other Concepts'. Every node label must be 1-4 words — no full sentences. "
     "3. Do NOT use subgraphs. Keep the diagram flat. "
     "4. Never use a double-quote character or backslash-escaped quote inside a label — "
     "use #quot; if needed, or rephrase without quotes. "
@@ -63,6 +66,14 @@ _DIAGRAM_SYSTEM = (
     "6. ONLY use concepts and terms that appear explicitly in the provided source text. "
     "Do NOT invent nodes, do NOT include meta-concepts like 'quiz', 'questions', 'diagnostic', "
     "'learning', or 'slide'. Show only the subject-matter relationships from the text itself. "
+    "Do NOT create nodes for concepts that describe problems, misconceptions, hype, criticism, "
+    "or warnings about AI (e.g. 'snake oil', 'hype', 'limitations', 'risks', 'bias'). "
+    "These are narrative concepts, not structural ones. Only diagram what a technology IS and "
+    "HOW it works, not what it is NOT or why it fails. "
+    "Exception: if excluding evaluative concepts would leave fewer than 3 nodes, you MAY include "
+    "the most neutral/factual framing of those concepts as plain descriptive labels. "
+    "For example, instead of 'AI Snake Oil' use 'AI Limitations', instead of 'Hype' use "
+    "'Realistic Expectations'. Reframe negatives as neutral descriptors. "
     "7. Each arrow must represent a real logical relationship (e.g. leads-to, is-a, enables, "
     "consists-of) — not a random connection between terms. "
     "8. Add color using classDef. Classify every node as one of: primary (main concept), "
@@ -73,7 +84,17 @@ _DIAGRAM_SYSTEM = (
     "    classDef outcome fill:#2ECC71,stroke:#1a7a43,color:#fff\n"
     "    class NodeA primary\n"
     "    class NodeB,NodeC secondary\n"
-    "    class NodeD outcome"
+    "    class NodeD outcome\n"
+    "9. Choose the root node as the single most central TECHNICAL concept in the source text — "
+    "not the topic title. For example, if the topic is 'Data-Driven vs Rule-Based AI', the root "
+    "should be 'AI Approaches', not 'Artificial Intelligence'. Keep the root abstract and the "
+    "children concrete. "
+    "10. No single node should have more than 4 direct children. If a concept has 5+ children, "
+    "group them under an intermediate node. For example, instead of AI → A, B, C, D, E, F "
+    "use AI → Group1 → A, B, C and AI → Group2 → D, E, F. "
+    "11. Keep the diagram shallow — maximum 3 levels of depth (root → children → grandchildren). "
+    "Do not create 4+ level hierarchies as they become too tall to display. If content is complex, "
+    "use grouping nodes instead of adding more levels."
 )
 
 # ---------------------------------------------------------------------------
@@ -127,38 +148,52 @@ def generate_slide_anchor(source_text: str, topic: Topic, llm) -> SlideAnchor:
 # ---------------------------------------------------------------------------
 
 def _try_diagram(source_text: str, topic: Topic, llm) -> Diagram | None:
-    prompt = (
+    base_prompt = (
         f"Topic: {topic.title}\n"
         f"Summary: {topic.summary}\n\n"
         f"Source text:\n{source_text[:3000]}\n\n"
         "Generate a Mermaid diagram showing how the key concepts in this source text relate to each other. "
         "Use ONLY terms and concepts that appear in the source text above. "
-        "Do not add anything that is not mentioned in the text."
+        "Do not add anything that is not mentioned in the text.\n\n"
+        "Also write a single sentence for the caption field that describes what the diagram shows "
+        "(e.g. 'How supervised learning maps inputs to outputs via a trained model')."
     )
-    try:
-        result = llm.generate(
-            prompt=prompt,
-            system=_DIAGRAM_SYSTEM,
-            tool_schema=_DIAGRAM_TOOL_SCHEMA,
-        )
+
+    def _attempt(prompt: str) -> tuple[str, str]:
+        result = llm.generate(prompt=prompt, system=_DIAGRAM_SYSTEM, tool_schema=_DIAGRAM_TOOL_SCHEMA)
         if not isinstance(result, dict):
+            return "", ""
+        return _sanitize_mermaid(result.get("mermaid_code", "").strip()), result.get("caption", "")
+
+    def _node_count(code: str) -> int:
+        return len(set(re.findall(r'\b([A-Za-z][A-Za-z0-9_]*)\s*[\[\({]', code)))
+
+    def _has_edge(code: str) -> bool:
+        return "-->" in code or "---" in code
+
+    try:
+        sanitized, caption = _attempt(base_prompt)
+
+        # If thin diagram (< 3 nodes), retry with an enrichment nudge
+        if sanitized and _has_edge(sanitized) and _node_count(sanitized) < 3:
+            retry_prompt = (
+                base_prompt
+                + "\n\nThe previous diagram had too few nodes. "
+                "Add 2-3 more concrete sub-concepts from the source text to make the diagram richer."
+            )
+            retry_sanitized, retry_caption = _attempt(retry_prompt)
+            if retry_sanitized and _has_edge(retry_sanitized) and _node_count(retry_sanitized) >= _node_count(sanitized):
+                sanitized, caption = retry_sanitized, retry_caption
+
+        # Hard reject: no edges or fewer than 2 nodes
+        if not sanitized or not _has_edge(sanitized) or _node_count(sanitized) < 2:
             return None
-        mermaid_code = result.get("mermaid_code", "").strip()
-        if not mermaid_code:
-            return None
-        sanitized = _sanitize_mermaid(mermaid_code)
-        # Reject if there are no edges — it's not a real diagram
-        if "-->" not in sanitized and "---" not in sanitized:
-            return None
-        # Reject if fewer than 2 nodes — nothing useful to show
-        node_count = len(set(re.findall(r'\b([A-Za-z][A-Za-z0-9_]*)\s*[\[\({]', sanitized)))
-        if node_count < 2:
-            return None
+
         return Diagram(
             diagram_id=str(uuid.uuid4()),
             diagram_type="mermaid",
             content=sanitized,
-            caption=result.get("caption", ""),
+            caption=caption,
         )
     except Exception:
         return None
@@ -228,6 +263,9 @@ def _sanitize_mermaid(code: str) -> str:
     code = re.sub(r'^[ \t]*subgraph\b[^\n]*\n?', '', code, flags=re.MULTILINE)
     code = re.sub(r'^[ \t]*end\s*$', '', code, flags=re.MULTILINE)
 
+    # Strip click event lines — not supported by st_mermaid
+    code = re.sub(r'^[ \t]*click\s+\S.*$', '', code, flags=re.MULTILINE)
+
     # Strip edge labels (-->|label| → -->) which often cause parse failures
     code = re.sub(r'-->\s*\|[^|]*\|', '-->', code)
     code = re.sub(r'---\s*\|[^|]*\|', '---', code)
@@ -260,6 +298,12 @@ def _sanitize_mermaid(code: str) -> str:
         classes = ["primary", "secondary", "outcome"]
         assignments = [f"class {nid} {classes[i % len(classes)]}" for i, nid in enumerate(node_ids)]
         code = code + "\n" + "\n".join(assignments)
+
+    # Hard node cap: reject diagrams with more than 7 nodes
+    node_pattern = re.compile(r'^\s*(\w+)\s*[\[\({]', re.MULTILINE)
+    capped_node_ids = list(dict.fromkeys(m.group(1) for m in node_pattern.finditer(code)))
+    if len(capped_node_ids) > 7:
+        return ""
 
     return code
 

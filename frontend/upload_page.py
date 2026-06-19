@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tempfile
 import threading
@@ -205,7 +206,7 @@ def _run_pipeline_bg(
         _log("Reading document...")
         try:
             if file_ext == ".pdf":
-                doc = parse_pdf(tmp_path, max_pages=50)
+                doc = parse_pdf(tmp_path, max_pages=25)
             elif file_ext == ".pptx":
                 from backend.ingestion.pptx_parser import parse_pptx
                 doc = parse_pptx(tmp_path)
@@ -357,7 +358,7 @@ _PIPELINE_STEPS = ["Upload", "Parse", "Generate Slides", "Quiz", "Save"]
 _STATE_TO_STEP = {"parsing": 1, "enriching": 2, "quiz": 3, "saving": 4}
 
 
-@st.fragment(run_every=2)
+@st.fragment(run_every=3)
 def _pipeline_status_fragment() -> None:
     progress = st.session_state.get("pipeline_progress")
     if progress is None:
@@ -403,16 +404,27 @@ def _pipeline_status_fragment() -> None:
             st.markdown(skeleton_slide_html("Connecting to AI…"), unsafe_allow_html=True)
 
         # Progress bar
-        if total > 0 and done > 0:
-            frac = min(done / total, 1.0)
-            st.progress(frac, text=f"{done} of ~{total} slides ready")
+        if total > 0:
+            st.progress(min(done / total, 1.0), text=f"{done} of {total} slides ready")
+        else:
+            st.progress(0.0, text="Assessing document structure…")
 
-        # Stats row
+        # ETA row
+        avg_secs = progress.get("avg_seconds_per_topic", 0)
         col_stat, col_abort = st.columns([3, 1])
         with col_stat:
-            elapsed_str = f"{elapsed}s" if elapsed > 0 else ""
-            hint = f"Generating slides — {elapsed_str} elapsed" if elapsed_str else "Generating slides…"
-            st.caption(hint)
+            if done == 0:
+                st.caption("Generating first slide… please wait")
+            elif avg_secs > 0:
+                if total > 0:
+                    remaining = total - done
+                    eta = int(remaining * avg_secs)
+                    eta_str = f"~{eta // 60}m {eta % 60}s" if eta > 60 else f"~{eta}s"
+                    st.caption(f"{done} of {total} slides ready · {eta_str} remaining")
+                else:
+                    st.caption(f"{done} slide(s) ready · ~{avg_secs:.0f}s per slide · counting total…")
+            else:
+                st.caption(f"{done} slide(s) ready — calculating time…")
         with col_abort:
             _abort_button()
 
@@ -422,6 +434,7 @@ def _pipeline_status_fragment() -> None:
 
     elif state == "saving":
         st.markdown(saving_status_html(elapsed), unsafe_allow_html=True)
+
 
 
 def _render_failed_state(progress: dict, elapsed: int) -> None:
@@ -504,10 +517,23 @@ def _handle_completed(progress: dict) -> None:
         )
 
     bank = progress.get("bank")
-    st.session_state["module"] = module
+
+    # Clear stale module data so the new module loads fresh
+    for key in (
+        "module", "bank", "quiz", "quiz_answers", "quiz_result",
+        "quiz_difficulty", "tutor_state", "tutor_phase", "tutor_graph",
+        "tutor_content_map", "tutor_visited_concepts", "chat_history",
+        "all_modules", "pipeline_progress",
+    ):
+        st.session_state.pop(key, None)
+
     if bank:
         st.session_state["bank"] = bank
-    st.session_state["page"] = "module_library"
+    if module is not None:
+        st.session_state["module"] = module
+        st.session_state["page"] = "module_viewer"
+    else:
+        st.session_state["page"] = "module_library"
     _cleanup_pipeline_state()
     st.rerun()
 
