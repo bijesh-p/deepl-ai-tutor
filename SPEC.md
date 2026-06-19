@@ -1,6 +1,6 @@
 # SPEC.md — AI Tutor System Specification
 
-> **Version:** 0.12 | **Last updated:** 2026-06-19
+> **Version:** 0.13 | **Last updated:** 2026-06-19
 > Architecture, directory layout, and component design are in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
@@ -93,6 +93,7 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
 | Error handling polish (Phase 36) | Structured user-facing error messages at each pipeline step; retry buttons; partial-failure recovery. Pipeline: per-step try/except (parse/LLM/enrich/quiz/save) with `_fail()` helper, step label, technical expander, and "Learn with N topic(s) / Retry from scratch" recovery buttons. Tutor: `_run_node` catches graph exceptions → `tutor_error` in session state → "Try again / Reset session" UI. Single-topic enrichment failure skips that topic instead of killing the pipeline. | ✅ Done |
 | Test coverage (Phase 38) | MCP server tool tests (assessment validate_json_schema; document_server PPTX/DOCX); all LangGraph graph nodes tested with mock LLM; sliding pipeline end-to-end + skip-on-error | ✅ Done |
 | UI/UX overhaul (Phase 41) | Dark mode (per-user persisted toggle, CSS-injection based since Streamlit config.toml can't be switched per-user at runtime); topic-highlighting "where am I" indicators (concept rail in the adaptive tutor, tabs per topic in the early module view); consistent top-of-page back navigation on every page; refined indigo/blue/purple color system with a new teal accent and matching dark palette | ✅ Done |
+| Dark mode bug fixes (Phase 45) | Fixed invisible secondary-button text at rest (no resting-state rule existed, only `:hover`); fixed a systemic `.stButton > button` direct-child selector that silently stopped matching whenever Streamlit inserts a tooltip wrapper div (any button with `help=`) — affected the sign-out button and any future help-enabled button, in both themes; re-themed the sidebar from indigo to violet/purple; fixed unselected `st.tabs()` text being invisible in dark mode. The reported "can't re-expand collapsed sidebar" turned out to be a Streamlit 1.58.0 framework-level issue (reproduces in a vanilla app, unrelated to this codebase's CSS) — see Open Questions. | ✅ Done |
 
 **Definition of done for Phase 3:**
 - [x] Admin user can publish a module to the shared library; all other users see it in their module library without generating it themselves
@@ -155,6 +156,7 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
 - [x] **Dark mode persistence & theming mechanism (Phase 41)** — **Resolved:** Streamlit's `[theme]` in `.streamlit/config.toml` is process-wide and can't be switched per-user at runtime (one shared server, many users), so dark mode is implemented entirely via the existing custom-CSS-injection mechanism (`frontend/styles.py::inject_global_css()`), gated on `st.session_state["dark_mode"]`. Persisted per-user via a new `user_profiles.dark_mode` column (same idempotent `_MIGRATIONS` pattern as `llm_provider`), restored on login alongside the existing LLM-provider preference restore.
 - [x] **Color direction for the visual refresh (Phase 41)** — **Resolved:** keep the existing indigo/blue (`#2563EB`)/purple (`#7C3AED`) brand identity rather than replace it; add one new teal accent (`#14B8A6`) for variety/highlights, and a matching dark palette (`#0F1117` app bg / `#1A1D29` card bg / `#F1F5F9` text). User-confirmed direction over two more vibrant/warmer alternatives.
 - [x] **Module viewer topic display (Phase 41)** — **Resolved:** `frontend/module_viewer.py` converts its stacked always-expanded `st.expander` list to `st.tabs()` (one per topic) — gives an always-visible topic index for free and avoids per-topic expand/collapse state tracking as topics stream in during generation. Accepted tradeoff: `st.tabs()` has no overflow/scroll handling for very large topic counts (typical modules are well under 10 topics).
+- [ ] **Sidebar can't be re-expanded once collapsed (Phase 45)** — Confirmed via a vanilla Streamlit app (same installed version, zero custom CSS) that `[data-testid="stSidebarCollapseButton"]` is `visibility:hidden` by default and never becomes visible/reachable via hover at any point along the page edge, with or without this app's styling — this is a Streamlit 1.58.0 framework-level issue, not caused by the dark-mode CSS. A real fix would require injecting JS (e.g. via `streamlit.components.v1.html` with `window.parent.document` access) to add a custom always-visible toggle that calls the hidden button's `.click()` — a new technique for this codebase. **Pending a decision**: live with it, build the JS workaround, or try a Streamlit version bump first to see if it's already fixed upstream.
 
 ---
 

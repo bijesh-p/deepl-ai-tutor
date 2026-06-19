@@ -14,11 +14,11 @@ _GLOBAL_CSS = """
    - Streamlit's sidebar-collapse button (Material Symbols: keyboard_double_arrow_right)
    - st.expander toggle arrow (Material Symbols: expand_more / keyboard_arrow_right)
    keep their glyph font and do NOT render as raw "_arrow" text.
-   Only .stButton > button (user-created via st.button()) gets Inter. */
+   Only .stButton button (user-created via st.button()) gets Inter. */
 html, body, .stApp, .main, .block-container,
 input, select, textarea, p, label,
 .stMarkdown, .stCaption, .stText,
-.stButton > button {
+.stButton button {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
 }
 
@@ -50,7 +50,7 @@ h3 { font-weight: 600 !important; letter-spacing: -0.01em !important; }
 p  { font-weight: 400 !important; line-height: 1.6 !important; }
 
 /* ── Buttons ───────────────────────────────────────────────────────────── */
-.stButton > button {
+.stButton button {
     border-radius: 8px !important;
     font-weight: 500 !important;
     transition: all 0.15s ease !important;
@@ -60,18 +60,18 @@ p  { font-weight: 400 !important; line-height: 1.6 !important; }
     white-space: nowrap !important;
     min-width: 0 !important;
 }
-.stButton > button[kind="primary"] {
+.stButton button[kind="primary"] {
     background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%) !important;
     border: none !important;
     color: white !important;
     box-shadow: 0 1px 3px rgba(37,99,235,0.3) !important;
 }
-.stButton > button[kind="primary"]:hover {
+.stButton button[kind="primary"]:hover {
     background: linear-gradient(135deg, #1D4ED8 0%, #1E40AF 100%) !important;
     box-shadow: 0 4px 12px rgba(37,99,235,0.4) !important;
     transform: translateY(-1px) !important;
 }
-.stButton > button[kind="secondary"]:hover {
+.stButton button[kind="secondary"]:hover {
     border-color: #2563EB !important;
     color: #2563EB !important;
     background: #EFF6FF !important;
@@ -191,7 +191,7 @@ p  { font-weight: 400 !important; line-height: 1.6 !important; }
 /* ── Sidebar buttons — scoped to .element-container so Streamlit's own
    internal controls (sidebar toggle with keyboard_double_arrow_right icon)
    are NOT affected (those live outside .element-container). ── */
-[data-testid="stSidebar"] .element-container .stButton > button {
+[data-testid="stSidebar"] .element-container .stButton button {
     background: rgba(255,255,255,0.65) !important;
     border: 1px solid #C7D2FE !important;
     color: #3730A3 !important;
@@ -212,7 +212,7 @@ p  { font-weight: 400 !important; line-height: 1.6 !important; }
     text-overflow: ellipsis !important;
     white-space: nowrap !important;
 }
-[data-testid="stSidebar"] .element-container .stButton > button:hover {
+[data-testid="stSidebar"] .element-container .stButton button:hover {
     background: #E0E7FF !important;
     border-color: #818CF8 !important;
     color: #312E81 !important;
@@ -223,7 +223,7 @@ p  { font-weight: 400 !important; line-height: 1.6 !important; }
 /* Sign-out — rose tint.
    A .sb-signout-marker <span> is rendered immediately before the sign-out button via st.markdown().
    :has() lets us select the element-container that follows the marker's container. */
-[data-testid="stSidebar"] .element-container:has(.sb-signout-marker) + .element-container .stButton > button {
+[data-testid="stSidebar"] .element-container:has(.sb-signout-marker) + .element-container .stButton button {
     background: rgba(255,241,241,0.85) !important;
     border: 1px solid #FECACA !important;
     color: #DC2626 !important;
@@ -232,7 +232,7 @@ p  { font-weight: 400 !important; line-height: 1.6 !important; }
     text-align: center !important;
     box-shadow: none !important;
 }
-[data-testid="stSidebar"] .element-container:has(.sb-signout-marker) + .element-container .stButton > button:hover {
+[data-testid="stSidebar"] .element-container:has(.sb-signout-marker) + .element-container .stButton button:hover {
     background: #FEF2F2 !important;
     border-color: #F87171 !important;
     color: #B91C1C !important;
@@ -481,9 +481,9 @@ _DARK_PALETTE: dict[str, str] = {
     "app_bg": "#0F1117",
     "text_primary": "#F1F5F9",      # vs app_bg: ~15:1 contrast, WCAG AAA
     "text_secondary": "#94A3B8",    # vs app_bg: ~7:1 contrast, WCAG AA
-    "sidebar_grad_start": "#1E1B4B",
-    "sidebar_grad_end": "#161335",
-    "sidebar_border": "#3730A3",
+    "sidebar_grad_start": "#3B0764",   # deep violet — reuses the app's existing purple-accent family
+    "sidebar_grad_end": "#1E1033",     # near-black violet
+    "sidebar_border": "#6D28D9",       # violet-700
     "sidebar_text": "#CBD5E1",      # vs sidebar bg: ~9:1 contrast, WCAG AAA
     "card_bg": "#1A1D29",
     "card_border": "#2D2F3D",
@@ -525,7 +525,14 @@ def _theme_overrides_css(dark: bool) -> str:
 [data-testid="stSidebar"] .stCaption {{
     color: {p['sidebar_text']} !important;
 }}
-[data-testid="stSidebar"] .sb-label {{ color: #A5B4FC !important; border-top-color: {p['sidebar_border']} !important; }}
+[data-testid="stSidebar"] .sb-label {{ color: #C4B5FD !important; border-top-color: {p['sidebar_border']} !important; }}
+/* Sign-out button's label text sits in a nested <p>, which the generic sidebar
+   text rule above matches directly (and direct rules always beat inherited
+   ones) — washing out the button's own dark-red text on its light rose card.
+   Out-specify it, same pattern as the checkbox-label fix below. */
+[data-testid="stSidebar"] .element-container:has(.sb-signout-marker) + .element-container .stButton button p {{
+    color: #B91C1C !important;
+}}
 /* Checked toggle/checkbox labels get an extra Streamlit-internal blue tint with
    higher specificity than the generic sidebar text rule above — out-specify it. */
 [data-testid="stSidebar"] [data-testid="stCheckbox"] [data-testid="stWidgetLabel"] p {{
@@ -536,13 +543,24 @@ def _theme_overrides_css(dark: bool) -> str:
     border-color: {p['sidebar_border']} !important;
     color: {p['text_primary']} !important;
 }}
-[data-testid="stSidebar"] .element-container .stButton > button {{
+[data-testid="stSidebar"] .element-container .stButton button {{
     background: rgba(255,255,255,0.06) !important;
     border-color: {p['sidebar_border']} !important;
     color: {p['sidebar_text']} !important;
 }}
-[data-testid="stSidebar"] .element-container .stButton > button:hover {{
+[data-testid="stSidebar"] .element-container .stButton button:hover {{
     background: rgba(255,255,255,0.12) !important;
+}}
+
+/* Secondary buttons (the default st.button() kind) only ever had a :hover rule
+   in _GLOBAL_CSS — no resting-state color — so they fell back to Streamlit's
+   own light-theme text color, invisible against the dark page until hovered.
+   Low specificity here so the more-specific sidebar-button rule above, and the
+   sign-out button's own rule, both continue to win in their own contexts. */
+.stButton button[kind="secondary"] {{
+    background: {p['card_bg']} !important;
+    border-color: #475569 !important;
+    color: {p['text_primary']} !important;
 }}
 
 [data-testid="stMetric"] {{
@@ -571,6 +589,12 @@ def _theme_overrides_css(dark: bool) -> str:
 [data-testid="stCheckbox"] label span {{
     color: {p['text_primary']} !important;
 }}
+
+/* Tabs (module_viewer topic tabs) — _GLOBAL_CSS only colors the *selected*
+   tab (blue); unselected tabs use Streamlit's light-theme default text color
+   (#111827), invisible against the dark page until selected. */
+.stTabs [data-baseweb="tab"] {{ color: {p['text_secondary']} !important; }}
+.stTabs [aria-selected="true"] {{ color: #60A5FA !important; }}
 </style>
 """
 

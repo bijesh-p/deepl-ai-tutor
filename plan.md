@@ -253,6 +253,22 @@ Integration tests for MCP servers, LLM factory adapters, and the LangGraph graph
 
 ---
 
+## Phase 45 — Dark mode bug fixes: button contrast, purple re-theme, selector robustness ✅ Done
+
+**Goal:** Fix three reported dark-mode problems: invisible secondary-button text at rest, sidebar collapse control reportedly unreachable, and re-theme the sidebar from indigo to purple.
+
+**What shipped:**
+- `.stButton button[kind="secondary"]` base (non-hover) dark rule added — secondary buttons only ever had a `:hover` color rule, so they fell back to Streamlit's light-theme text color (invisible on the new dark page) until hovered.
+- **Root-caused a systemic selector bug**: every `.stButton > button` (direct-child) selector in the file silently stopped matching whenever Streamlit inserts an extra wrapper `<div>` inside `.stButton` — which happens for any button passing `help=`. Affected the sign-out button (in both light and dark mode, not just dark — a latent pre-existing bug) and would've affected any future `help=`-enabled button. Fixed by changing every occurrence to a descendant selector (`.stButton button`).
+- Re-themed `_DARK_PALETTE`'s sidebar tokens (`sidebar_grad_start/end`, `sidebar_border`) and the `.sb-label` color from indigo/blue to violet, reusing the app's existing purple-accent family (`quiz_generating_html`, multi-choice badge). Contrast verified via computed WCAG ratios, not eyeballed.
+- Fixed unselected `st.tabs()` text being invisible in dark mode (`_GLOBAL_CSS` only colored the *selected* tab).
+- **Investigated but did not fix**: "can't re-expand a collapsed sidebar." Confirmed via a vanilla Streamlit app (same installed version, zero custom CSS) that this is a Streamlit 1.58.0 framework-level issue — `stSidebarCollapseButton` is `visibility:hidden` and never becomes reachable via hover anywhere along the page edge, with or without this app's CSS. Original hypothesis (a stale `stSidebarCollapsedControl` testid from an older Streamlit version, no longer present in 1.58.0) was correct in spirit but the testid simply doesn't exist anymore, so the original CSS targeting it (in both light and dark mode) was already dead code before this session. See `SPEC.md` Open Questions for the pending decision on how to proceed (live with it / custom JS workaround / Streamlit version bump).
+
+**Files:**
+- `frontend/styles.py` — `_theme_overrides_css()`, `_DARK_PALETTE`, and every `.stButton > button` occurrence throughout `_GLOBAL_CSS`
+
+---
+
 ## Commit convention
 
 Format: `[Phase N] <short description>`
