@@ -12,6 +12,7 @@
 | 1 | PDF POC | ✅ Complete | Role-based access, Anthropic-only, SQLite, persistent module library |
 | 2 | Functional Skeleton | ✅ Complete | LLM factory, MCP servers, LangGraph tutor, JIT pipeline, audio, observability |
 | 3 | Refined Platform | 🔄 In Progress | Feature polish, admin-curated module library, PPTX/DOCX, full ChromaDB wiring |
+| 4 | VTT Transcript Ingestion | 🔲 Planned | Parse training/classroom `.vtt` transcripts into learning modules |
 
 ---
 
@@ -104,11 +105,53 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
 
 ---
 
+### Phase 4 — VTT Transcript Ingestion 🔲 Planned
+
+**Goal:** Allow users to upload WebVTT (`.vtt`) training or classroom recording transcripts and transform them into interactive learning modules — same experience as PDF/PPTX/DOCX uploads. The parser must extract **teaching content and key concepts** (not raw conversation), capture **important Q&A exchanges**, and **never record speaker/participant names** (privacy).
+
+**Background:** Training sessions and classroom lectures are often recorded and auto-transcribed into `.vtt` (WebVTT) subtitle files by platforms like Zoom, Teams, Google Meet, and YouTube. These transcripts contain rich spoken content but are hard to learn from in raw form — they are timestamped caption streams with speaker turns, filler words, and no structural organisation. This phase parses VTT files into the existing `Document`/`Section` model so the full enrichment pipeline (decompose → enrich → diagrams → audio → quiz → tutor) works unchanged.
+
+**Scope:**
+
+| Task | Description | Status |
+|---|---|---|
+| VTT parser | `backend/ingestion/vtt_parser.py` — `parse_vtt(path, max_sections=16)` reads a `.vtt` file, strips timestamps/cue formatting/speaker names, and produces a clean `Document`. **Content extraction:** (1) Identify teaching/instructional content (explanations, definitions, walkthroughs) vs. non-content chatter (greetings, logistics, "can you hear me?"). (2) Detect Q&A exchanges — questions asked during the session and their answers — and preserve them as dedicated sections or inline within the relevant topic section. **Privacy:** All speaker/participant names are stripped from the output — sections are titled by topic/concept, never by person (e.g. `"Topic: Neural Network Basics"`, `"Q&A: Backpropagation"`, not `"Speaker: John"`). **Segmentation:** Split on topic/concept shifts detected from content flow, with time-gap (>30 s) as a secondary signal, and ~500-word fixed chunking as final fallback. Returns a `Document` with `source_type=SourceType.VTT`. | 🔲 Planned |
+| SourceType enum | Add `VTT = "vtt"` to `backend/ingestion/models.py::SourceType` | 🔲 Planned |
+| MCP document_server tool | Expose `extract_text_from_vtt` in `mcp_servers/document_server/` — delegates to `vtt_parser.parse_vtt`, returns `Document.to_json()` (same pattern as PDF/PPTX/DOCX tools) | 🔲 Planned |
+| Upload page integration | Add `"vtt"` to the accepted file types in `frontend/upload_page.py`; route `.vtt` uploads to `extract_text_from_vtt` via the existing `_TOOL_FOR_EXT` dispatch map | 🔲 Planned |
+| Unit tests | `tests/test_ingestion/test_vtt_parser.py` — parse a fixture `.vtt` file with speaker turns, verify section count/titles/body; edge cases: no speakers, single cue, empty file. `tests/test_mcp/test_document_server_vtt.py` — MCP round-trip test | 🔲 Planned |
+
+**VTT parsing details:**
+
+1. **Format support:** Standard WebVTT (RFC 8216 §3.5) — `WEBVTT` header, optional cue identifiers, `HH:MM:SS.mmm --> HH:MM:SS.mmm` timestamps, cue payloads. HTML tags (`<b>`, `<i>`, `<v>`) and `NOTE` blocks are stripped.
+2. **Privacy — no speaker names in output:** Speaker tags (`<v Name>`, `Speaker N:`) are used internally to detect turn boundaries and Q&A patterns, but are **never** included in the output `Section.title` or `Section.body`. Section titles use topic/concept labels (e.g. `"Topic: Data Pipelines"`, `"Q&A: Error Handling"`), not person names. Any remaining names embedded in cue text are replaced with generic labels (`"Instructor"`, `"Participant"`).
+3. **Content extraction — teaching focus:** The parser classifies cue content into three categories:
+   - **Teaching content** (keep, high priority): Explanations, definitions, examples, demonstrations, walkthroughs, conceptual discussions.
+   - **Q&A exchanges** (keep, tagged): Questions asked by participants and the instructor's answers. These are preserved and grouped — either as a dedicated `"Q&A: <topic>"` section or appended to the relevant topic section with a `"---\n**Q&A**\n"` separator.
+   - **Non-content chatter** (discard): Greetings, roll call, "can you hear me?", "let me share my screen", scheduling logistics, repeated filler phrases. Stripped during cleanup.
+4. **Section boundaries:** (a) Topic/concept shift detected from content flow (keyword signals: "let's move on to", "next topic", "now let's talk about", subject-matter change). (b) Q&A block detected (question pattern followed by answer). (c) Time gap >30 s between cues as secondary signal. (d) Final fallback: ~500-word fixed chunking → sections titled `"Part N"`.
+5. **Text cleanup:** Strip timestamps, cue IDs, HTML tags, `NOTE` comments, `STYLE` blocks, and speaker identity markers. Collapse filler phrases and repeated words from auto-transcription. Preserve paragraph breaks at cue boundaries.
+6. **Limits:** Max 16 sections (consistent with PPTX/DOCX). `total_pages` set to number of sections (VTT has no page concept).
+
+**Definition of done for Phase 4:**
+- [ ] `SourceType.VTT` exists in models.py
+- [ ] `parse_vtt()` returns a valid `Document` from a `.vtt` file
+- [ ] Output sections are titled by topic/concept — **no speaker names** appear anywhere in the `Document`
+- [ ] Teaching content (explanations, concepts, examples) is extracted and non-content chatter is discarded
+- [ ] Q&A exchanges from the session are captured and preserved (as dedicated sections or inline with topic)
+- [ ] `parse_vtt()` handles the no-speaker fallback (time-gap and fixed-chunk segmentation)
+- [ ] `extract_text_from_vtt` MCP tool is exposed and callable via `mcp_client`
+- [ ] Upload page accepts `.vtt` files and routes them through the existing pipeline
+- [ ] A `.vtt` upload produces a complete learning module (topics + quiz + tutor session)
+- [ ] Unit tests pass for parser, Q&A extraction, name stripping, and MCP round-trip
+
+---
+
 ## 1. Non-Functional Requirements
 
 ### 1.1 File Constraints
 - Max upload: 50 MB
-- Phase 2: `.pdf` only; Phase 3 adds `.pptx` and `.docx`
+- Phase 2: `.pdf` only; Phase 3 adds `.pptx` and `.docx`; Phase 4 adds `.vtt`
 
 ### 1.2 LLM Usage
 - All LLM calls go through `BaseLLMClient` — no direct SDK imports outside `adapters/`
@@ -148,6 +191,7 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
 - [x] **PPTX/DOCX parsing (Phase 35)** — **Resolved:** `backend/ingestion/pptx_parser.py` (`parse_pptx`, max 16 slides, title from `core_properties` or filename stem, each slide → `Section`) and `backend/ingestion/docx_parser.py` (`parse_docx`, max 16 sections, sections from heading paragraphs, fallback to single section when no headings). Both return `Document` with the matching `SourceType`. MCP `document_server` exposes `extract_text_from_pptx`/`extract_text_from_docx` tools following the same pattern as `extract_text_from_pdf`. `frontend/upload_page.py` accepts `["pdf", "pptx", "docx"]` and routes to the right tool via `_TOOL_FOR_EXT`.
 - [x] **Observability dashboard (Phase 37)** — **Resolved:** `frontend/observability_page.py` with two sections: (1) Phoenix trace explorer — derives base URL from `OTEL_EXPORTER_OTLP_ENDPOINT`, shows `st.link_button` to open Phoenix UI; (2) DeepEval quality metrics — queries `eval_results` via `get_eval_results()` in `stats.py` (LEFT JOIN modules for title), renders per-session table + avg score bar chart. Navigation: "Observability" sidebar button + "📊 Observability" button on module library home page.
 - [ ] **Portkey virtual key management** — One shared virtual key or per-user? **Pending.**
+- [x] **VTT transcript ingestion (Phase 4)** — **Resolved:** `backend/ingestion/vtt_parser.py` parses WebVTT files with three key requirements: (1) **Extract teaching content** — identify concepts, explanations, walkthroughs, and discard non-content chatter (greetings, logistics). (2) **Capture Q&A** — detect question-answer exchanges from the session and preserve them as tagged sections. (3) **Privacy** — strip all speaker/participant names; sections titled by topic, never by person. Segmentation: topic shifts > time gaps (>30 s) > ~500-word fixed chunking. Returns the standard `Document`/`Section` model with `SourceType.VTT`. No new dependencies — VTT is plain text parsed with regex. MCP tool and upload-page integration follow the same pattern as PPTX/DOCX (Phase 35).
 
 ---
 

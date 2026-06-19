@@ -16,7 +16,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 from backend.content.models import EnrichedTopic, Topic
-from backend.ingestion.models import Document
+from backend.ingestion.models import Document, SourceType
 
 CHUNK_WORDS = 200
 
@@ -94,8 +94,11 @@ def run_sliding_pipeline(
     if not all_words:
         raise ValueError(
             "No text could be extracted from this document. "
-            "It may be a scanned image PDF. Please use a text-based PDF, PPTX, or DOCX."
+            "It may be a scanned image PDF. Please use a text-based PDF, PPTX, DOCX, or VTT."
         )
+
+    if doc.source_type == SourceType.VTT:
+        return _run_pre_segmented(doc, llm, progress, abort_event, tracer)
     accumulated: list[tuple[str, str]] = []   # (word, section_id)
     published: list[EnrichedTopic] = []
     idx = 0
@@ -173,6 +176,62 @@ def run_sliding_pipeline(
                 progress["topics_enriched"] = len(published)
                 if len(published) == 1:
                     progress["ready"] = True
+
+    progress["total_topics"] = len(published)
+    return published
+
+
+# ---------------------------------------------------------------------------
+# Pre-segmented fast path (VTT transcripts)
+# ---------------------------------------------------------------------------
+
+def _run_pre_segmented(
+    doc: Document,
+    llm,
+    progress: dict,
+    abort_event: threading.Event,
+    tracer,
+) -> list[EnrichedTopic]:
+    """Fast path for documents whose parser already segments content by topic.
+
+    Skips the _assess LLM call entirely — each Document.section becomes one
+    Topic directly, cutting ~50% of LLM calls.
+    """
+    published: list[EnrichedTopic] = []
+    module_id = progress.get("module_id", "")
+
+    for idx, section in enumerate(doc.sections):
+        if abort_event.is_set():
+            break
+
+        source_text = section.body.strip()
+        if not source_text:
+            continue
+
+        topic = Topic(
+            topic_id=str(uuid.uuid4()),
+            title=section.title,
+            summary=source_text[:200],
+            source_section_ids=[section.section_id],
+            order=idx,
+        )
+
+        progress["detail"] = f"Enriching: {topic.title}"
+
+        enriched = _enrich_one(
+            topic, source_text, llm, tracer, abort_event,
+            audio_enabled=progress.get("audio_enabled", True),
+        )
+        if enriched is not None:
+            published.append(enriched)
+            _store_in_vector_db(enriched, module_id)
+            progress["enriched_topics"] = list(published)
+            progress["topics_enriched"] = len(published)
+            progress["current_topic"] = enriched.topic.title
+            progress["detail"] = f"Slide {len(published)} ready: {enriched.topic.title}"
+
+            if len(published) == 1:
+                progress["ready"] = True
 
     progress["total_topics"] = len(published)
     return published

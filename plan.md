@@ -208,6 +208,157 @@ Integration tests for MCP servers, LLM factory adapters, and the LangGraph graph
 
 ---
 
+## Phase 4 — VTT Transcript Ingestion 🔲 Planned
+
+> **Goal:** Parse WebVTT (`.vtt`) training/classroom transcripts into learning modules.
+> Extract teaching content and Q&A, strip all speaker names (privacy), and plug into the
+> existing enrichment pipeline so VTT uploads produce the same interactive experience as
+> PDF/PPTX/DOCX.
+
+### Phase 41 — SourceType enum + VTT parser core
+
+**What:** Add `VTT` to the `SourceType` enum and implement `vtt_parser.py` with the full
+parsing pipeline.
+
+**Files:**
+- `backend/ingestion/models.py` — add `VTT = "vtt"` to `SourceType`
+- `backend/ingestion/vtt_parser.py` — **new file**, `parse_vtt(file_path, max_sections=16) -> Document`
+
+**Parser internals (`parse_vtt`):**
+
+1. **Read & validate** — Read file as UTF-8 (with BOM handling), verify `WEBVTT` header.
+2. **Parse cues** — Extract each cue's start/end timestamps and text payload. Strip `NOTE`,
+   `STYLE`, and `REGION` blocks.
+3. **Speaker detection** — Detect speakers from `<v Name>text</v>` voice tags or
+   `Speaker N: text` / `Name: text` line prefixes. Store speaker label per cue internally
+   (used for turn detection and Q&A identification only — never exposed in output).
+4. **Text cleanup** — Strip HTML tags (`<b>`, `<i>`, `<v>`, `<c>`, etc.), timestamps,
+   cue IDs. Remove filler/chatter lines (greetings, logistics, "can you hear me?",
+   "let me share my screen", etc.) using a pattern list. Collapse repeated whitespace.
+5. **Q&A detection** — Identify question-answer pairs: lines ending with `?` or starting
+   with question words ("what", "how", "why", "could you explain", etc.) followed by a
+   different speaker's response. Tag these cue groups as Q&A.
+6. **Segmentation** — Build sections using three-tier strategy:
+   - **Topic shifts** — keyword signals ("let's move on to", "next topic", "now let's
+     talk about") or sustained subject-matter change.
+   - **Time gaps** — >30 s silence between consecutive cues → section boundary.
+   - **Fixed chunks** — fallback: ~500-word boundaries → sections titled `"Part N"`.
+7. **Q&A grouping** — Q&A cues are either:
+   - Appended to the preceding topic section with a `---\n**Q&A**\n` separator, or
+   - Collected into a dedicated `"Q&A: <inferred topic>"` section if they form a
+     substantial standalone block.
+8. **Section titling** — Titles are topic/concept labels, **never** speaker names.
+   Format: `"Topic: <subject>"`, `"Q&A: <subject>"`, or `"Part N"` for fallback.
+   Any speaker names remaining in body text are replaced with `"Instructor"` /
+   `"Participant"`.
+9. **Build Document** — Return `Document(source_type=SourceType.VTT, ...)` with max 16
+   sections.
+
+**Commit:** `[Phase 41] Add VTT parser with content extraction and Q&A capture`
+
+---
+
+### Phase 42 — MCP document_server tool
+
+**What:** Expose `extract_text_from_vtt` in the MCP document server, following the
+same pattern as PPTX/DOCX tools.
+
+**Files:**
+- `mcp_servers/document_server/server.py` — add `extract_text_from_vtt` tool
+
+**Details:**
+```python
+@mcp.tool()
+def extract_text_from_vtt(file_path: str, max_sections: int = 16) -> str:
+    from backend.ingestion.vtt_parser import parse_vtt
+    doc = parse_vtt(file_path, max_sections=max_sections)
+    return doc.to_json()
+```
+
+**Commit:** `[Phase 42] Add extract_text_from_vtt MCP tool`
+
+---
+
+### Phase 43 — Upload page integration
+
+**What:** Accept `.vtt` files in the upload page and route them through the pipeline.
+
+**Files:**
+- `frontend/upload_page.py` — add `.vtt` to `_TOOL_FOR_EXT`, file uploader `type` list,
+  help text, and error messages
+
+**Changes:**
+1. `_TOOL_FOR_EXT[".vtt"] = "extract_text_from_vtt"`
+2. `type=["pdf", "pptx", "docx", "vtt"]` in `st.file_uploader`
+3. Update help text: `"PDF, PowerPoint, Word, or VTT transcript — up to ..."`
+4. Update error message: `"Please upload a PDF, PPTX, DOCX, or VTT file."`
+
+**Commit:** `[Phase 43] Add VTT to upload page file types`
+
+---
+
+### Phase 44 — Unit tests
+
+**What:** Test the VTT parser (content extraction, Q&A detection, name stripping, edge
+cases) and MCP round-trip.
+
+**Files:**
+- `tests/test_ingestion/test_vtt_parser.py` — **new file**
+- `tests/test_mcp/test_document_server.py` — add VTT round-trip test
+- `tests/fixtures/sample.vtt` — **new file**, test fixture with speaker turns + Q&A
+
+**Test cases for `test_vtt_parser.py`:**
+
+| Test | Verifies |
+|---|---|
+| `test_speaker_turns_produce_sections` | VTT with `<v>` tags → multiple sections, titled by topic not speaker |
+| `test_no_speaker_names_in_output` | No speaker name appears in any `Section.title` or `Section.body` |
+| `test_qa_extraction` | Question-answer exchanges are captured (either inline or as Q&A section) |
+| `test_chatter_stripped` | Greetings, logistics, filler lines are not in output |
+| `test_time_gap_segmentation` | VTT without speakers, >30s gaps → section boundaries |
+| `test_fixed_chunk_fallback` | Long single-speaker transcript → ~500-word sections titled `"Part N"` |
+| `test_single_cue` | Minimal VTT with one cue → one section |
+| `test_empty_file` | VTT with only header → empty sections list |
+| `test_max_sections_cap` | Large transcript respects `max_sections` limit |
+| `test_source_type_is_vtt` | `doc.source_type == SourceType.VTT` |
+| `test_document_roundtrip_json` | `Document.from_json(doc.to_json())` preserves all fields |
+
+**MCP round-trip test in `test_document_server.py`:**
+
+| Test | Verifies |
+|---|---|
+| `test_extract_text_from_vtt_matches_parse_vtt` | MCP tool returns same result as calling parser directly |
+
+**Commit:** `[Phase 44] Add VTT parser and MCP round-trip tests`
+
+---
+
+### Phase 45 — README and references update
+
+**What:** Update documentation to reflect VTT support.
+
+**Files:**
+- `README.md` — add VTT to features list, upload description, and file type references
+- `references.md` — add WebVTT spec reference
+
+**Commit:** `[Phase 45] Update docs for VTT transcript support`
+
+---
+
+### Phase 4 summary
+
+| Phase | Scope | New files | Modified files |
+|---|---|---|---|
+| 41 | Parser + SourceType | `backend/ingestion/vtt_parser.py` | `backend/ingestion/models.py` |
+| 42 | MCP tool | — | `mcp_servers/document_server/server.py` |
+| 43 | Upload integration | — | `frontend/upload_page.py` |
+| 44 | Tests + fixture | `tests/test_ingestion/test_vtt_parser.py`, `tests/fixtures/sample.vtt` | `tests/test_mcp/test_document_server.py` |
+| 45 | Docs | — | `README.md`, `references.md` |
+
+**Dependencies:** None — VTT is plain text parsed with Python stdlib (`re`, `pathlib`).
+
+---
+
 ## Commit convention
 
 Format: `[Phase N] <short description>`
