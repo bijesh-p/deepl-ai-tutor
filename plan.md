@@ -500,6 +500,20 @@ cases) and MCP round-trip.
 
 ---
 
+## Phase 50 — Fix invisible "Upload" button text in dark mode ✅ Complete
+
+**Goal:** Fix `st.file_uploader`'s native "Browse files" button rendering white text on a white background in dark mode.
+
+**Root cause:** this button (`data-testid="stBaseButton-secondary"`, `kind="secondary"`) is rendered directly inside `[data-testid="stFileUploader"]`, not wrapped in a `.stButton` div — so the existing `.stButton button[kind="secondary"]` dark-mode fix (Phase 45) never matched it. With no rule of its own, its text inherited `color: {text_primary}` (near-white) from the page-wide `.stApp` dark-mode rule (`frontend/styles.py:498`) while its background stayed Streamlit's native white.
+
+**Fix:** added `[data-testid="stFileUploader"] button[kind="secondary"]` to `_theme_overrides_css()` in `frontend/styles.py`, using the same `card_bg`/`text_primary` tokens as every other secondary surface in dark mode.
+
+**Verified live:** Playwright `getComputedStyle` check — light mode unchanged (`bg: #FFFFFF`, `color: #111827`); dark mode now `bg: #1A1D29`, `color: #F1F5F9`, contrast ratio 15.31:1 (WCAG AA requires 4.5:1). Full pytest suite unaffected (138 passed, 1 skipped, same as before).
+
+**Files:** `frontend/styles.py` — one new CSS rule.
+
+---
+
 ## Commit convention
 
 Format: `[Phase N] <short description>`

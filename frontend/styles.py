@@ -563,6 +563,15 @@ def _theme_overrides_css(dark: bool) -> str:
 [data-testid="stFileUploader"] section {{ background: {p['form_bg']} !important; border-color: {p['card_border']} !important; }}
 [data-testid="stFileUploaderDropzoneInstructions"] span,
 [data-testid="stFileUploaderDropzoneInstructions"] small {{ color: {p['text_secondary']} !important; }}
+/* The uploader's own "Browse files" button isn't wrapped in .stButton, so the
+   .stButton button[kind="secondary"] rule above never reaches it — it fell
+   back to inheriting the page-wide dark text color on top of Streamlit's
+   native white button background (white-on-white). */
+[data-testid="stFileUploader"] button[kind="secondary"] {{
+    background: {p['card_bg']} !important;
+    border-color: #475569 !important;
+    color: {p['text_primary']} !important;
+}}
 
 /* Quiz option cards — base (unchecked) state. */
 [data-testid="stRadio"] [role="radiogroup"] > label,
