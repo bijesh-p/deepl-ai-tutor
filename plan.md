@@ -514,6 +514,20 @@ cases) and MCP round-trip.
 
 ---
 
+## Phase 51 — Restore missing `chromadb`/`deepeval` dependencies ✅ Complete
+
+**Goal:** Fix `RuntimeError: upsert_to_vector_db failed: ... No module named 'chromadb'` surfaced in production logs from the content pipeline's `_store_in_vector_db` step.
+
+**Root cause:** commit `ad72ea1` (on `main`'s lineage, pre-dating the Phase 49 merge) stripped `chromadb`, `deepeval`, `arize-phoenix`, and `sentence-transformers` from `pyproject.toml` during local debugging. Only `sentence-transformers` removal was intentional (already documented — replaced by ChromaDB's built-in ONNX embedding function). Since `experiment/improve-ui` never touched that dependency block, the Phase 49 merge silently inherited `main`'s deletion of the other three. `chromadb` is imported unguarded at module level in `mcp_servers/storage_server/server.py::_get_chroma_collection()`, so every vector-DB MCP call raised `ModuleNotFoundError` in production. `deepeval` has the same gap but is already guarded by a try/except in `backend/observability/eval_runner.py` (warns and no-ops). `arize-phoenix` has zero direct Python imports anywhere in the codebase (Phoenix runs as an external process, reached only via the already-present `opentelemetry-exporter-otlp-proto-http`) — correctly left out of the restore.
+
+**Fix:** `uv add "chromadb>=1.5.9" "deepeval>=2.0.0"`, restoring the exact historical version constraints from before they were dropped.
+
+**Verified live:** called the actual previously-failing `upsert_to_vector_db` and `query_vector_db` MCP tools end-to-end through `backend.core.mcp_client.get_client("storage_server")` — both now succeed. Full pytest suite unaffected (138 passed, 0 failures).
+
+**Files:** `pyproject.toml`, `uv.lock`.
+
+---
+
 ## Commit convention
 
 Format: `[Phase N] <short description>`
