@@ -578,6 +578,20 @@ cases) and MCP round-trip.
 
 ---
 
+## Phase 55 — Fix missing `arize-phoenix` package breaking `phoenix serve` ✅ Complete
+
+**Goal:** Fix `PYTHONPATH=. uv run phoenix serve` failing with `error: Failed to spawn: 'phoenix' — No such file or directory`.
+
+**Root cause:** Phase 51 restored `chromadb`/`deepeval` after `main`'s lineage had stripped them from `pyproject.toml`, but explicitly left `arize-phoenix` out — reasoning it has zero direct Python imports in this codebase since Phoenix runs as a separate external process reached only via the already-present `opentelemetry-exporter-otlp-proto-http` exporter. That reasoning was incomplete: the README and `observability_page.py`'s own caption both document starting that external process via `PYTHONPATH=. uv run phoenix serve`, a CLI entry point that the `arize-phoenix` package itself provides (not the OTEL exporter packages). With the package absent from the `uv` venv, there was no `phoenix` console script for `uv run` to spawn.
+
+**Fix:** `uv add arize-phoenix` (resolved to `arize-phoenix>=17.9.0`).
+
+**Verified:** ran the exact documented command, polled `http://localhost:6006` until it returned `200` (first launch takes ~30s for Phoenix to run its internal Alembic DB migrations), confirmed the server log showed normal startup/migration output, then killed the process. Full pytest suite: 139 passed, 0 failures.
+
+**Files:** `pyproject.toml`, `uv.lock`.
+
+---
+
 ## Commit convention
 
 Format: `[Phase N] <short description>`

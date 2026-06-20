@@ -60,6 +60,7 @@ git clone <repo-url>
 cd course_project
 
 # 2. Install dependencies (uv will create .venv automatically)
+# This also installs Arize Phoenix (the `phoenix` CLI used for tracing below).
 uv sync
 
 # 3. Configure environment — pick ONE provider below and edit .env
@@ -71,6 +72,8 @@ uv run python run.py
 Then open http://localhost:8501 in your browser.
 
 > **Note:** `run.py` sets `PYTHONPATH` automatically and launches Streamlit — no manual env-var prefix needed, works on both Linux/macOS and Windows.
+
+> **Tracing:** to view LLM call traces, start the Phoenix server in a separate terminal — see [LLM Observability and Tracing](#llm-observability-and-tracing) below.
 
 > **Upgrading from before the ONNX embedding switch?** If you already ran the app and have a local `data/chroma/` directory, delete it once after pulling (`rm -rf data/chroma`): its stored collection config points at the old `sentence-transformers` embedding function and will fail with `Could not build embedding function sentence_transformer` until removed. It's gitignored, local-only, and regenerates automatically on next use.
 
