@@ -4,6 +4,7 @@ import streamlit as st
 from backend.quiz.assembler import assemble_quiz
 from backend.quiz.evaluator import evaluate
 from backend.quiz.models import QuestionBank, QuizQuestion
+from frontend.nav import render_back_button
 from frontend.styles import question_card_html, page_header_html
 
 
@@ -96,6 +97,12 @@ def _collect_answers(quiz) -> dict[str, list[int]]:
 # ── Pages ────────────────────────────────────────────────────────────────────
 
 def render_quiz_page(bank: QuestionBank) -> None:
+    render_back_button(
+        "← Back to Library",
+        "module_library",
+        key="_back_quiz",
+        clear_keys=["module", "bank", "quiz", "quiz_answers", "quiz_result", "quiz_difficulty"],
+    )
     if "quiz" not in st.session_state:
         _render_difficulty_selector(bank)
         return
@@ -237,8 +244,8 @@ def _render_quiz_question() -> None:
     col_prev, col_mid, col_next = st.columns([1, 2, 1])
 
     with col_prev:
-        if st.button("← Previous", use_container_width=True, key="_quiz_prev", disabled=(idx == 0)):
-            ss["quiz_current_idx"] -= 1
+        if st.button("← Previous", use_container_width=True, key="_quiz_prev", disabled=(idx <= 0)):
+            ss["quiz_current_idx"] = max(0, idx - 1)
             st.rerun()
 
     with col_mid:
@@ -257,8 +264,8 @@ def _render_quiz_question() -> None:
         )
 
     with col_next:
-        if st.button("Next →", type="primary", use_container_width=True, key="_quiz_next", disabled=is_last):
-            ss["quiz_current_idx"] += 1
+        if st.button("Next →", type="primary", use_container_width=True, key="_quiz_next", disabled=(idx >= total_q - 1)):
+            ss["quiz_current_idx"] = min(total_q - 1, idx + 1)
             st.rerun()
 
     # ── Persistent Submit button (always visible) ─────────────────────────────

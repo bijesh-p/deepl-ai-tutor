@@ -147,6 +147,25 @@ def generate_slide_anchor(source_text: str, topic: Topic, llm) -> SlideAnchor:
 # Private helpers
 # ---------------------------------------------------------------------------
 
+def _node_count(code: str) -> int:
+    return len(set(re.findall(r'\b([A-Za-z][A-Za-z0-9_]*)\s*[\[\({]', code)))
+
+
+def _has_edge(code: str) -> bool:
+    return "-->" in code or "---" in code
+
+
+def is_valid_mermaid(code: str) -> bool:
+    """True if sanitized Mermaid code has a real edge and at least 2 nodes.
+
+    `_sanitize_mermaid` auto-prepends a `flowchart TD` header to whatever it's
+    given, so even empty/garbage input comes back as a non-empty string — a
+    plain truthiness check on sanitized code is not enough to detect "no
+    usable diagram". Use this instead.
+    """
+    return bool(code) and _has_edge(code) and _node_count(code) >= 2
+
+
 def _try_diagram(source_text: str, topic: Topic, llm) -> Diagram | None:
     base_prompt = (
         f"Topic: {topic.title}\n"
@@ -165,12 +184,6 @@ def _try_diagram(source_text: str, topic: Topic, llm) -> Diagram | None:
             return "", ""
         return _sanitize_mermaid(result.get("mermaid_code", "").strip()), result.get("caption", "")
 
-    def _node_count(code: str) -> int:
-        return len(set(re.findall(r'\b([A-Za-z][A-Za-z0-9_]*)\s*[\[\({]', code)))
-
-    def _has_edge(code: str) -> bool:
-        return "-->" in code or "---" in code
-
     try:
         sanitized, caption = _attempt(base_prompt)
 
@@ -186,7 +199,7 @@ def _try_diagram(source_text: str, topic: Topic, llm) -> Diagram | None:
                 sanitized, caption = retry_sanitized, retry_caption
 
         # Hard reject: no edges or fewer than 2 nodes
-        if not sanitized or not _has_edge(sanitized) or _node_count(sanitized) < 2:
+        if not is_valid_mermaid(sanitized):
             return None
 
         return Diagram(

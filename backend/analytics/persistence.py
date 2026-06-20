@@ -195,6 +195,7 @@ def load_user_profile(user_id: str, db: sqlite3.Connection | None = None) -> dic
         d = dict(row)
         d["topic_mastery"] = json.loads(d.pop("topic_mastery_json", "{}"))
         d["module_visits"] = json.loads(d.pop("module_visits_json", "{}"))
+        d["dark_mode"] = bool(d.get("dark_mode", 0))
         return d
     return {
         "user_id": user_id,
@@ -204,7 +205,22 @@ def load_user_profile(user_id: str, db: sqlite3.Connection | None = None) -> dic
         "last_seen": "",
         "llm_provider": "",
         "llm_model": "",
+        "dark_mode": False,
     }
+
+
+def save_dark_mode(user_id: str, dark_mode: bool, db: sqlite3.Connection | None = None) -> None:
+    """Persist the dark-mode preference without touching mastery/depth fields."""
+    conn = db or get_db()
+    conn.execute(
+        """
+        INSERT INTO user_profiles (user_id, dark_mode)
+        VALUES (?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET dark_mode = excluded.dark_mode
+        """,
+        (user_id, int(dark_mode)),
+    )
+    conn.commit()
 
 
 def save_user_profile(

@@ -6,11 +6,22 @@ from backend.analytics.models import ModuleStats
 from backend.analytics.stats import get_module_stats
 from backend.analytics.db import get_db
 from backend.quiz.models import QuizResult
+from frontend.nav import render_back_button
 from frontend.styles import score_banner_html
+
+_LIBRARY_CLEAR_KEYS = ["module", "bank", "quiz", "quiz_answers", "quiz_result", "quiz_difficulty"]
 
 
 def render_results_page(result: QuizResult) -> None:
+    render_back_button(
+        "← Back to Library", "module_library", key="_back_results_top", clear_keys=_LIBRARY_CLEAR_KEYS
+    )
     st.markdown("## Quiz Results")
+
+    # This div has no background of its own — it sits directly on the
+    # expander's background, which is dark in dark mode, so the text color
+    # must follow the theme instead of being hardcoded to dark text.
+    question_text_color = "#F1F5F9" if st.session_state.get("dark_mode") else "#111827"
 
     # ── Big score banner ──────────────────────────────────────────────────────
     st.markdown(
@@ -49,7 +60,7 @@ def render_results_page(result: QuizResult) -> None:
             # Question text
             if q:
                 st.markdown(
-                    f"<div style='font-weight:600;font-size:14px;color:#111827;"
+                    f"<div style='font-weight:600;font-size:14px;color:{question_text_color};"
                     f"margin-bottom:10px;'>{q.question_text}</div>",
                     unsafe_allow_html=True,
                 )
@@ -138,19 +149,11 @@ def render_results_page(result: QuizResult) -> None:
 
     # ── Actions ───────────────────────────────────────────────────────────────
     st.markdown("---")
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("🔄 Retake Quiz", type="secondary", use_container_width=True):
-            st.session_state["page"] = "quiz"
-            for key in ["quiz", "quiz_answers", "quiz_result", "quiz_difficulty"]:
-                st.session_state.pop(key, None)
-            st.rerun()
-    with col2:
-        if st.button("📚 Back to Library", type="secondary", use_container_width=True):
-            for key in ["module", "bank", "quiz", "quiz_answers", "quiz_result", "quiz_difficulty"]:
-                st.session_state.pop(key, None)
-            st.session_state["page"] = "module_library"
-            st.rerun()
+    if st.button("🔄 Retake Quiz", type="secondary", use_container_width=True):
+        st.session_state["page"] = "quiz"
+        for key in ["quiz", "quiz_answers", "quiz_result", "quiz_difficulty"]:
+            st.session_state.pop(key, None)
+        st.rerun()
 
 
 def _render_cohort_chart(stats: ModuleStats) -> None:

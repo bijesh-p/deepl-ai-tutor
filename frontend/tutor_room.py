@@ -16,6 +16,8 @@ from backend.analytics.persistence import (
     save_user_profile,
 )
 from backend.interactive_tutor import build_tutor_graph
+from frontend.audio_autostop import render_audio_autostop
+from frontend.styles import concept_rail_html
 
 try:
     from streamlit_mermaid import st_mermaid
@@ -25,15 +27,22 @@ except ImportError:
 
 
 def render_tutor_room() -> None:
-    st.title("AI Tutor")
+    render_audio_autostop()
+
     module = st.session_state.get("module")
     if module is None:
+        st.title("AI Tutor")
         st.warning("No module selected. Go to Module Library first.")
         if st.button("Go to Module Library"):
             st.session_state["page"] = "module_library"
             st.rerun()
         return
 
+    if st.button("← Back to Module Library", type="secondary", key="_back_tutor_room"):
+        _end_session(st.session_state.get("tutor_state"))
+        st.rerun()
+
+    st.title("AI Tutor")
     st.caption(f"Module: **{module.title}**")
 
     if "tutor_state" not in st.session_state:
@@ -66,6 +75,16 @@ def render_tutor_room() -> None:
                     st.session_state.pop(key, None)
                 st.rerun()
         st.markdown("---")
+
+    # ── Concept rail — "where am I" indicator across the whole module ────────
+    st.markdown(
+        concept_rail_html(
+            mastered=state.get("mastered_concepts", []),
+            current=state.get("current_concept", "") if phase != "done" else "",
+            remaining=state.get("remaining_concepts", []),
+        ),
+        unsafe_allow_html=True,
+    )
 
     # Progress + end session in sidebar-style column
     col_main, col_meta = st.columns([4, 1])

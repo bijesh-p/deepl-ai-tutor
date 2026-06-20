@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import streamlit as st
 from backend.content.diagram_generator import _sanitize_mermaid
 from backend.content.models import LearningModule, Question
+from frontend.nav import render_back_button
 
 try:
     from streamlit_mermaid import st_mermaid
@@ -15,6 +16,8 @@ except ImportError:
 
 
 def render_module_viewer(module: LearningModule) -> None:
+    render_back_button("← Back to Module Library", "module_library", key="_back_module_viewer")
+
     progress = st.session_state.get("pipeline_progress")
     generating = progress and progress["state"] not in ("completed", "failed", "aborted")
 
@@ -45,42 +48,47 @@ def render_module_viewer(module: LearningModule) -> None:
                 if t.title not in enriched_titles:
                     st.markdown(f"- *{t.title}* (pending)")
 
-    for et in module.topics:
-        with st.expander(f"**{et.topic.title}**", expanded=True):
-            if et.top_concepts:
-                concepts_text = " | ".join(f"**{c}**" for c in et.top_concepts)
-                st.info(f"Top concepts: {concepts_text}")
+    if module.topics:
+        # Tabs give an always-visible topic index — clearer "where am I" than
+        # stacking every topic as an always-expanded expander, and they don't
+        # need per-topic expand/collapse state as new topics stream in below.
+        tabs = st.tabs([et.topic.title for et in module.topics])
+        for tab, et in zip(tabs, module.topics):
+            with tab:
+                if et.top_concepts:
+                    concepts_text = " | ".join(f"**{c}**" for c in et.top_concepts)
+                    st.info(f"Top concepts: {concepts_text}")
 
-            if et.audio_path:
-                st.audio(et.audio_path, format="audio/mp3")
+                if et.audio_path:
+                    st.audio(et.audio_path, format="audio/mp3")
 
-            # Diagram first (anchor-first), then explanation below
-            mermaid_diagrams = [d for d in et.diagrams if d.diagram_type == "mermaid"]
-            if mermaid_diagrams:
-                for diagram in mermaid_diagrams:
-                    st.caption(f"📊 {diagram.caption}")
-                    clean = _sanitize_mermaid(diagram.content) if diagram.content else ""
-                    if _HAS_MERMAID and clean:
-                        try:
-                            st_mermaid(clean, height="280px")
-                        except Exception:
+                # Diagram first (anchor-first), then explanation below
+                mermaid_diagrams = [d for d in et.diagrams if d.diagram_type == "mermaid"]
+                if mermaid_diagrams:
+                    for diagram in mermaid_diagrams:
+                        st.caption(f"📊 {diagram.caption}")
+                        clean = _sanitize_mermaid(diagram.content) if diagram.content else ""
+                        if _HAS_MERMAID and clean:
+                            try:
+                                st_mermaid(clean, height="280px")
+                            except Exception:
+                                st.info(et.topic.summary or diagram.caption)
+                        else:
                             st.info(et.topic.summary or diagram.caption)
-                    else:
-                        st.info(et.topic.summary or diagram.caption)
-                    if diagram.caption:
-                        st.caption(f"↑ {diagram.caption}")
-                st.markdown("")
+                        if diagram.caption:
+                            st.caption(f"↑ {diagram.caption}")
+                    st.markdown("")
 
-            st.markdown(et.content_md)
-            if et.key_takeaways:
-                st.markdown("**Key takeaways:**")
-                for kt in et.key_takeaways:
-                    st.markdown(f"- {kt}")
+                st.markdown(et.content_md)
+                if et.key_takeaways:
+                    st.markdown("**Key takeaways:**")
+                    for kt in et.key_takeaways:
+                        st.markdown(f"- {kt}")
 
-            if et.inline_questions:
-                st.markdown("---")
-                st.markdown("**Check your understanding**")
-                _render_inline_questions(et.topic.topic_id, et.inline_questions)
+                if et.inline_questions:
+                    st.markdown("---")
+                    st.markdown("**Check your understanding**")
+                    _render_inline_questions(et.topic.topic_id, et.inline_questions)
 
     if generating and progress:
         _pending_topics_fragment()

@@ -154,7 +154,7 @@ def test_present_concept_fallback_calls_llm(monkeypatch):
     slide_dict = {
         "top_concepts": ["concept_a"],
         "transcript": "Here is the fallback explanation.",
-        "mermaid_code": "",
+        "mermaid_code": "flowchart TD\nA[Start]-->B[End]",
     }
     monkeypatch.setattr(graph, "_get_llm", lambda: _MockLLM(slide_dict))
     monkeypatch.setattr(graph, "_retrieve_context", lambda *a, **kw: "")
@@ -175,6 +175,37 @@ def test_present_concept_fallback_calls_llm(monkeypatch):
     slide = next(m for m in result["chat_history"] if m.get("role") == "slide")
     assert slide["transcript"] == "Here is the fallback explanation."
     assert result["concept_content"] == "Here is the fallback explanation."
+
+
+def test_present_concept_fallback_uses_bullets_when_no_diagram(monkeypatch):
+    """mermaid_code empty (or sanitized down to a bare header with no nodes)
+    must fall back to bullets prepended into the transcript, not a bare or
+    broken diagram — see is_valid_mermaid in diagram_generator.py."""
+    slide_dict = {
+        "top_concepts": ["concept_a"],
+        "transcript": "Here is the fallback explanation.",
+        "mermaid_code": "",
+    }
+    monkeypatch.setattr(graph, "_get_llm", lambda: _MockLLM(slide_dict))
+    monkeypatch.setattr(graph, "_retrieve_context", lambda *a, **kw: "")
+
+    state: graph.GraphState = {
+        "current_concept": "Entropy",
+        "concept_summary": "Disorder in a system.",
+        "presentation_depth": "beginner",
+        "enriched_topic": None,
+        "concept_content": "",
+        "module_id": "mod-1",
+        "audio_enabled": False,
+        "chat_history": [],
+    }
+
+    result = graph.present_concept(state)
+
+    slide = next(m for m in result["chat_history"] if m.get("role") == "slide")
+    assert slide["mermaid_code"] == ""
+    assert "Here is the fallback explanation." in slide["transcript"]
+    assert "Disorder in a system." in slide["transcript"]
 
 
 # ---------------------------------------------------------------------------
