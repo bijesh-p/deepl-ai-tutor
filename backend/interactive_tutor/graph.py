@@ -258,10 +258,13 @@ def present_concept(state: GraphState) -> dict:
         top_concepts = enriched.get("top_concepts", [])
         content_md = enriched.get("content_md", "")
 
-        # Inline diagram fallback: generate on-the-fly if pipeline produced none
+        # Inline diagram fallback: generate on-the-fly if pipeline produced none.
+        # If the diagram attempt also fails, fall back to bullets (prepended into
+        # content_md) — same diagram-or-bullets guarantee generate_slide_anchor
+        # gives the main pipeline, so a slide is never left with neither.
         if not mermaid_code and content_md:
             try:
-                from backend.content.diagram_generator import _sanitize_mermaid, _try_diagram
+                from backend.content.diagram_generator import _try_bullets, _try_diagram
                 from backend.content.models import Topic as _Topic
                 _llm = _get_llm()
                 _topic = _Topic(
@@ -272,6 +275,10 @@ def present_concept(state: GraphState) -> dict:
                 if _diag:
                     mermaid_code = _diag.content
                     diagram_caption = _diag.caption or diagram_caption
+                else:
+                    bullets = _try_bullets(content_md[:2000], _topic, _llm)
+                    if bullets:
+                        content_md = "\n".join(f"- {b}" for b in bullets) + "\n\n" + content_md
             except Exception:
                 pass
 
@@ -355,10 +362,34 @@ def present_concept(state: GraphState) -> dict:
     if not isinstance(result, dict):
         result = {"top_concepts": [], "transcript": str(result), "mermaid_code": ""}
 
-    from backend.content.diagram_generator import _sanitize_mermaid
+    from backend.content.diagram_generator import _sanitize_mermaid, is_valid_mermaid
     mermaid_code = _sanitize_mermaid(result.get("mermaid_code", ""))
+    if not is_valid_mermaid(mermaid_code):
+        # _sanitize_mermaid always prepends a "flowchart TD" header even to
+        # empty/garbage input, so an empty-looking diagram from the LLM still
+        # comes back as a non-empty string here — without this check it would
+        # silently reach st_mermaid() as a header with no actual nodes.
+        mermaid_code = ""
 
     transcript = result.get("transcript", "")
+
+    # Bullets fallback when the combined call didn't produce a usable diagram —
+    # same diagram-or-bullets guarantee generate_slide_anchor gives the main
+    # pipeline, so this rarely-hit path (session resumed before enrichment
+    # finishes) degrades the same way instead of leaving the slide bare.
+    if not mermaid_code and transcript:
+        try:
+            from backend.content.diagram_generator import _try_bullets
+            from backend.content.models import Topic as _Topic
+            _topic = _Topic(
+                topic_id="inline", title=concept, summary=summary,
+                source_section_ids=[], order=0,
+            )
+            bullets = _try_bullets(transcript[:2000], _topic, llm)
+            if bullets:
+                transcript = "\n".join(f"- {b}" for b in bullets) + "\n\n" + transcript
+        except Exception:
+            pass
 
     # Generate diagram-aware audio for the fallback slide (skip if disabled)
     fallback_audio = ""

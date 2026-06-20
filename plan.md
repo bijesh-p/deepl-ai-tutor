@@ -544,6 +544,24 @@ cases) and MCP round-trip.
 
 ---
 
+## Phase 53 — Fix missing Mermaid diagrams on some Adaptive Tutor slides ✅ Complete
+
+**Goal:** Fix the report that some Adaptive Tutor slides show no Mermaid diagram.
+
+**Root causes (two):**
+1. `_sanitize_mermaid` always prepends a `flowchart TD` header to whatever it's given, so empty/garbage LLM output still comes back as a non-empty string (`"flowchart TD\n"`). `present_concept`'s two diagram-recovery paths in `backend/interactive_tutor/graph.py` only checked `if not mermaid_code:`, so this header-only string passed as "valid" and reached `st_mermaid()` as a diagram with no actual nodes — rendering blank or failing silently.
+2. Neither recovery path had any fallback when no usable diagram resulted — unlike the main upload pipeline's `generate_slide_anchor`, documented to "hold either a Mermaid diagram or a bullet list — never both, never empty."
+
+**Fix:**
+- Extracted the node/edge validation `_try_diagram` already used (`_has_edge`, `_node_count`) into module-level functions plus a new `is_valid_mermaid()` in `backend/content/diagram_generator.py`, used both inside `_try_diagram` and at both `present_concept` call sites.
+- Added the same bullets-fallback (`_try_bullets`, prepended into the transcript/content_md) to both `present_concept` paths whenever no valid diagram results, mirroring `generate_slide_anchor`'s guarantee.
+
+**Verified:** added `test_present_concept_fallback_uses_bullets_when_no_diagram`; updated `test_present_concept_fallback_calls_llm`'s mock diagram to a real bracketed-node string since its old empty-string fixture now correctly triggers the bullets fallback instead of being accepted as valid. Full pytest suite: 139 passed, 0 failures.
+
+**Files:** `backend/content/diagram_generator.py`, `backend/interactive_tutor/graph.py`, `tests/test_tutor/test_graph_nodes.py`.
+
+---
+
 ## Commit convention
 
 Format: `[Phase N] <short description>`
