@@ -1,6 +1,6 @@
 # SPEC.md — AI Tutor System Specification
 
-> **Version:** 0.22 | **Last updated:** 2026-06-20
+> **Version:** 0.23 | **Last updated:** 2026-06-20
 > Architecture, directory layout, and component design are in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
@@ -216,6 +216,7 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
   2. **White-on-white "Question N" headers:** the per-question `st.expander`'s own `<summary>` (clickable header) keeps Streamlit's native near-white background regardless of the outer dark background applied to `[data-testid="stExpander"]` — white text (inherited from `.stApp`) on that native background is white-on-white. Same "nested native element keeps its own background" pattern as the Phase 50 upload-button fix. Fixed by adding `[data-testid="stExpander"] summary { background: card_bg !important; }` to `_theme_overrides_css()`.
   3. **Black-on-black question text:** `frontend/results_page.py` hardcoded `color:#111827` on the question-text div with no background of its own — it sits directly on the expander's background, which is dark in dark mode. Fixed by computing a theme-aware `question_text_color` (mirrors the `header_text_color` pattern already used in `app.py`) instead of hardcoding it.
   All three verified live via a synthetic results-page harness (`AnswerResult`/`QuizResult` fixtures, no real quiz needed) — dark mode: header `rgb(241,245,249)` text on `rgb(26,29,41)` background, question text `rgb(241,245,249)` on transparent (inherits the same dark background); light mode confirmed pixel-unchanged. Full pytest suite: 139 passed, 0 failures (CSS/audio-only changes, no logic under test).
+- [x] **`PYTHONPATH=. uv run phoenix serve` fails with "Failed to spawn: `phoenix`" (Phase 55)** — **Resolved:** Phase 51's restoration of dependencies dropped by `main`'s pre-merge lineage explicitly left `arize-phoenix` out, reasoning that it has zero direct Python imports in the codebase (Phoenix runs as an external process, reached only via the already-present `opentelemetry-exporter-otlp-proto-http` exporter). That reasoning missed that the README (and `observability_page.py`'s own caption) documents starting that external process via `PYTHONPATH=. uv run phoenix serve` — a CLI entry point provided by the `arize-phoenix` package itself, not by any OTEL exporter package. Without it installed in the `uv` venv, `uv run phoenix` has no `phoenix` console script to spawn. Fixed via `uv add arize-phoenix`, verified by running the exact documented command and confirming the server starts and serves the UI at `http://localhost:6006`.
 
 ---
 
