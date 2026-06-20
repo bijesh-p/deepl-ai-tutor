@@ -18,6 +18,11 @@ def render_results_page(result: QuizResult) -> None:
     )
     st.markdown("## Quiz Results")
 
+    # This div has no background of its own — it sits directly on the
+    # expander's background, which is dark in dark mode, so the text color
+    # must follow the theme instead of being hardcoded to dark text.
+    question_text_color = "#F1F5F9" if st.session_state.get("dark_mode") else "#111827"
+
     # ── Big score banner ──────────────────────────────────────────────────────
     st.markdown(
         score_banner_html(result.score, result.total, result.percentage),
@@ -55,7 +60,7 @@ def render_results_page(result: QuizResult) -> None:
             # Question text
             if q:
                 st.markdown(
-                    f"<div style='font-weight:600;font-size:14px;color:#111827;"
+                    f"<div style='font-weight:600;font-size:14px;color:{question_text_color};"
                     f"margin-bottom:10px;'>{q.question_text}</div>",
                     unsafe_allow_html=True,
                 )

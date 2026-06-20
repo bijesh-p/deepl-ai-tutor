@@ -562,6 +562,22 @@ cases) and MCP round-trip.
 
 ---
 
+## Phase 54 — Fix lingering slide audio + quiz results dark-mode contrast ✅ Complete
+
+**Goal:** Fix three reported issues: (1) tutor slide audio keeps playing after switching slides/topics, (2) quiz results page "Question N" headers white-on-white in dark mode, (3) question text black-on-black in dark mode.
+
+**Audio fix:** Streamlit reruns synchronously, so clicking "Next slide"/"Previous topic"/"Ask me a question" can involve several seconds of LLM/audio-generation work before the new page (without the old `st.audio` element) reaches the browser — the old audio keeps playing client-side the whole time. Confirmed via an isolated repro that `st.audio` itself correctly replaces/removes its DOM element across normal reruns (no leak there); the gap is purely the wait. Added `frontend/audio_autostop.py::render_audio_autostop()` — an invisible `st.iframe()` whose script adds a capture-phase click listener on `window.parent.document` that pauses any playing `<audio>` immediately on any button click. Called once at the top of `render_tutor_room()`.
+
+**Dark-mode contrast fixes:**
+- `[data-testid="stExpander"] summary` keeps Streamlit's native near-white background even when the outer expander gets a dark background — white text on that native background is white-on-white. Added `background: card_bg !important` to the summary selector in `_theme_overrides_css()`.
+- `frontend/results_page.py`'s question-text div hardcoded `color:#111827` with no background of its own, sitting directly on the (dark, in dark mode) expander background. Replaced with a theme-aware `question_text_color`, same pattern as `app.py`'s `header_text_color`.
+
+**Verified:** audio — live repro with autoplay forced on (`--autoplay-policy=no-user-gesture-required`) showed the audio paused within ~150ms of a button click, well before a simulated 2s backend delay finished. Contrast — synthetic results-page harness (fake `QuizResult`/`AnswerResult`, no real quiz needed) confirmed dark mode now shows white text on dark backgrounds for both the header and question text, light mode pixel-unchanged. Full pytest suite: 139 passed, 0 failures.
+
+**Files:** `frontend/audio_autostop.py` (new), `frontend/tutor_room.py`, `frontend/styles.py`, `frontend/results_page.py`.
+
+---
+
 ## Commit convention
 
 Format: `[Phase N] <short description>`

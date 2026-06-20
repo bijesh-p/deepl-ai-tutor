@@ -559,6 +559,11 @@ def _theme_overrides_css(dark: bool) -> str:
 [data-testid="stMetricLabel"] {{ color: #A5B4FC !important; }}
 
 [data-testid="stExpander"] {{ background: {p['card_bg']} !important; border-color: {p['card_border']} !important; }}
+/* The expander's <summary> (clickable header) keeps Streamlit's own native
+   near-white background regardless of the outer dark background above it —
+   white text (inherited from .stApp) on that native background is white on
+   white. */
+[data-testid="stExpander"] summary {{ background: {p['card_bg']} !important; }}
 [data-testid="stForm"] {{ background: {p['form_bg']} !important; border-color: {p['card_border']} !important; }}
 [data-testid="stFileUploader"] section {{ background: {p['form_bg']} !important; border-color: {p['card_border']} !important; }}
 [data-testid="stFileUploaderDropzoneInstructions"] span,

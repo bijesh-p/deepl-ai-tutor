@@ -16,6 +16,7 @@ from backend.analytics.persistence import (
     save_user_profile,
 )
 from backend.interactive_tutor import build_tutor_graph
+from frontend.audio_autostop import render_audio_autostop
 from frontend.styles import concept_rail_html
 
 try:
@@ -26,6 +27,8 @@ except ImportError:
 
 
 def render_tutor_room() -> None:
+    render_audio_autostop()
+
     module = st.session_state.get("module")
     if module is None:
         st.title("AI Tutor")
