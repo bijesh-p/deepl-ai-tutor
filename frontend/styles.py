@@ -469,9 +469,9 @@ _DARK_PALETTE: dict[str, str] = {
     "app_bg": "#0F1117",
     "text_primary": "#F1F5F9",      # vs app_bg: ~15:1 contrast, WCAG AAA
     "text_secondary": "#94A3B8",    # vs app_bg: ~7:1 contrast, WCAG AA
-    "sidebar_grad_start": "#3B0764",   # deep violet — reuses the app's existing purple-accent family
-    "sidebar_grad_end": "#1E1033",     # near-black violet
-    "sidebar_border": "#6D28D9",       # violet-700
+    "sidebar_grad_start": "#1E293B",   # slate-800 — neutral, soothing gray
+    "sidebar_grad_end": "#0F172A",     # slate-900, blends into app_bg
+    "sidebar_border": "#475569",       # slate-600
     "sidebar_text": "#CBD5E1",      # vs sidebar bg: ~9:1 contrast, WCAG AAA
     "card_bg": "#1A1D29",
     "card_border": "#2D2F3D",
@@ -513,7 +513,7 @@ def _theme_overrides_css(dark: bool) -> str:
 [data-testid="stSidebar"] .stCaption {{
     color: {p['sidebar_text']} !important;
 }}
-[data-testid="stSidebar"] .sb-label {{ color: #C4B5FD !important; border-top-color: {p['sidebar_border']} !important; }}
+[data-testid="stSidebar"] .sb-label {{ color: {p['text_secondary']} !important; border-top-color: {p['sidebar_border']} !important; }}
 /* Sign-out button's label text sits in a nested <p>, which the generic sidebar
    text rule above matches directly (and direct rules always beat inherited
    ones) — washing out the button's own dark-red text on its light rose card.
@@ -564,8 +564,7 @@ def _theme_overrides_css(dark: bool) -> str:
 [data-testid="stFileUploaderDropzoneInstructions"] span,
 [data-testid="stFileUploaderDropzoneInstructions"] small {{ color: {p['text_secondary']} !important; }}
 
-/* Quiz option cards — base (unchecked) state only; hover/checked accent colors
-   defined in _GLOBAL_CSS stay the same blue in both themes. */
+/* Quiz option cards — base (unchecked) state. */
 [data-testid="stRadio"] [role="radiogroup"] > label,
 [data-testid="stCheckbox"] label {{
     background: {p['card_bg']} !important;
@@ -576,6 +575,31 @@ def _theme_overrides_css(dark: bool) -> str:
 [data-testid="stCheckbox"] label p,
 [data-testid="stCheckbox"] label span {{
     color: {p['text_primary']} !important;
+}}
+
+/* Quiz option cards — hover/checked. _GLOBAL_CSS's hover (#F0F8FF) and
+   checked (#EFF6FF) backgrounds are unconditional, near-white "light card"
+   colors meant for the light theme — combined with the near-white base text
+   color above, that left hover/checked text invisible (near-white on
+   near-white) in dark mode. Override with dark-appropriate equivalents;
+   ordered after :hover so :has(input:checked) wins when both apply. */
+[data-testid="stRadio"] [role="radiogroup"] > label:hover,
+[data-testid="stCheckbox"] label:hover {{
+    background: #233047 !important;
+    border-color: #60A5FA !important;
+}}
+[data-testid="stRadio"] [role="radiogroup"] > label:has(input:checked),
+[data-testid="stCheckbox"] label:has(input:checked) {{
+    background: #1E3A5F !important;
+    border-color: #3B82F6 !important;
+    box-shadow: 0 0 0 3px rgba(59,130,246,0.25) !important;
+}}
+[data-testid="stRadio"] [role="radiogroup"] > label:has(input:checked) p,
+[data-testid="stRadio"] [role="radiogroup"] > label:has(input:checked) div,
+[data-testid="stCheckbox"] label:has(input:checked) p,
+[data-testid="stCheckbox"] label:has(input:checked) span {{
+    color: #BFDBFE !important;
+    font-weight: 600 !important;
 }}
 
 /* Tabs (module_viewer topic tabs) — _GLOBAL_CSS only colors the *selected*

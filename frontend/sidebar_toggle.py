@@ -18,8 +18,8 @@ def render_sidebar_toggle() -> None:
     """Render the floating toggle. Call once per page, after set_page_config."""
     dark = bool(st.session_state.get("dark_mode", False))
     if dark:
-        bg, bg_hover = "#6D28D9 0%, #4C1D95 100%", "#7C3AED 0%, #5B21B6 100%"
-        shadow, shadow_hover = "rgba(109,40,217,0.45)", "rgba(124,58,237,0.55)"
+        bg, bg_hover = "#475569 0%, #1E293B 100%", "#64748B 0%, #334155 100%"
+        shadow, shadow_hover = "rgba(71,85,105,0.45)", "rgba(100,116,139,0.55)"
     else:
         bg, bg_hover = "#4F46E5 0%, #2563EB 100%", "#4338CA 0%, #1D4ED8 100%"
         shadow, shadow_hover = "rgba(37,99,235,0.35)", "rgba(37,99,235,0.5)"

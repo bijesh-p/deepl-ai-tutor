@@ -1,7 +1,7 @@
 # plan.md — AI Tutor Implementation
 
 > **Goal:** Deliver a fully working AI Tutor with adaptive tutoring, observability, and admin-curated module sharing.
-> **Spec:** SPEC.md v0.15
+> **Spec:** SPEC.md v0.16
 > **Last updated:** 2026-06-20
 
 ---
@@ -308,6 +308,24 @@ Integration tests for MCP servers, LLM factory adapters, and the LangGraph graph
 - `frontend/sidebar_toggle.py` (new)
 - `frontend/styles.py` — new `[data-testid="stIFrame"]` rule, updated sidebar comment block
 - `app.py` — wired the call into `main()`
+
+---
+
+## Phase 48 — UI polish round 2: gray sidebar, quiz hover fix, login card fix ✅ Done
+
+**Goal:** Three more reported UI bugs — sidebar should be gray not violet, quiz options become invisible on hover/select in dark mode, and the login page title renders outside its card.
+
+**What shipped:**
+- **Sidebar re-themed violet → slate-gray**: `_DARK_PALETTE`'s `sidebar_grad_start/end`/`sidebar_border` changed to slate-800/900/600 (`#1E293B`/`#0F172A`/`#475569`); `.sb-label` now reuses the existing `text_secondary` token instead of a hardcoded violet hex. `frontend/sidebar_toggle.py`'s button gradient updated to match (slate-600→800 resting, slate-500→700 hover).
+- **Quiz option hover/checked invisible text, fixed**: root cause was that `_GLOBAL_CSS`'s `:hover` (`#F0F8FF`) and `:has(input:checked)` (`#EFF6FF`) backgrounds for radio/checkbox option cards are unconditional, near-white "light theme" colors — combined with the dark-mode base-state text color (`#F1F5F9`, also near-white), hovering or selecting an option produced near-white text on a near-white background. Added dark-mode-specific hover (`#233047` bg / `#60A5FA` border) and checked (`#1E3A5F` bg / `#3B82F6` border / `#BFDBFE` text) rules in `_theme_overrides_css()`.
+- **Login page title-outside-card bug, fixed**: the card was built by opening a `<div class="login-canvas">` in one `st.markdown()` call and closing it in a separate, later call — Streamlit renders each call as an independent sibling, so nothing rendered in between (title, tabs, forms) actually nested inside the div; verified live that the closing tag left the title floating outside the white card. Replaced with `with st.container(key="login_canvas"):`, which Streamlit gives a real shared wrapper (class `st-key-login_canvas`) that every child genuinely nests inside. `_LOGIN_CSS` selectors updated from `.login-canvas` to `.st-key-login_canvas` to match.
+
+**Verified live:** screenshotted hover/checked/checked+hovered quiz option states in dark mode (all legible); confirmed via DOM bounding-box containment check that the login title is now fully inside the card's rect; confirmed light mode is pixel-identical (no regression, all changes are dark-mode-gated or additive); `AppTest` clean on login + module_library in both themes; full pytest suite unaffected (same 2 pre-existing unrelated failures).
+
+**Files:**
+- `frontend/styles.py` — `_DARK_PALETTE` tokens, new quiz hover/checked dark rules
+- `frontend/sidebar_toggle.py` — gray gradient colors
+- `frontend/login_page.py` — `st.container(key=...)` restructure, `_LOGIN_CSS` selector updates
 
 ---
 

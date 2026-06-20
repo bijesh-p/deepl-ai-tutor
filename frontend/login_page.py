@@ -49,8 +49,16 @@ header[data-testid="stHeader"],
     max-width: 100% !important;
 }
 
-/* The card itself */
-.login-canvas {
+/* The card itself.
+   Rendered via st.container(key="login_canvas") rather than a raw opening
+   <div> in one st.markdown() call closed by another later — Streamlit
+   renders each call as an independent sibling DOM node, so a div "opened"
+   in one markdown call is auto-closed by the browser before the next
+   call's content exists, meaning nothing (not even the title) actually
+   nests inside it. st.container(key=...) creates a single real wrapper
+   element (class `st-key-<key>`) that every child rendered in the `with`
+   block — title, tabs, forms — genuinely nests inside. */
+.st-key-login_canvas {
     background: #FFFFFF;
     border-radius: 20px;
     box-shadow: 0 8px 40px rgba(99,102,241,0.14), 0 2px 8px rgba(0,0,0,0.06);
@@ -61,13 +69,13 @@ header[data-testid="stHeader"],
 }
 
 /* Tab styling inside the card */
-.login-canvas .stTabs [data-baseweb="tab-list"] {
+.st-key-login_canvas .stTabs [data-baseweb="tab-list"] {
     gap: 4px;
     background: #F5F3FF;
     border-radius: 10px;
     padding: 4px;
 }
-.login-canvas .stTabs [data-baseweb="tab"] {
+.st-key-login_canvas .stTabs [data-baseweb="tab"] {
     border-radius: 7px !important;
     font-size: 13px !important;
     font-weight: 500 !important;
@@ -76,7 +84,7 @@ header[data-testid="stHeader"],
     background: transparent !important;
     border: none !important;
 }
-.login-canvas .stTabs [aria-selected="true"] {
+.st-key-login_canvas .stTabs [aria-selected="true"] {
     background: #FFFFFF !important;
     color: #1E1B4B !important;
     font-weight: 600 !important;
@@ -84,18 +92,18 @@ header[data-testid="stHeader"],
 }
 
 /* Input fields */
-.login-canvas input {
+.st-key-login_canvas input {
     border-radius: 8px !important;
     border: 1px solid #C7D2FE !important;
     font-family: 'Inter', sans-serif !important;
 }
-.login-canvas input:focus {
+.st-key-login_canvas input:focus {
     border-color: #6366F1 !important;
     box-shadow: 0 0 0 3px rgba(99,102,241,0.12) !important;
 }
 
 /* Sign-in button */
-.login-canvas .stFormSubmitButton > button {
+.st-key-login_canvas .stFormSubmitButton > button {
     background: linear-gradient(135deg, #4F46E5 0%, #2563EB 100%) !important;
     border: none !important;
     border-radius: 10px !important;
@@ -107,7 +115,7 @@ header[data-testid="stHeader"],
     box-shadow: 0 2px 8px rgba(79,70,229,0.3) !important;
     transition: all 0.15s ease !important;
 }
-.login-canvas .stFormSubmitButton > button:hover {
+.st-key-login_canvas .stFormSubmitButton > button:hover {
     background: linear-gradient(135deg, #4338CA 0%, #1D4ED8 100%) !important;
     box-shadow: 0 4px 14px rgba(79,70,229,0.4) !important;
     transform: translateY(-1px) !important;
@@ -149,12 +157,13 @@ def render_login_page() -> None:
     # Three-column layout: outer spacers squeeze the card to ~460 px
     _, col, _ = st.columns([1, 1.6, 1])
     with col:
-        # ── Card canvas ──────────────────────────────────────────────────────
-        st.markdown('<div class="login-canvas">', unsafe_allow_html=True)
-
-        # Brand header
-        st.markdown(
-            """
+        # ── Card canvas — a real container, so the title/tabs/forms below
+        # actually nest inside it (see _LOGIN_CSS comment for why this
+        # replaced a raw open/close <div> across separate markdown calls). ──
+        with st.container(key="login_canvas"):
+            # Brand header
+            st.markdown(
+                """
 <div style="text-align:center;padding:0.5rem 0 1.5rem;
     font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
   <div style="font-size:1.9rem;font-weight:800;letter-spacing:-0.03em;
@@ -168,51 +177,49 @@ def render_login_page() -> None:
   </div>
 </div>
 """,
-            unsafe_allow_html=True,
-        )
+                unsafe_allow_html=True,
+            )
 
-        # ── Login tabs ────────────────────────────────────────────────────────
-        user_tab, admin_tab = st.tabs(["  User Login  ", "  Admin Login  "])
+            # ── Login tabs ────────────────────────────────────────────────────
+            user_tab, admin_tab = st.tabs(["  User Login  ", "  Admin Login  "])
 
-        with user_tab:
-            with st.form("user_login_form", border=False):
-                user_username = st.text_input(
-                    "Username",
-                    value=st.session_state.get("_last_username", ""),
-                    placeholder="e.g. alice",
-                    autocomplete="username",
-                    key="user_username",
-                )
-                st.text_input(
-                    "Password",
-                    type="password",
-                    disabled=True,
-                    placeholder="Not required for regular users",
-                    key="user_password",
-                )
-                user_submitted = st.form_submit_button(
-                    "Sign in", type="primary", use_container_width=True,
-                )
+            with user_tab:
+                with st.form("user_login_form", border=False):
+                    user_username = st.text_input(
+                        "Username",
+                        value=st.session_state.get("_last_username", ""),
+                        placeholder="e.g. alice",
+                        autocomplete="username",
+                        key="user_username",
+                    )
+                    st.text_input(
+                        "Password",
+                        type="password",
+                        disabled=True,
+                        placeholder="Not required for regular users",
+                        key="user_password",
+                    )
+                    user_submitted = st.form_submit_button(
+                        "Sign in", type="primary", use_container_width=True,
+                    )
 
-        with admin_tab:
-            with st.form("admin_login_form", border=False):
-                admin_username = st.text_input(
-                    "Username",
-                    placeholder="e.g. admin",
-                    autocomplete="username",
-                    key="admin_username",
-                )
-                admin_password = st.text_input(
-                    "Password",
-                    type="password",
-                    placeholder="Admin password",
-                    key="admin_password",
-                )
-                admin_submitted = st.form_submit_button(
-                    "Sign in as Admin", type="primary", use_container_width=True,
-                )
-
-        st.markdown('</div>', unsafe_allow_html=True)  # close .login-canvas
+            with admin_tab:
+                with st.form("admin_login_form", border=False):
+                    admin_username = st.text_input(
+                        "Username",
+                        placeholder="e.g. admin",
+                        autocomplete="username",
+                        key="admin_username",
+                    )
+                    admin_password = st.text_input(
+                        "Password",
+                        type="password",
+                        placeholder="Admin password",
+                        key="admin_password",
+                    )
+                    admin_submitted = st.form_submit_button(
+                        "Sign in as Admin", type="primary", use_container_width=True,
+                    )
 
         if user_submitted:
             name = user_username.strip()
