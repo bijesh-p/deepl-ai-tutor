@@ -47,6 +47,12 @@ def render_module_library_page() -> None:
     st.markdown("---")
     _render_shared_library(shared_db)
 
+    import time
+    progress = st.session_state.get("pipeline_progress")
+    if progress and progress.get("state") not in ("completed", "failed", "aborted", None):
+        time.sleep(3)
+        st.rerun()
+
 
 def _render_my_modules(db, shared_db, is_admin: bool) -> None:
     modules = list_modules(db=db)

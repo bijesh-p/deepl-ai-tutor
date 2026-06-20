@@ -1,0 +1,54 @@
+WEBVTT
+
+NOTE This is a sample training transcript for testing
+
+00:00:01.000 --> 00:00:04.000
+<v Dr. Johnson>Hello everyone, welcome to today's session.
+
+00:00:05.000 --> 00:00:08.000
+<v Dr. Johnson>Can you hear me? Is my screen visible?
+
+00:00:09.000 --> 00:00:12.000
+<v Alice Chen>Yes, we can hear you.
+
+00:00:13.000 --> 00:00:15.000
+<v Dr. Johnson>Alright.
+
+00:00:16.000 --> 00:00:30.000
+<v Dr. Johnson>Today we will discuss neural networks. A neural network is a computational model inspired by the biological brain. It consists of layers of interconnected nodes.
+
+00:00:31.000 --> 00:00:45.000
+<v Dr. Johnson>The basic building block is the artificial neuron. Each neuron receives inputs, multiplies them by weights, sums the results, and passes the sum through an activation function to produce an output.
+
+00:00:46.000 --> 00:01:00.000
+<v Dr. Johnson>Common activation functions include sigmoid, tanh, and ReLU. ReLU is the most popular choice for hidden layers because it avoids the vanishing gradient problem.
+
+00:01:01.000 --> 00:01:05.000
+<v Alice Chen>How does the learning rate affect training?
+
+00:01:06.000 --> 00:01:20.000
+<v Dr. Johnson>Great question. The learning rate controls how much we adjust the weights during each step of gradient descent. If it is too high, the model overshoots the optimal solution. If it is too low, training becomes very slow.
+
+00:01:21.000 --> 00:01:30.000
+<v Dr. Johnson>Let's move on to backpropagation. This is the core algorithm used to train neural networks by computing gradients of the loss function.
+
+00:01:31.000 --> 00:01:45.000
+<v Dr. Johnson>Backpropagation works by applying the chain rule of calculus. It computes the gradient of the loss with respect to each weight by propagating errors backwards through the network layers.
+
+00:01:46.000 --> 00:02:00.000
+<v Dr. Johnson>The gradient tells us the direction and magnitude of the steepest ascent. We move in the opposite direction to minimize the loss. This process is called gradient descent.
+
+00:02:01.000 --> 00:02:08.000
+<v Bob Kumar>Why do we need different optimizers like Adam instead of plain gradient descent?
+
+00:02:09.000 --> 00:02:25.000
+<v Dr. Johnson>Plain gradient descent uses the same learning rate for all parameters. Adam adapts the learning rate for each parameter based on the history of gradients. This makes it converge faster and handle sparse gradients better.
+
+00:02:50.000 --> 00:03:05.000
+<v Dr. Johnson>Now let's talk about convolutional neural networks. CNNs are specialized architectures designed for processing grid-like data, especially images.
+
+00:03:06.000 --> 00:03:20.000
+<v Dr. Johnson>A CNN uses convolutional layers that apply filters across the input. Each filter detects a specific feature like edges, textures, or patterns. Pooling layers reduce spatial dimensions.
+
+00:03:21.000 --> 00:03:30.000
+<v Dr. Johnson>Thanks everyone, have a great day. See you next week.

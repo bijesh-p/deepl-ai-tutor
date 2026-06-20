@@ -12,19 +12,20 @@ calls (assess + enrich) with no need to read the whole document first.
 from __future__ import annotations
 
 import threading
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 from backend.content.models import EnrichedTopic, Topic
-from backend.ingestion.models import Document
+from backend.ingestion.models import Document, SourceType
 
-CHUNK_WORDS = 200
+CHUNK_WORDS = 300
 
 # ---------------------------------------------------------------------------
 # Assessment prompt / schema
 # ---------------------------------------------------------------------------
 
-MAX_ACCUMULATE_WORDS = 500  # force-publish after this many words even if not assessed presentable
+MAX_ACCUMULATE_WORDS = 800  # force-publish after this many words even if not assessed presentable
 
 _ASSESS_SYSTEM = (
     "You are an instructional designer reading a section of a document. "
@@ -94,13 +95,18 @@ def run_sliding_pipeline(
     if not all_words:
         raise ValueError(
             "No text could be extracted from this document. "
-            "It may be a scanned image PDF. Please use a text-based PDF, PPTX, or DOCX."
+            "It may be a scanned image PDF. Please use a text-based PDF, PPTX, DOCX, or VTT."
         )
+
+    if doc.source_type == SourceType.VTT:
+        return _run_pre_segmented(doc, llm, progress, abort_event, tracer)
     accumulated: list[tuple[str, str]] = []   # (word, section_id)
     published: list[EnrichedTopic] = []
     idx = 0
     total_words = len(all_words)
     module_id = progress.get("module_id", "")
+    # Initial estimate: one topic per MAX_ACCUMULATE_WORDS words
+    progress["total_topics"] = max(1, total_words // MAX_ACCUMULATE_WORDS)
 
     for start in range(0, total_words, chunk_words):
         if abort_event.is_set():
@@ -135,10 +141,18 @@ def run_sliding_pipeline(
             if enriched is not None:
                 published.append(enriched)
                 _store_in_vector_db(enriched, module_id)
+                now = time.monotonic()
                 progress["enriched_topics"] = list(published)
                 progress["topics_enriched"] = len(published)
                 progress["current_topic"] = enriched.topic.title
                 progress["detail"] = f"Slide {len(published)} ready: {enriched.topic.title}"
+                progress["last_topic_at"] = now
+                elapsed_so_far = now - progress.get("started_at", now)
+                progress["avg_seconds_per_topic"] = elapsed_so_far / len(published)
+                # Refine total estimate using actual words-per-topic rate
+                words_processed = start + len(chunk)
+                words_per_topic = words_processed / len(published)
+                progress["total_topics"] = max(len(published), round(total_words / words_per_topic))
 
                 if len(published) == 1:
                     progress["ready"] = True   # triggers redirect to tutor room
@@ -169,10 +183,70 @@ def run_sliding_pipeline(
             if enriched is not None:
                 published.append(enriched)
                 _store_in_vector_db(enriched, module_id)
+                now = time.monotonic()
                 progress["enriched_topics"] = list(published)
                 progress["topics_enriched"] = len(published)
+                progress["last_topic_at"] = now
+                elapsed_so_far = now - progress.get("started_at", now)
+                progress["avg_seconds_per_topic"] = elapsed_so_far / len(published)
                 if len(published) == 1:
                     progress["ready"] = True
+
+    progress["total_topics"] = len(published)
+    return published
+
+
+# ---------------------------------------------------------------------------
+# Pre-segmented fast path (VTT transcripts)
+# ---------------------------------------------------------------------------
+
+def _run_pre_segmented(
+    doc: Document,
+    llm,
+    progress: dict,
+    abort_event: threading.Event,
+    tracer,
+) -> list[EnrichedTopic]:
+    """Fast path for documents whose parser already segments content by topic.
+
+    Skips the _assess LLM call entirely — each Document.section becomes one
+    Topic directly, cutting ~50% of LLM calls.
+    """
+    published: list[EnrichedTopic] = []
+    module_id = progress.get("module_id", "")
+
+    for idx, section in enumerate(doc.sections):
+        if abort_event.is_set():
+            break
+
+        source_text = section.body.strip()
+        if not source_text:
+            continue
+
+        topic = Topic(
+            topic_id=str(uuid.uuid4()),
+            title=section.title,
+            summary=source_text[:200],
+            source_section_ids=[section.section_id],
+            order=idx,
+        )
+
+        progress["detail"] = f"Enriching: {topic.title}"
+
+        enriched = _enrich_one(
+            topic, source_text, llm, tracer, abort_event,
+            audio_enabled=progress.get("audio_enabled", True),
+        )
+        if enriched is not None:
+            published.append(enriched)
+            _store_in_vector_db(enriched, module_id)
+            progress["enriched_topics"] = list(published)
+            progress["topics_enriched"] = len(published)
+            progress["current_topic"] = enriched.topic.title
+            progress["detail"] = f"Slide {len(published)} ready: {enriched.topic.title}"
+
+            if len(published) == 1:
+                progress["ready"] = True
 
     progress["total_topics"] = len(published)
     return published

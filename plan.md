@@ -329,6 +329,177 @@ Integration tests for MCP servers, LLM factory adapters, and the LangGraph graph
 
 ---
 
+## Phase 4 — VTT Transcript Ingestion 🔲 Planned
+
+> **Goal:** Parse WebVTT (`.vtt`) training/classroom transcripts into learning modules.
+> Extract teaching content and Q&A, strip all speaker names (privacy), and plug into the
+> existing enrichment pipeline so VTT uploads produce the same interactive experience as
+> PDF/PPTX/DOCX.
+
+### Phase 41 — SourceType enum + VTT parser core
+
+**What:** Add `VTT` to the `SourceType` enum and implement `vtt_parser.py` with the full
+parsing pipeline.
+
+**Files:**
+- `backend/ingestion/models.py` — add `VTT = "vtt"` to `SourceType`
+- `backend/ingestion/vtt_parser.py` — **new file**, `parse_vtt(file_path, max_sections=16) -> Document`
+
+**Parser internals (`parse_vtt`):**
+
+1. **Read & validate** — Read file as UTF-8 (with BOM handling), verify `WEBVTT` header.
+2. **Parse cues** — Extract each cue's start/end timestamps and text payload. Strip `NOTE`,
+   `STYLE`, and `REGION` blocks.
+3. **Speaker detection** — Detect speakers from `<v Name>text</v>` voice tags or
+   `Speaker N: text` / `Name: text` line prefixes. Store speaker label per cue internally
+   (used for turn detection and Q&A identification only — never exposed in output).
+4. **Text cleanup** — Strip HTML tags (`<b>`, `<i>`, `<v>`, `<c>`, etc.), timestamps,
+   cue IDs. Remove filler/chatter lines (greetings, logistics, "can you hear me?",
+   "let me share my screen", etc.) using a pattern list. Collapse repeated whitespace.
+5. **Q&A detection** — Identify question-answer pairs: lines ending with `?` or starting
+   with question words ("what", "how", "why", "could you explain", etc.) followed by a
+   different speaker's response. Tag these cue groups as Q&A.
+6. **Segmentation** — Build sections using three-tier strategy:
+   - **Topic shifts** — keyword signals ("let's move on to", "next topic", "now let's
+     talk about") or sustained subject-matter change.
+   - **Time gaps** — >30 s silence between consecutive cues → section boundary.
+   - **Fixed chunks** — fallback: ~500-word boundaries → sections titled `"Part N"`.
+7. **Q&A grouping** — Q&A cues are either:
+   - Appended to the preceding topic section with a `---\n**Q&A**\n` separator, or
+   - Collected into a dedicated `"Q&A: <inferred topic>"` section if they form a
+     substantial standalone block.
+8. **Section titling** — Titles are topic/concept labels, **never** speaker names.
+   Format: `"Topic: <subject>"`, `"Q&A: <subject>"`, or `"Part N"` for fallback.
+   Any speaker names remaining in body text are replaced with `"Instructor"` /
+   `"Participant"`.
+9. **Build Document** — Return `Document(source_type=SourceType.VTT, ...)` with max 16
+   sections.
+
+**Commit:** `[Phase 41] Add VTT parser with content extraction and Q&A capture`
+
+---
+
+### Phase 42 — MCP document_server tool
+
+**What:** Expose `extract_text_from_vtt` in the MCP document server, following the
+same pattern as PPTX/DOCX tools.
+
+**Files:**
+- `mcp_servers/document_server/server.py` — add `extract_text_from_vtt` tool
+
+**Details:**
+```python
+@mcp.tool()
+def extract_text_from_vtt(file_path: str, max_sections: int = 16) -> str:
+    from backend.ingestion.vtt_parser import parse_vtt
+    doc = parse_vtt(file_path, max_sections=max_sections)
+    return doc.to_json()
+```
+
+**Commit:** `[Phase 42] Add extract_text_from_vtt MCP tool`
+
+---
+
+### Phase 43 — Upload page integration
+
+**What:** Accept `.vtt` files in the upload page and route them through the pipeline.
+
+**Files:**
+- `frontend/upload_page.py` — add `.vtt` to `_TOOL_FOR_EXT`, file uploader `type` list,
+  help text, and error messages
+
+**Changes:**
+1. `_TOOL_FOR_EXT[".vtt"] = "extract_text_from_vtt"`
+2. `type=["pdf", "pptx", "docx", "vtt"]` in `st.file_uploader`
+3. Update help text: `"PDF, PowerPoint, Word, or VTT transcript — up to ..."`
+4. Update error message: `"Please upload a PDF, PPTX, DOCX, or VTT file."`
+
+**Commit:** `[Phase 43] Add VTT to upload page file types`
+
+---
+
+### Phase 44 — Unit tests
+
+**What:** Test the VTT parser (content extraction, Q&A detection, name stripping, edge
+cases) and MCP round-trip.
+
+**Files:**
+- `tests/test_ingestion/test_vtt_parser.py` — **new file**
+- `tests/test_mcp/test_document_server.py` — add VTT round-trip test
+- `tests/fixtures/sample.vtt` — **new file**, test fixture with speaker turns + Q&A
+
+**Test cases for `test_vtt_parser.py`:**
+
+| Test | Verifies |
+|---|---|
+| `test_speaker_turns_produce_sections` | VTT with `<v>` tags → multiple sections, titled by topic not speaker |
+| `test_no_speaker_names_in_output` | No speaker name appears in any `Section.title` or `Section.body` |
+| `test_qa_extraction` | Question-answer exchanges are captured (either inline or as Q&A section) |
+| `test_chatter_stripped` | Greetings, logistics, filler lines are not in output |
+| `test_time_gap_segmentation` | VTT without speakers, >30s gaps → section boundaries |
+| `test_fixed_chunk_fallback` | Long single-speaker transcript → ~500-word sections titled `"Part N"` |
+| `test_single_cue` | Minimal VTT with one cue → one section |
+| `test_empty_file` | VTT with only header → empty sections list |
+| `test_max_sections_cap` | Large transcript respects `max_sections` limit |
+| `test_source_type_is_vtt` | `doc.source_type == SourceType.VTT` |
+| `test_document_roundtrip_json` | `Document.from_json(doc.to_json())` preserves all fields |
+
+**MCP round-trip test in `test_document_server.py`:**
+
+| Test | Verifies |
+|---|---|
+| `test_extract_text_from_vtt_matches_parse_vtt` | MCP tool returns same result as calling parser directly |
+
+**Commit:** `[Phase 44] Add VTT parser and MCP round-trip tests`
+
+---
+
+### Phase 45 — README and references update
+
+**What:** Update documentation to reflect VTT support.
+
+**Files:**
+- `README.md` — add VTT to features list, upload description, and file type references
+- `references.md` — add WebVTT spec reference
+
+**Commit:** `[Phase 45] Update docs for VTT transcript support`
+
+---
+
+### Phase 4 summary
+
+| Phase | Scope | New files | Modified files |
+|---|---|---|---|
+| 41 | Parser + SourceType | `backend/ingestion/vtt_parser.py` | `backend/ingestion/models.py` |
+| 42 | MCP tool | — | `mcp_servers/document_server/server.py` |
+| 43 | Upload integration | — | `frontend/upload_page.py` |
+| 44 | Tests + fixture | `tests/test_ingestion/test_vtt_parser.py`, `tests/fixtures/sample.vtt` | `tests/test_mcp/test_document_server.py` |
+| 45 | Docs | — | `README.md`, `references.md` |
+
+**Dependencies:** None — VTT is plain text parsed with Python stdlib (`re`, `pathlib`).
+
+---
+
+## Phase 49 — Merge `main` and `experiment/improve-ui` 🔲 Planned
+
+**Goal:** Bring `experiment/improve-ui`'s UI/UX work (dark mode toggle, navigation, topic highlighting, sidebar fix) into `main` while keeping every functional feature `main` grew independently (VTT ingestion, provider e2e tests, diagram-sanitization robustness, adaptive-tutor session/navigation fixes, multi-format upload). Performed as `main` merged into `experiment/improve-ui` (not the reverse), so this branch can be reviewed before it lands on `main`.
+
+**Why a manual merge was required:** both branches independently built a "dark theme" while diverging from the same ancestor (`871d377`). `main`'s version (`86728a5`) is a forced, permanent, process-wide dark theme (`.streamlit/config.toml` `base = "dark"` + a single hardcoded-dark `_GLOBAL_CSS`) with no toggle. `experiment/improve-ui`'s version is a proper per-user toggle (light default, dark on demand, persisted in `user_profiles.dark_mode`). These can't coexist, and `main`'s is superseded entirely.
+
+**Resolution by file:**
+- `frontend/styles.py`, `frontend/login_page.py` — kept `experiment/improve-ui`'s version wholesale. `main`'s changes here were exclusively the now-superseded forced-dark theme / an older login-card markup bug; no independent functional content to preserve.
+- `.streamlit/config.toml` — reverted to its light-default values (auto-merge would have silently kept `main`'s forced-dark config, since `experiment/improve-ui` never touched this file — would have broken the toggle).
+- `app.py` — kept `experiment/improve-ui`'s theme-aware sidebar text colors; manually removed `main`'s leftover "force sidebar permanently visible" CSS block, since it directly contradicts the working sidebar-toggle mechanism (`frontend/sidebar_toggle.py`) this branch built across Phases 45–47.
+- `frontend/module_viewer.py` — true manual merge, not a side-pick: kept `main`'s `_sanitize_mermaid` + try/except diagram-crash guard, the top "🚀 Start Adaptive Tutor" button, and the sidebar "Contents" list (which also previews not-yet-generated topic titles during streaming — something the tabs view alone can't show), while adopting `experiment/improve-ui`'s `st.tabs()` topic navigation and top-of-page back button.
+- `SPEC.md`, `plan.md` — combined both branches' phase history (no contradiction, both append-only).
+- Everything else (`results_page.py`, `tutor_room.py`, `upload_page.py`, `backend/analytics/persistence.py`, `backend/analytics/db.py`, `README.md`) merged cleanly with both branches' features intact — verified by reading the actual merged blob content for each, not just trusting a clean auto-merge.
+
+**Verified live:** full pytest suite passes (138 passed, 1 skipped, zero failures — the 2 previously-known pre-existing failures are also gone, fixed independently by `main`'s own commits); `AppTest` smoke-test clean; Playwright pass confirming login-card containment, dark-mode toggle (app bg switches to `#0F1117`), sidebar collapse/re-expand round-trip via the custom JS toggle, and `module_viewer.py` rendering tabs + back button + both action buttons + sidebar Contents list + a deliberately malformed diagram (to confirm the `_sanitize_mermaid`/try-except safety net survived the merge) without crashing.
+
+**Files:** `app.py`, `.streamlit/config.toml`, `frontend/styles.py`, `frontend/login_page.py`, `frontend/module_viewer.py`, `SPEC.md`, `plan.md`, plus all cleanly auto-merged files above.
+
+---
+
 ## Commit convention
 
 Format: `[Phase N] <short description>`

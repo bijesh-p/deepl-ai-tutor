@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tempfile
 import threading
@@ -30,6 +31,7 @@ _TOOL_FOR_EXT: dict[str, str] = {
     ".pdf": "extract_text_from_pdf",
     ".pptx": "extract_text_from_pptx",
     ".docx": "extract_text_from_docx",
+    ".vtt": "extract_text_from_vtt",
 }
 
 
@@ -80,8 +82,8 @@ def render_upload_page() -> None:
     with st.form("upload_form"):
         uploaded = st.file_uploader(
             "Choose a document",
-            type=["pdf", "pptx", "docx"],
-            help="PDF, PowerPoint (.pptx), or Word (.docx) — up to 10 pages processed.",
+            type=["pdf", "pptx", "docx", "vtt"],
+            help="PDF, PowerPoint (.pptx), Word (.docx), or VTT transcript (.vtt) — up to 10 pages processed.",
             label_visibility="collapsed",
         )
         cached_name = st.session_state.get("_cached_upload_name")
@@ -103,7 +105,7 @@ def render_upload_page() -> None:
     if uploaded is None:
         cached = st.session_state.get("_cached_upload_bytes")
         if cached is None:
-            st.error("Please upload a PDF, PPTX, or DOCX file.")
+            st.error("Please upload a PDF, PPTX, DOCX, or VTT file.")
             return
         uploaded_bytes = cached
         file_ext = Path(st.session_state.get("_cached_upload_name", ".pdf")).suffix.lower()
@@ -114,7 +116,7 @@ def render_upload_page() -> None:
         st.session_state["_cached_upload_name"] = uploaded.name
 
     if file_ext not in _TOOL_FOR_EXT:
-        st.error(f"Unsupported file type: {file_ext!r}. Please upload a PDF, PPTX, or DOCX.")
+        st.error(f"Unsupported file type: {file_ext!r}. Please upload a PDF, PPTX, DOCX, or VTT.")
         return
 
     with tempfile.NamedTemporaryFile(suffix=file_ext, delete=False) as tmp:
@@ -157,6 +159,7 @@ def _start_pipeline(tmp_path: str, file_ext: str, user_id: str, username: str, d
         "db_path": db_path,
         "tracing_enabled": tracing_enabled,
         "audio_enabled": audio_enabled,
+        "log": [],
     }
 
     st.session_state["pipeline_progress"] = progress
@@ -189,28 +192,36 @@ def _run_pipeline_bg(
     progress: dict,
     abort_event: threading.Event,
 ) -> None:
+    def _log(msg: str) -> None:
+        elapsed = int(time.monotonic() - progress["started_at"])
+        progress["log"].append(f"[{elapsed:>3}s] {msg}")
+
     try:
         from backend.content.models import LearningModule
         from backend.content.sliding_pipeline import run_sliding_pipeline
-        from backend.core.mcp_client import get_client
         from backend.ingestion.models import Document
-        from backend.observability.tracer import get_tracer
+        from backend.ingestion.pdf_parser import parse_pdf
         from backend.quiz.question_bank import generate_question_bank
-        tracer = get_tracer() if progress.get("tracing_enabled", True) else _noop_tracer()
+        tracer = _noop_tracer()
 
-        # ── Step 1: Parse ─────────────────────────────────────────────────────
+        # ── Step 1: Parse (direct — no MCP needed) ───────────────────────────
         progress["state"] = "parsing"
         progress["detail"] = "Reading document..."
+        _log("Reading document...")
         try:
-            tool_name = _TOOL_FOR_EXT[file_ext]
-            doc_json = get_client("document_server").call(tool_name, file_path=tmp_path)
-            doc = Document.from_json(doc_json)
+            if file_ext == ".pdf":
+                doc = parse_pdf(tmp_path, max_pages=25)
+            elif file_ext == ".pptx":
+                from backend.ingestion.pptx_parser import parse_pptx
+                doc = parse_pptx(tmp_path)
+            elif file_ext == ".docx":
+                from backend.ingestion.docx_parser import parse_docx
+                doc = parse_docx(tmp_path)
+            else:
+                raise ValueError(f"Unsupported format: {file_ext}")
             progress["doc_title"] = doc.title
             progress["doc_id"] = doc.doc_id
-            progress["detail"] = (
-                f"Parsed {doc.title} — {len(doc.sections)} section(s), "
-                f"{doc.total_pages} page(s)"
-            )
+            _log(f"Parsed '{doc.title}' — {len(doc.sections)} section(s), {doc.total_pages} page(s)")
         except Exception as exc:
             _fail(progress, "parse", exc,
                   "Could not read the document. The file may be corrupted, "
@@ -295,6 +306,7 @@ def _run_pipeline_bg(
         # ── Step 4: Quiz ──────────────────────────────────────────────────────
         progress["state"] = "quiz"
         progress["detail"] = "Generating quiz questions..."
+        _log("Generating quiz questions...")
         progress["current_topic"] = ""
         try:
             bank = generate_question_bank(module, llm)
@@ -310,20 +322,26 @@ def _run_pipeline_bg(
             progress["state"] = "aborted"
             return
 
-        # ── Step 5: Save ──────────────────────────────────────────────────────
+        # ── Step 5: Save (direct — no MCP needed) ────────────────────────────
         progress["state"] = "saving"
         progress["detail"] = "Saving module..."
+        _log("Saving module to database...")
         try:
-            get_client("storage_server").call(
-                "save_module_to_db",
-                module_id=module.module_id,
-                title=module.title,
-                source_filename=doc.source_filename,
-                module_json=module.to_json(),
-                question_bank_json=json.dumps(_bank_to_dict(bank)),
-                created_by=user_id,
-                db_path=db_path,
-            )
+            from backend.analytics.db import get_db
+            from backend.analytics.persistence import save_module
+            conn = get_db(db_path)
+            try:
+                save_module(
+                    module_id=module.module_id,
+                    title=module.title,
+                    source_filename=doc.source_filename,
+                    module_json=module.to_json(),
+                    question_bank_json=json.dumps(_bank_to_dict(bank)),
+                    created_by=user_id,
+                    db=conn,
+                )
+            finally:
+                conn.close()
         except Exception as exc:
             _fail(progress, "save", exc,
                   "Could not save the module to the database. "
@@ -332,6 +350,7 @@ def _run_pipeline_bg(
             return
 
         progress["state"] = "completed"
+        _log("Module saved. Done!")
         progress["detail"] = "Module ready!"
 
     finally:
@@ -343,7 +362,7 @@ _PIPELINE_STEPS = ["Upload", "Parse", "Generate Slides", "Quiz", "Save"]
 _STATE_TO_STEP = {"parsing": 1, "enriching": 2, "quiz": 3, "saving": 4}
 
 
-@st.fragment(run_every=2)
+@st.fragment(run_every=3)
 def _pipeline_status_fragment() -> None:
     progress = st.session_state.get("pipeline_progress")
     if progress is None:
@@ -389,16 +408,27 @@ def _pipeline_status_fragment() -> None:
             st.markdown(skeleton_slide_html("Connecting to AI…"), unsafe_allow_html=True)
 
         # Progress bar
-        if total > 0 and done > 0:
-            frac = min(done / total, 1.0)
-            st.progress(frac, text=f"{done} of ~{total} slides ready")
+        if total > 0:
+            st.progress(min(done / total, 1.0), text=f"{done} of {total} slides ready")
+        else:
+            st.progress(0.0, text="Assessing document structure…")
 
-        # Stats row
+        # ETA row
+        avg_secs = progress.get("avg_seconds_per_topic", 0)
         col_stat, col_abort = st.columns([3, 1])
         with col_stat:
-            elapsed_str = f"{elapsed}s" if elapsed > 0 else ""
-            hint = f"Generating slides — {elapsed_str} elapsed" if elapsed_str else "Generating slides…"
-            st.caption(hint)
+            if done == 0:
+                st.caption("Generating first slide… please wait")
+            elif avg_secs > 0:
+                if total > 0:
+                    remaining = total - done
+                    eta = int(remaining * avg_secs)
+                    eta_str = f"~{eta // 60}m {eta % 60}s" if eta > 60 else f"~{eta}s"
+                    st.caption(f"{done} of {total} slides ready · {eta_str} remaining")
+                else:
+                    st.caption(f"{done} slide(s) ready · ~{avg_secs:.0f}s per slide · counting total…")
+            else:
+                st.caption(f"{done} slide(s) ready — calculating time…")
         with col_abort:
             _abort_button()
 
@@ -408,6 +438,7 @@ def _pipeline_status_fragment() -> None:
 
     elif state == "saving":
         st.markdown(saving_status_html(elapsed), unsafe_allow_html=True)
+
 
 
 def _render_failed_state(progress: dict, elapsed: int) -> None:
@@ -490,10 +521,23 @@ def _handle_completed(progress: dict) -> None:
         )
 
     bank = progress.get("bank")
-    st.session_state["module"] = module
+
+    # Clear stale module data so the new module loads fresh
+    for key in (
+        "module", "bank", "quiz", "quiz_answers", "quiz_result",
+        "quiz_difficulty", "tutor_state", "tutor_phase", "tutor_graph",
+        "tutor_content_map", "tutor_visited_concepts", "chat_history",
+        "all_modules", "pipeline_progress",
+    ):
+        st.session_state.pop(key, None)
+
     if bank:
         st.session_state["bank"] = bank
-    st.session_state["page"] = "tutor_room"
+    if module is not None:
+        st.session_state["module"] = module
+        st.session_state["page"] = "module_viewer"
+    else:
+        st.session_state["page"] = "module_library"
     _cleanup_pipeline_state()
     st.rerun()
 
@@ -514,7 +558,7 @@ def _redirect_to_viewer(progress: dict) -> None:
         created_at=datetime.now(timezone.utc).isoformat(),
     )
     st.session_state["module"] = module
-    st.session_state["page"] = "tutor_room"
+    st.session_state["page"] = "module_library"
     st.rerun()
 
 
@@ -526,16 +570,22 @@ def _prefetch_diagnostic(llm, doc, progress: dict) -> Future:
     from concurrent.futures import ThreadPoolExecutor
     from backend.interactive_tutor.graph import _DIAGNOSTIC_SCHEMA, _DIAGNOSTIC_SYSTEM
 
-    first_section = doc.sections[0] if doc.sections else None
-    title = first_section.title if first_section else doc.title
-    summary = (first_section.body[:300] if first_section else "")
+    # Build a representative content sample from across the whole document
+    # (not just the first section title, which may be a page code like "M1L1")
+    all_body = "\n\n".join(
+        s.body for s in doc.sections if s.body.strip()
+    )
+    content_sample = all_body[:1500].strip() or doc.title
 
     def _fetch():
         try:
             result = llm.generate(
                 prompt=(
-                    f"Topic: {title}\nSummary: {summary}\n\n"
-                    "Generate diagnostic questions to assess the student's prior knowledge."
+                    f"Document title: {doc.title}\n\n"
+                    f"Content excerpt:\n{content_sample}\n\n"
+                    "Generate 3 diagnostic questions to assess the student's prior knowledge "
+                    "of the subject matter in this document. Base questions strictly on the "
+                    "concepts mentioned in the content above."
                 ),
                 system=_DIAGNOSTIC_SYSTEM,
                 tool_schema=_DIAGNOSTIC_SCHEMA,

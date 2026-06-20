@@ -1,6 +1,6 @@
 # SPEC.md — AI Tutor System Specification
 
-> **Version:** 0.16 | **Last updated:** 2026-06-20
+> **Version:** 0.17 | **Last updated:** 2026-06-20
 > Architecture, directory layout, and component design are in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
@@ -12,6 +12,7 @@
 | 1 | PDF POC | ✅ Complete | Role-based access, Anthropic-only, SQLite, persistent module library |
 | 2 | Functional Skeleton | ✅ Complete | LLM factory, MCP servers, LangGraph tutor, JIT pipeline, audio, observability |
 | 3 | Refined Platform | 🔄 In Progress | Feature polish, admin-curated module library, PPTX/DOCX, full ChromaDB wiring |
+| 4 | VTT Transcript Ingestion | 🔲 Planned | Parse training/classroom `.vtt` transcripts into learning modules |
 
 ---
 
@@ -85,7 +86,7 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
 | Admin mode (Phase 32) | Two-mode login: regular usernames log in as today (no password); usernames in `AI_TUTOR_ADMIN_USERNAMES` must additionally match `AI_TUTOR_ADMIN_PASSWORD` to set `is_admin=True`. Admin-generated modules can be published (copied) to a shared `published_modules` table in `data/shared/ai_tutor.db`, visible to all users in a "Shared Library" section. Admin scope is publish/unpublish of their own modules only — no edit/delete rights over other users' personal modules. Additonally in the login page create two separate set of login and password fields for admin and user modes. Password is only enabled for admin mode and user mode its disabled by default| ✅ Done |
 | ChromaDB tutor wiring (Phase 34) | `provide_hint` queries `storage_server.query_vector_db` (filtered by `module_id`) to ground hints in retrieved chunks, non-fatal on error. `present_concept` queries ChromaDB only as a fallback when `enriched_topic`/`concept_content` is empty in state, using the concept title as query text — avoids redundant queries on the normal (pipeline-enriched) fast path. | ✅ Done |
 | MCPClient pipeline integration (Phase 39) | Route `save_module_to_db` through `mcp_client` (storage_server gains an optional `db_path` param, delegates to `backend.analytics.db.get_db` + `persistence.save_module`, same pattern as Phase 30's `extract_text_from_pdf`). | ✅ Done |
-| Portkey / Ollama validation | End-to-end test matrix: all three providers × PDF upload → module → tutor session | 🔲 Planned |
+| Portkey / Ollama validation | End-to-end test matrix: all three providers × PDF upload → module → tutor session | ✅ Done |
 | LangGraph tutor polish (Phase 33/40) | Mastery persistence across sessions via a `tutor_sessions` table (serialized `GraphState` + UI phase); per-topic mastery written to `topic_mastery` table; mastery report page with cohort mastery analytics | ✅ Done |
 | PPTX / DOCX parsing (Phase 35) | `pptx_parser.py`, `docx_parser.py` in `backend/ingestion/`; upload page accepts `.pptx` and `.docx`; MCP `document_server` exposes `extract_text_from_pptx`/`extract_text_from_docx` | ✅ Done |
 | Audio improvements | Pre-generate audio for all topics (not just on-demand); cache invalidation on re-generation | 🔲 Planned |
@@ -102,7 +103,7 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
 - [x] Admin user can publish a module to the shared library; all other users see it in their module library without generating it themselves
 - [x] `provide_hint` retrieves supporting context from ChromaDB; `present_concept` falls back to ChromaDB when pipeline-enriched content is unavailable in state
 - [x] `save_module_to_db` is routed through `mcp_client` (PDF parsing and vector-store upsert already are, per Phase 29/30)
-- [ ] End-to-end test passes for Portkey and Ollama providers
+- [x] End-to-end test passes for Portkey and Ollama providers
 - [x] Mastery state is persisted across sessions (user can resume a tutor session)
 - [x] Upload page accepts `.pptx` and `.docx` in addition to `.pdf`
 - [x] All pipeline failures surface a structured, user-actionable error message
@@ -112,11 +113,53 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
 
 ---
 
+### Phase 4 — VTT Transcript Ingestion 🔲 Planned
+
+**Goal:** Allow users to upload WebVTT (`.vtt`) training or classroom recording transcripts and transform them into interactive learning modules — same experience as PDF/PPTX/DOCX uploads. The parser must extract **teaching content and key concepts** (not raw conversation), capture **important Q&A exchanges**, and **never record speaker/participant names** (privacy).
+
+**Background:** Training sessions and classroom lectures are often recorded and auto-transcribed into `.vtt` (WebVTT) subtitle files by platforms like Zoom, Teams, Google Meet, and YouTube. These transcripts contain rich spoken content but are hard to learn from in raw form — they are timestamped caption streams with speaker turns, filler words, and no structural organisation. This phase parses VTT files into the existing `Document`/`Section` model so the full enrichment pipeline (decompose → enrich → diagrams → audio → quiz → tutor) works unchanged.
+
+**Scope:**
+
+| Task | Description | Status |
+|---|---|---|
+| VTT parser | `backend/ingestion/vtt_parser.py` — `parse_vtt(path, max_sections=16)` reads a `.vtt` file, strips timestamps/cue formatting/speaker names, and produces a clean `Document`. **Content extraction:** (1) Identify teaching/instructional content (explanations, definitions, walkthroughs) vs. non-content chatter (greetings, logistics, "can you hear me?"). (2) Detect Q&A exchanges — questions asked during the session and their answers — and preserve them as dedicated sections or inline within the relevant topic section. **Privacy:** All speaker/participant names are stripped from the output — sections are titled by topic/concept, never by person (e.g. `"Topic: Neural Network Basics"`, `"Q&A: Backpropagation"`, not `"Speaker: John"`). **Segmentation:** Split on topic/concept shifts detected from content flow, with time-gap (>30 s) as a secondary signal, and ~500-word fixed chunking as final fallback. Returns a `Document` with `source_type=SourceType.VTT`. | 🔲 Planned |
+| SourceType enum | Add `VTT = "vtt"` to `backend/ingestion/models.py::SourceType` | 🔲 Planned |
+| MCP document_server tool | Expose `extract_text_from_vtt` in `mcp_servers/document_server/` — delegates to `vtt_parser.parse_vtt`, returns `Document.to_json()` (same pattern as PDF/PPTX/DOCX tools) | 🔲 Planned |
+| Upload page integration | Add `"vtt"` to the accepted file types in `frontend/upload_page.py`; route `.vtt` uploads to `extract_text_from_vtt` via the existing `_TOOL_FOR_EXT` dispatch map | 🔲 Planned |
+| Unit tests | `tests/test_ingestion/test_vtt_parser.py` — parse a fixture `.vtt` file with speaker turns, verify section count/titles/body; edge cases: no speakers, single cue, empty file. `tests/test_mcp/test_document_server_vtt.py` — MCP round-trip test | 🔲 Planned |
+
+**VTT parsing details:**
+
+1. **Format support:** Standard WebVTT (RFC 8216 §3.5) — `WEBVTT` header, optional cue identifiers, `HH:MM:SS.mmm --> HH:MM:SS.mmm` timestamps, cue payloads. HTML tags (`<b>`, `<i>`, `<v>`) and `NOTE` blocks are stripped.
+2. **Privacy — no speaker names in output:** Speaker tags (`<v Name>`, `Speaker N:`) are used internally to detect turn boundaries and Q&A patterns, but are **never** included in the output `Section.title` or `Section.body`. Section titles use topic/concept labels (e.g. `"Topic: Data Pipelines"`, `"Q&A: Error Handling"`), not person names. Any remaining names embedded in cue text are replaced with generic labels (`"Instructor"`, `"Participant"`).
+3. **Content extraction — teaching focus:** The parser classifies cue content into three categories:
+   - **Teaching content** (keep, high priority): Explanations, definitions, examples, demonstrations, walkthroughs, conceptual discussions.
+   - **Q&A exchanges** (keep, tagged): Questions asked by participants and the instructor's answers. These are preserved and grouped — either as a dedicated `"Q&A: <topic>"` section or appended to the relevant topic section with a `"---\n**Q&A**\n"` separator.
+   - **Non-content chatter** (discard): Greetings, roll call, "can you hear me?", "let me share my screen", scheduling logistics, repeated filler phrases. Stripped during cleanup.
+4. **Section boundaries:** (a) Topic/concept shift detected from content flow (keyword signals: "let's move on to", "next topic", "now let's talk about", subject-matter change). (b) Q&A block detected (question pattern followed by answer). (c) Time gap >30 s between cues as secondary signal. (d) Final fallback: ~500-word fixed chunking → sections titled `"Part N"`.
+5. **Text cleanup:** Strip timestamps, cue IDs, HTML tags, `NOTE` comments, `STYLE` blocks, and speaker identity markers. Collapse filler phrases and repeated words from auto-transcription. Preserve paragraph breaks at cue boundaries.
+6. **Limits:** Max 16 sections (consistent with PPTX/DOCX). `total_pages` set to number of sections (VTT has no page concept).
+
+**Definition of done for Phase 4:**
+- [ ] `SourceType.VTT` exists in models.py
+- [ ] `parse_vtt()` returns a valid `Document` from a `.vtt` file
+- [ ] Output sections are titled by topic/concept — **no speaker names** appear anywhere in the `Document`
+- [ ] Teaching content (explanations, concepts, examples) is extracted and non-content chatter is discarded
+- [ ] Q&A exchanges from the session are captured and preserved (as dedicated sections or inline with topic)
+- [ ] `parse_vtt()` handles the no-speaker fallback (time-gap and fixed-chunk segmentation)
+- [ ] `extract_text_from_vtt` MCP tool is exposed and callable via `mcp_client`
+- [ ] Upload page accepts `.vtt` files and routes them through the existing pipeline
+- [ ] A `.vtt` upload produces a complete learning module (topics + quiz + tutor session)
+- [ ] Unit tests pass for parser, Q&A extraction, name stripping, and MCP round-trip
+
+---
+
 ## 1. Non-Functional Requirements
 
 ### 1.1 File Constraints
 - Max upload: 50 MB
-- Phase 2: `.pdf` only; Phase 3 adds `.pptx` and `.docx`
+- Phase 2: `.pdf` only; Phase 3 adds `.pptx` and `.docx`; Phase 4 adds `.vtt`
 
 ### 1.2 LLM Usage
 - All LLM calls go through `BaseLLMClient` — no direct SDK imports outside `adapters/`
@@ -162,6 +205,8 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
 - [x] **Sidebar can't be re-expanded once collapsed (Phase 45/46/47)** — **Resolved via custom JS workaround.** Root cause: `[data-testid="stSidebarCollapseButton"]` is `visibility:hidden` by default and never becomes reachable via hover in Streamlit 1.58.0 — a framework-level issue (confirmed in a vanilla app; no newer Streamlit version exists to fix it; recurring class of bug in Streamlit's own issue tracker going back to 1.25/1.38). Fix: `frontend/sidebar_toggle.py::render_sidebar_toggle()` renders a small always-visible button via `st.iframe()` (the non-deprecated successor to `components.v1.html`), pinned to the page's top-left edge via CSS (`[data-testid="stIFrame"]` in `_GLOBAL_CSS`). On click, the button's own JS reaches into the parent page via `window.parent.document` and calls `.click()` on the real (hidden) native control — this works because `.click()` triggers React's handler regardless of CSS visibility, only *mouse*-driven interaction was blocked. Verified live: toggles the sidebar open/closed reliably in both light and dark mode (themed to match), not rendered on the login page (no sidebar there), zero console errors.
 - [x] **Windows/Linux dependency compatibility audit (Phase 46)** — **Resolved, no issues found:** the only active platform-specific pin is `onnxruntime<1.24` for `sys_platform == 'darwin' and platform_machine == 'x86_64'` (Intel-Mac-only; Windows/Linux resolve to the newer unconstrained `onnxruntime==1.26.0`). `pymupdf` has full prebuilt-wheel coverage (`cp310-abi3`, valid through Python 3.14 on regular builds) for Windows, macOS, and Linux (x86_64 + arm64) — no build-from-source risk. `sqlean-py` (transitive) already has an automatic Windows/non-Windows split in `uv.lock`. No OS-specific code anywhere in this project's own source. Gap noted, not fixed: no CI/`.github/workflows`, so this is a static dependency-metadata audit, not a live cross-platform test run.
 - [x] **Wrapping multiple Streamlit elements in one styled container (Phase 48)** — **Resolved:** opening a `<div>` via `st.markdown()` and closing it in a *later, separate* `st.markdown()` call does not nest the content rendered in between — Streamlit renders each call as an independent sibling, so the browser auto-closes the unclosed div immediately and nothing (not even immediately-following content) ends up inside it. The correct pattern is `with st.container(key="some_key"):` — every element rendered inside the `with` block becomes a real DOM child of one shared wrapper carrying the CSS class `st-key-some_key`, which can then be styled directly. Used to fix the login page's title-outside-its-card bug; this is the general pattern to reach for whenever custom CSS needs to wrap a mix of markdown and native widgets.
+- [x] **VTT transcript ingestion (Phase 4)** — **Resolved:** `backend/ingestion/vtt_parser.py` parses WebVTT files with three key requirements: (1) **Extract teaching content** — identify concepts, explanations, walkthroughs, and discard non-content chatter (greetings, logistics). (2) **Capture Q&A** — detect question-answer exchanges from the session and preserve them as tagged sections. (3) **Privacy** — strip all speaker/participant names; sections titled by topic, never by person. Segmentation: topic shifts > time gaps (>30 s) > ~500-word fixed chunking. Returns the standard `Document`/`Section` model with `SourceType.VTT`. No new dependencies — VTT is plain text parsed with regex. MCP tool and upload-page integration follow the same pattern as PPTX/DOCX (Phase 35).
+- [x] **Merging `main` (VTT ingestion, e2e tests, diagram/tutor robustness fixes) with `experiment/improve-ui` (dark mode toggle, navigation, topic highlighting) (Phase 49)** — **Resolved:** `main` had independently grown its own forced, permanent dark theme (`.streamlit/config.toml` `base = "dark"` + a single hardcoded-dark `_GLOBAL_CSS`, no toggle) while diverging — this is fully superseded by `experiment/improve-ui`'s per-user toggle system (light default + `_theme_overrides_css(dark)`), since the user asked to keep `main`'s functional features but take UI improvements like dark mode/navigation from the feature branch. `.streamlit/config.toml` was reverted to its light-default values to match. `frontend/module_viewer.py` required a manual (non-automatic) merge: kept `main`'s robustness — `_sanitize_mermaid` + try/except around broken diagrams, the top "Start Adaptive Tutor" button, and the sidebar "Contents" list (which also previews not-yet-generated topic titles, something the tabs view can't show) — while adopting `experiment/improve-ui`'s `st.tabs()` topic navigation and top-of-page back button. `app.py`, `frontend/login_page.py`, and `frontend/styles.py` took `experiment/improve-ui`'s versions, since `main`'s changes there were entirely the now-superseded forced-dark theme with no independent functional content. All other touched files (`results_page.py`, `tutor_room.py`, `upload_page.py`, `backend/analytics/persistence.py`, `db.py`, `README.md`) merged cleanly with both branches' features intact, verified by inspecting the merged result directly rather than trusting "no conflict" alone. Performed as a merge of `main` into `experiment/improve-ui` (not the other way around), so `main` is untouched until this branch is reviewed and fast-forwarded/merged in separately.
 
 ---
 

@@ -12,6 +12,7 @@ from backend.core.mcp_client import get_client
 from backend.ingestion.models import Document, SourceType
 
 FIXTURE = Path(__file__).parent.parent / "fixtures" / "sample.pdf"
+VTT_FIXTURE = Path(__file__).parent.parent / "fixtures" / "sample.vtt"
 
 
 def test_extract_text_from_pdf_matches_parse_pdf():
@@ -75,5 +76,20 @@ def test_extract_text_from_docx_matches_parse_docx(tmp_path):
 
     assert via_mcp.source_type == SourceType.DOCX
     assert via_mcp.title == direct.title
+    assert [s.title for s in via_mcp.sections] == [s.title for s in direct.sections]
+    assert [s.body for s in via_mcp.sections] == [s.body for s in direct.sections]
+
+
+def test_extract_text_from_vtt_matches_parse_vtt():
+    from backend.ingestion.vtt_parser import parse_vtt
+
+    direct = parse_vtt(str(VTT_FIXTURE))
+    doc_json = get_client("document_server").call(
+        "extract_text_from_vtt", file_path=str(VTT_FIXTURE)
+    )
+    via_mcp = Document.from_json(doc_json)
+
+    assert via_mcp.source_type == SourceType.VTT
+    assert via_mcp.total_pages == direct.total_pages
     assert [s.title for s in via_mcp.sections] == [s.title for s in direct.sections]
     assert [s.body for s in via_mcp.sections] == [s.body for s in direct.sections]
