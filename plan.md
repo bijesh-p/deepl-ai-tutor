@@ -528,6 +528,22 @@ cases) and MCP round-trip.
 
 ---
 
+## Phase 52 — Fix negative quiz progress bar crash ✅ Complete
+
+**Goal:** Fix `StreamlitAPIException: Progress Value has invalid value [0.0, 1.0]: -0.1` reported when clicking the quiz's "← Previous" button.
+
+**Root cause:** `frontend/quiz_page.py`'s Prev/Next buttons used `disabled=(idx == 0)` / `disabled=is_last` (equality checks) while their click handlers did an unclamped `idx -= 1` / `idx += 1`. A rapid double-click sends two click events before the first rerun's disabled re-render reaches the browser: click 1 takes `idx` from `0` to `-1`; on the next render `disabled=(idx == 0)` is `False` (since `-1 != 0`), so the button renders enabled again and the queued second click decrements it to `-2`. With a 10-question quiz, `(idx + 1) / total_q = -1/10 = -0.1` — the exact reported value.
+
+**Reproduced deterministically** via `AppTest`: forced `quiz_current_idx = -1` directly, confirmed the "← Previous" button rendered `disabled=False` (the bug), then clicked it to hit the exact `-0.1` exception.
+
+**Fix:** both click handlers now clamp the new index into `[0, total_q - 1]` (`max(0, idx - 1)` / `min(total_q - 1, idx + 1)`), and both `disabled` checks use `<=`/`>=` instead of `==`. This also fixes a related latent bug — a negative `idx` would otherwise have silently wrapped to the wrong question via Python's negative list indexing instead of erroring.
+
+**Verified:** re-ran the same `AppTest` repro against the fix — the button now renders correctly disabled at `idx <= 0`, and a forced click clamps to `0` instead of going negative. Full pytest suite unaffected (138 passed, 0 failures).
+
+**Files:** `frontend/quiz_page.py`.
+
+---
+
 ## Commit convention
 
 Format: `[Phase N] <short description>`
