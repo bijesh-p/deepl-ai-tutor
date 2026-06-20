@@ -1,7 +1,7 @@
 """Tests for the sliding-window content pipeline.
 
 Covers:
-- _enrich_one returns None when enrich() raises (Phase 36 skip-on-error)
+- _enrich_one falls back to raw text when enrich() raises
 - _enrich_one returns EnrichedTopic on success
 - run_sliding_pipeline publishes topics and updates progress dict
 - run_sliding_pipeline skips a failed topic and continues enriching the rest
@@ -80,8 +80,8 @@ def _progress() -> dict:
 # _enrich_one
 # ---------------------------------------------------------------------------
 
-def test_enrich_one_returns_none_when_enrich_raises():
-    """enrich() failure triggers a raw-text fallback — pipeline keeps the topic."""
+def test_enrich_one_falls_back_to_raw_text_when_enrich_raises():
+    """enrich() failure uses raw-text fallback rather than returning None."""
     topic = _make_topic()
 
     with (
@@ -99,8 +99,8 @@ def test_enrich_one_returns_none_when_enrich_raises():
             audio_enabled=False,
         )
 
-    # enrich() failure now produces a raw-text fallback rather than returning None
     assert result is not None
+    assert isinstance(result, EnrichedTopic)
     assert result.topic == topic
 
 
