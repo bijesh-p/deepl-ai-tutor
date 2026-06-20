@@ -63,7 +63,8 @@ def test_assess_handles_exception_gracefully():
     words = _words("Some text.", sid)
     result = _assess(_BrokenLLM(), words)
     assert isinstance(result, dict)
-    assert result.get("is_presentable") is False
+    # _assess now fails open so the pipeline keeps the chunk rather than dropping it
+    assert result.get("is_presentable") is True
 
 
 def test_make_topic_fields():

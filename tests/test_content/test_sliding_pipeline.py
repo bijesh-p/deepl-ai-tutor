@@ -81,7 +81,7 @@ def _progress() -> dict:
 # ---------------------------------------------------------------------------
 
 def test_enrich_one_returns_none_when_enrich_raises():
-    """Phase 36: a failed enrich() skips the topic rather than crashing the pipeline."""
+    """enrich() failure triggers a raw-text fallback — pipeline keeps the topic."""
     topic = _make_topic()
 
     with (
@@ -99,7 +99,9 @@ def test_enrich_one_returns_none_when_enrich_raises():
             audio_enabled=False,
         )
 
-    assert result is None
+    # enrich() failure now produces a raw-text fallback rather than returning None
+    assert result is not None
+    assert result.topic == topic
 
 
 def test_enrich_one_returns_enriched_topic_on_success():
