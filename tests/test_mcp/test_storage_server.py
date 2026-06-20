@@ -14,6 +14,8 @@ from backend.core.mcp_client import MCPClient
 
 pytestmark = pytest.mark.slow
 
+pytest.importorskip("chromadb", reason="chromadb not installed")
+
 
 def test_upsert_and_query_vector_db(tmp_path, monkeypatch):
     monkeypatch.setenv("AI_TUTOR_CHROMA_DIR", str(tmp_path / "chroma"))

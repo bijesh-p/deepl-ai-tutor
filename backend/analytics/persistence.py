@@ -42,7 +42,7 @@ def save_module(
     conn = db or get_db()
     conn.execute(
         """
-        INSERT OR REPLACE INTO modules
+        INSERT INTO modules
             (module_id, title, source_filename, module_json, question_bank_json, created_by)
         VALUES (?, ?, ?, ?, ?, ?)
         """,

@@ -76,11 +76,13 @@ def test_present_concept_chromadb_fallback(monkeypatch):
     result = graph.present_concept(state)
 
     assert result["concept_content"] == "Adapted explanation of photosynthesis."
-    # The retrieved chunk was used as the basis for depth-adaptation, not a
-    # from-scratch slide generation (which would use _SLIDE_SCHEMA).
+    # The retrieved chunk must appear in a plain-text depth-adaptation call
+    # (no tool_schema). The inline _try_diagram call comes first and uses a
+    # tool_schema; depth-adaptation must follow without one.
     assert mock_llm.calls
-    assert retrieved in mock_llm.calls[0]["prompt"]
-    assert mock_llm.calls[0].get("tool_schema") is None
+    adapt_calls = [c for c in mock_llm.calls if c.get("tool_schema") is None]
+    assert adapt_calls, "No plain-text depth-adaptation call was made"
+    assert retrieved in adapt_calls[0]["prompt"]
 
 
 def test_provide_hint_chromadb_error_is_non_fatal(monkeypatch):
