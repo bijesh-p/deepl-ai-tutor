@@ -333,6 +333,10 @@ def present_concept(state: GraphState) -> dict:
                 "diagram_caption": diagram_caption,
                 "audio_path": audio_path,
                 "audio_duration_s": audio_duration_s,
+                # Fallback content for the diagram renderer if mermaid_code
+                # passes is_valid_mermaid() but still fails to render
+                # client-side — see frontend/mermaid_render.py.
+                "key_takeaways": enriched.get("key_takeaways", []),
             }
             history = list(state.get("chat_history", []))
             history.append(slide_msg)
@@ -373,11 +377,19 @@ def present_concept(state: GraphState) -> dict:
 
     transcript = result.get("transcript", "")
 
-    # Bullets fallback when the combined call didn't produce a usable diagram —
-    # same diagram-or-bullets guarantee generate_slide_anchor gives the main
-    # pipeline, so this rarely-hit path (session resumed before enrichment
-    # finishes) degrades the same way instead of leaving the slide bare.
-    if not mermaid_code and transcript:
+    # Bullets fallback — computed whenever there's a transcript, regardless of
+    # whether mermaid_code is present. Two distinct uses:
+    #   - no mermaid_code: prepended into the transcript itself (existing
+    #     diagram-or-bullets guarantee generate_slide_anchor gives the main
+    #     pipeline, so this rarely-hit path — session resumed before
+    #     enrichment finishes — degrades the same way instead of leaving the
+    #     slide bare).
+    #   - mermaid_code present: kept as key_takeaways instead, for the
+    #     diagram renderer to fall back to if mermaid_code passes
+    #     is_valid_mermaid() but still fails to render client-side — see
+    #     frontend/mermaid_render.py.
+    bullets: list[str] = []
+    if transcript:
         try:
             from backend.content.diagram_generator import _try_bullets
             from backend.content.models import Topic as _Topic
@@ -386,10 +398,11 @@ def present_concept(state: GraphState) -> dict:
                 source_section_ids=[], order=0,
             )
             bullets = _try_bullets(transcript[:2000], _topic, llm)
-            if bullets:
-                transcript = "\n".join(f"- {b}" for b in bullets) + "\n\n" + transcript
         except Exception:
-            pass
+            bullets = []
+
+        if not mermaid_code and bullets:
+            transcript = "\n".join(f"- {b}" for b in bullets) + "\n\n" + transcript
 
     # Generate diagram-aware audio for the fallback slide (skip if disabled)
     fallback_audio = ""
@@ -415,6 +428,7 @@ def present_concept(state: GraphState) -> dict:
         "mermaid_code": mermaid_code,
         "audio_path": fallback_audio,
         "audio_duration_s": audio_duration_s,
+        "key_takeaways": bullets,
     }
 
     history = list(state.get("chat_history", []))
