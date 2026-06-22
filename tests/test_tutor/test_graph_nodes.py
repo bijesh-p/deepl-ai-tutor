@@ -29,9 +29,9 @@ class _MockLLM:
 
 def test_generate_diagnostic_populates_questions(monkeypatch):
     questions = [
-        {"question_text": "What is X?", "options": ["A", "B", "C", "D"], "correct_index": 0},
-        {"question_text": "What is Y?", "options": ["A", "B", "C", "D"], "correct_index": 1},
-        {"question_text": "What is Z?", "options": ["A", "B", "C", "D"], "correct_index": 2},
+        {"question_text": "What is X?", "options": ["A", "B", "C", "D"], "correct_index": 0, "explanation": "Because X is A."},
+        {"question_text": "What is Y?", "options": ["A", "B", "C", "D"], "correct_index": 1, "explanation": "Because Y is B."},
+        {"question_text": "What is Z?", "options": ["A", "B", "C", "D"], "correct_index": 2, "explanation": "Because Z is C."},
     ]
     monkeypatch.setattr(graph, "_get_llm", lambda: _MockLLM({"questions": questions}))
 
@@ -146,6 +146,40 @@ def test_present_concept_fast_path_uses_content_md_directly():
     assert result["concept_mastered"] is False
 
 
+def test_present_concept_fast_path_includes_key_takeaways_for_diagram_fallback():
+    """slide_msg must carry key_takeaways even when a diagram is present —
+    frontend/mermaid_render.py needs this to fall back to bullets if
+    mermaid_code passes is_valid_mermaid() but still fails to render
+    client-side (the JS-side failure Python can never observe directly)."""
+    from backend.content.models import EnrichedTopic, Topic, Diagram
+
+    topic = Topic(topic_id="t1", title="Photosynthesis", summary="S", source_section_ids=[], order=0)
+    enriched = EnrichedTopic(
+        topic=topic,
+        content_md="# Photosynthesis\n\nPlants convert light.",
+        key_takeaways=["Light drives the reaction", "Produces oxygen"],
+        diagrams=[Diagram(diagram_id="d1", diagram_type="mermaid", content="graph LR A-->B", caption="Flow")],
+        inline_questions=[],
+        top_concepts=["chlorophyll", "ATP"],
+        audio_path="/fake/audio.mp3",
+    )
+
+    state: graph.GraphState = {
+        "current_concept": "Photosynthesis",
+        "presentation_depth": "intermediate",
+        "enriched_topic": asdict(enriched),
+        "concept_content": "",
+        "module_id": "mod-1",
+        "audio_enabled": False,
+        "chat_history": [],
+    }
+
+    result = graph.present_concept(state)
+
+    slide = next(m for m in result["chat_history"] if m.get("role") == "slide")
+    assert slide["key_takeaways"] == ["Light drives the reaction", "Produces oxygen"]
+
+
 # ---------------------------------------------------------------------------
 # present_concept  — fallback path (no enriched, no ChromaDB)
 # ---------------------------------------------------------------------------
@@ -206,6 +240,41 @@ def test_present_concept_fallback_uses_bullets_when_no_diagram(monkeypatch):
     assert slide["mermaid_code"] == ""
     assert "Here is the fallback explanation." in slide["transcript"]
     assert "Disorder in a system." in slide["transcript"]
+
+
+def test_present_concept_fallback_populates_key_takeaways_even_with_diagram(monkeypatch):
+    """When mermaid_code IS present, bullets must still be computed and stored
+    in key_takeaways (not prepended into the transcript) — the diagram
+    renderer needs this fallback in case a structurally-valid-looking
+    mermaid_code still fails to render client-side."""
+    slide_dict = {
+        "top_concepts": ["concept_a"],
+        "transcript": "Here is the fallback explanation.",
+        "mermaid_code": "flowchart TD\nA[Start]-->B[End]",
+        "bullets": ["Point A", "Point B"],
+    }
+    monkeypatch.setattr(graph, "_get_llm", lambda: _MockLLM(slide_dict))
+    monkeypatch.setattr(graph, "_retrieve_context", lambda *a, **kw: "")
+
+    state: graph.GraphState = {
+        "current_concept": "Entropy",
+        "concept_summary": "Disorder in a system.",
+        "presentation_depth": "beginner",
+        "enriched_topic": None,
+        "concept_content": "",
+        "module_id": "mod-1",
+        "audio_enabled": False,
+        "chat_history": [],
+    }
+
+    result = graph.present_concept(state)
+
+    slide = next(m for m in result["chat_history"] if m.get("role") == "slide")
+    assert slide["mermaid_code"] == "flowchart TD\nA[Start]-->B[End]"
+    assert slide["key_takeaways"] == ["Point A", "Point B"]
+    # Prepend-into-transcript is the no-mermaid_code-only behavior — must not
+    # also happen here now that mermaid_code is present.
+    assert slide["transcript"] == "Here is the fallback explanation."
 
 
 # ---------------------------------------------------------------------------

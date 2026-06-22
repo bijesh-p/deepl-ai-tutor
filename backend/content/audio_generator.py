@@ -32,35 +32,32 @@ def generate_diagnostic_audio(topic_title: str = "") -> str:
     if topic_title:
         intro = f"Welcome. We will be exploring: {topic_title}. " + intro
 
-    asyncio.run(_synthesize(intro, path))
+    asyncio.run(_synthesize(_strip_emoji(intro), path))
     return path
 
 
 def generate_audio(
     text: str,
     topic_id: str,
-    diagram_caption: str = "",
-    diagram_mermaid: str = "",
     bullets: list[str] | None = None,
     topic_title: str = "",
 ) -> str:
     """Generate mp3 narration for a topic.
 
-    Opens with a short diagnostic framing statement, then describes the slide
-    anchor (diagram or bullet points), then continues with the explanation.
+    Opens with a topic introduction, then describes the slide anchor (bullet
+    points only — diagrams are not narrated, just shown), then continues
+    with the explanation.
     """
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     path = os.path.join(OUTPUT_DIR, f"{topic_id}.mp3")
 
-    script = _build_script(text, diagram_caption, diagram_mermaid, bullets or [], topic_title)
+    script = _build_script(text, bullets or [], topic_title)
     asyncio.run(_synthesize(script, path))
     return path
 
 
 def _build_script(
     text: str,
-    caption: str,
-    mermaid: str,
     bullets: list[str],
     topic_title: str,
 ) -> str:
@@ -70,44 +67,15 @@ def _build_script(
     if topic_title:
         parts.append(f"Now let's explore: {topic_title}.")
 
-    # 2. Slide anchor — diagram or bullets
-    if caption or mermaid:
-        diagram_description = _describe_diagram(caption, mermaid)
-        if diagram_description:
-            parts.append(diagram_description)
-    elif bullets:
+    # 2. Slide anchor — bullets only (diagrams are shown, not narrated)
+    if bullets:
         parts.append(_describe_bullets(bullets))
 
-    # 4. Main explanation
+    # 3. Main explanation
     parts.append(_strip_markdown(text))
 
-    return "\n\n".join(p for p in parts if p.strip())
-
-
-def _describe_diagram(caption: str, mermaid: str) -> str:
-    lines: list[str] = []
-
-    if caption:
-        lines.append(f"Let us look at the diagram. {caption}.")
-
-    if mermaid:
-        node_labels = re.findall(r'\[([^\]]+)\]', mermaid)
-        node_labels = [re.sub(r'#\w+;', '', lbl).strip() for lbl in node_labels]
-        node_labels = [lbl for lbl in node_labels if lbl and len(lbl) > 1]
-
-        if node_labels:
-            unique = list(dict.fromkeys(node_labels))
-            if len(unique) == 1:
-                lines.append(f"The diagram shows: {unique[0]}.")
-            elif len(unique) == 2:
-                lines.append(f"The diagram shows how {unique[0]} connects to {unique[1]}.")
-            else:
-                middle = ", ".join(unique[:-1])
-                lines.append(
-                    f"The diagram traces a flow from {unique[0]}, through {middle}, to {unique[-1]}."
-                )
-
-    return " ".join(lines)
+    script = "\n\n".join(p for p in parts if p.strip())
+    return _strip_emoji(script)
 
 
 def _describe_bullets(bullets: list[str]) -> str:
@@ -121,6 +89,22 @@ def _describe_bullets(bullets: list[str]) -> str:
 async def _synthesize(text: str, output_path: str) -> None:
     communicate = edge_tts.Communicate(text, VOICE)
     await communicate.save(output_path)
+
+
+_EMOJI_RE = re.compile(
+    "["
+    "\U0001F300-\U0001FAFF"  # symbols, pictographs, emoticons, supplemental symbols
+    "\U00002600-\U000027BF"  # misc symbols, dingbats
+    "\U0000FE0E-\U0000FE0F"  # text/emoji variation selectors
+    "\U0000200D"             # zero-width joiner (compound emoji)
+    "]+"
+)
+
+
+def _strip_emoji(text: str) -> str:
+    """Remove emoji so TTS engines don't speak their alt-text description
+    (e.g. a colored-circle emoji becoming the spoken words "green circle")."""
+    return _EMOJI_RE.sub("", text)
 
 
 def _strip_markdown(text: str) -> str:

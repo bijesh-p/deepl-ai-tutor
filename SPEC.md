@@ -224,6 +224,119 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
 
 ---
 
+## 3. Bug Fixes — Navaneeth
+
+Compiled from standalone change specs scoped under `changes/` via the `/spec-plan`
+skill before implementation (see each `changes/<name>.spec.md` for full detail —
+problem, current behavior, root cause, decisions, requirements, out of scope).
+
+### Mermaid diagram rendering reliability
+
+**Problem:** Diagram slides could show mermaid.js's raw `Syntax error in text
+mermaid version ...` directly to the user, with no diagram and no fallback —
+`st_mermaid()`'s failure happens client-side, after Python's call has already
+returned successfully, so the existing `try/except` around it never caught
+anything.
+
+**Fix:** Replaced `streamlit-mermaid` with a custom renderer
+(`frontend/mermaid_render.py`) that runs vendored mermaid.js + `svg-pan-zoom`
+directly inside an `st.iframe()`, wrapped in a JS `try/catch`. On failure, it
+falls back to the topic's existing `key_takeaways` bullets instead of
+mermaid's error text. `key_takeaways` is threaded into `present_concept`'s
+slide dict (previously only stored when no diagram was generated at all) so
+every diagram-bearing slide also carries fallback content.
+
+**Files:** `frontend/mermaid_render.py` (new),
+`frontend/static/vendor/{mermaid.min.js,svg-pan-zoom.min.js}` (new),
+`backend/interactive_tutor/graph.py`, `frontend/tutor_room.py`,
+`frontend/module_viewer.py`; `streamlit-mermaid` removed from `pyproject.toml`.
+
+### Mermaid render timeout (hung diagrams)
+
+**Problem:** A diagram could render as a permanently blank box with no
+fallback ever appearing — confirmed live on a topic with a cyclic flowchart
+("Orchestrator-Subagent" pattern).
+
+**Root cause:** `mermaid.render()`'s dagre/d3 layout phase can hang
+indefinitely on syntactically-valid but structurally pathological graphs
+(e.g. cycles) — a known class of issue in mermaid's own layout engine, not a
+defect in this app's code.
+
+**Fix:** The renderer's inline script races `mermaid.render()` against a
+5-second timer; if the timer wins, the same bullets fallback shows (no
+visual distinction from an error/rejection fallback). A late-resolving render
+still replaces the fallback with the real diagram if it eventually succeeds.
+
+**Files:** `frontend/mermaid_render.py`.
+
+### Mermaid diagrams broken for every topic except the first
+
+**Problem:** Every topic's diagram in the Module Viewer rendered as a
+near-invisible speck (`viewBox="-8 -8 16 16"`, every text label measuring
+`0×0`) except the first topic's.
+
+**Root cause:** Streamlit's `st.tabs()` puts every tab panel into the DOM at
+once, hiding inactive ones via CSS. Mermaid measures label text by
+temporarily rendering it and reading its real pixel size — browsers return
+zero for layout queries inside a hidden ancestor, so a diagram rendered while
+its tab is inactive gets a permanently-baked-in zero-size layout (mermaid
+never re-measures later when the tab becomes visible). Confirmed by direct
+reproduction, independent of diagram content, pan/zoom, and the timeout fix
+above.
+
+**Fix:** The renderer's script now waits for an `IntersectionObserver` to
+confirm the diagram's content is actually visible before calling
+`mermaid.render()` for the first time — already-visible content (the common
+case) renders with no perceptible delay; content in a hidden tab defers
+rendering until the tab is opened. The 5s timeout now starts when rendering
+is actually attempted, not at script load.
+
+**Files:** `frontend/mermaid_render.py`.
+
+### MCP client reliability: storage_server hang with no timeout
+
+**Problem:** In the Adaptive Tutor, after answering all of a topic's
+questions the app could hang indefinitely instead of advancing to the next
+topic.
+
+**Root cause:** `storage_server`'s first MCP tool call in a session pays a
+one-time, highly variable (observed ~1s–30s+) cost importing
+`chromadb`/`numpy` — likely antivirus/real-time-scan interference on native
+extension loads (confirmed via `py-spy` stack-trace dumping of the hung
+subprocess, stuck inside `numpy._core.multiarray` native loading).
+`backend/core/mcp_client.py::MCPClient.call()` had no timeout at all, so a
+slow import on this path could block the tutor's `present_concept` →
+`_retrieve_context` call forever.
+
+**Fix:** Added a 30-second timeout to `MCPClient.call()` (via
+`future.result(timeout=...)`) as a safety net, plus a
+`warm_up_storage_server()` background-thread pre-warm called once at app
+startup (`app.py`), so the slow import cost is paid before a real user ever
+reaches the tutor flow rather than synchronously on their critical path.
+
+**Files:** `backend/core/mcp_client.py`, `app.py`. *(Implemented directly,
+no standalone `changes/*.spec.md` — noted for the record since every other
+entry above has one.)*
+
+### Diagnostic quiz review screen
+
+**Goal** (feature, not a bug — included here per compilation request):
+the diagnostic quiz's "Submit & Start Learning" button immediately evaluated
+answers and jumped straight to the lesson slide, with no feedback shown on
+what the student got right or wrong.
+
+**Fix:** Added a required `explanation` field to each diagnostic question
+(`_DIAGNOSTIC_SCHEMA`/`_DIAGNOSTIC_SYSTEM` in `graph.py`) and a new
+`diagnostic_review` UI phase (`frontend/tutor_room.py::_render_diagnostic_review`)
+shown after every topic's diagnostic, before the lesson: overall score plus a
+per-question breakdown (chosen answer, correct answer, ✅/❌, explanation),
+with a "Continue to lesson →" button to proceed.
+
+**Files:** `backend/interactive_tutor/graph.py`, `frontend/tutor_room.py`,
+`tests/test_tutor/test_graph_nodes.py`.
+
+---
+
 ## Appendix A: Environment Variables
 
 | Variable | Purpose | Default |

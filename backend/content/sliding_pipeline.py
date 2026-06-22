@@ -402,8 +402,6 @@ def _enrich_one(
         return None
 
     # Steps 3 + 4 — questions and audio in parallel (neither depends on the other)
-    diagram = enriched.diagrams[0] if enriched.diagrams else None
-
     def _gen_questions():
         try:
             return generate_inline_questions(enriched, llm)
@@ -418,8 +416,6 @@ def _enrich_one(
                 return generate_audio(
                     enriched.content_md,
                     topic.topic_id,
-                    diagram_caption=diagram.caption if diagram else "",
-                    diagram_mermaid=diagram.content if diagram else "",
                     bullets=anchor.bullets if not anchor.has_diagram else [],
                     topic_title=topic.title,
                 )

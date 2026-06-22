@@ -107,8 +107,9 @@ _DIAGNOSTIC_SCHEMA = {
                             "maxItems": 4,
                         },
                         "correct_index": {"type": "integer"},
+                        "explanation": {"type": "string"},
                     },
-                    "required": ["question_text", "options", "correct_index"],
+                    "required": ["question_text", "options", "correct_index", "explanation"],
                 },
             }
         },
@@ -122,7 +123,8 @@ _DIAGNOSTIC_SYSTEM = (
     "Each question must have exactly 4 options. "
     "Include a mix of easy and medium difficulty. "
     "Base questions only on what can be reasonably inferred from the topic title and summary — "
-    "do not assume the student has read anything yet."
+    "do not assume the student has read anything yet. "
+    "For each question, include a short 1-2 sentence explanation of why the correct answer is correct."
 )
 
 
@@ -301,19 +303,15 @@ def present_concept(state: GraphState) -> dict:
                     system="You are a patient tutor adapting content for a specific learner.",
                 )
                 transcript = adapted if isinstance(adapted, str) else content_md
-                # Generate audio synced to diagram only if audio is enabled
+                # Generate audio only if audio is enabled
                 if audio_enabled:
                     try:
                         from backend.content.audio_generator import generate_audio
-                        diagram_caption = (enriched.get("diagrams", [{}])[0].get("caption", "")
-                                           if enriched.get("diagrams") else "")
                         # Limit TTS to first 400 chars so audio stays ~30-60s
                         short_transcript = transcript[:400].rsplit(" ", 1)[0] + "..."
                         audio_path = generate_audio(
                             short_transcript,
                             f"{concept}_tutor",
-                            diagram_caption=diagram_caption,
-                            diagram_mermaid=mermaid_code,
                             topic_title=concept,
                         )
                     except Exception:
@@ -333,6 +331,10 @@ def present_concept(state: GraphState) -> dict:
                 "diagram_caption": diagram_caption,
                 "audio_path": audio_path,
                 "audio_duration_s": audio_duration_s,
+                # Fallback content for the diagram renderer if mermaid_code
+                # passes is_valid_mermaid() but still fails to render
+                # client-side — see frontend/mermaid_render.py.
+                "key_takeaways": enriched.get("key_takeaways", []),
             }
             history = list(state.get("chat_history", []))
             history.append(slide_msg)
@@ -373,11 +375,19 @@ def present_concept(state: GraphState) -> dict:
 
     transcript = result.get("transcript", "")
 
-    # Bullets fallback when the combined call didn't produce a usable diagram —
-    # same diagram-or-bullets guarantee generate_slide_anchor gives the main
-    # pipeline, so this rarely-hit path (session resumed before enrichment
-    # finishes) degrades the same way instead of leaving the slide bare.
-    if not mermaid_code and transcript:
+    # Bullets fallback — computed whenever there's a transcript, regardless of
+    # whether mermaid_code is present. Two distinct uses:
+    #   - no mermaid_code: prepended into the transcript itself (existing
+    #     diagram-or-bullets guarantee generate_slide_anchor gives the main
+    #     pipeline, so this rarely-hit path — session resumed before
+    #     enrichment finishes — degrades the same way instead of leaving the
+    #     slide bare).
+    #   - mermaid_code present: kept as key_takeaways instead, for the
+    #     diagram renderer to fall back to if mermaid_code passes
+    #     is_valid_mermaid() but still fails to render client-side — see
+    #     frontend/mermaid_render.py.
+    bullets: list[str] = []
+    if transcript:
         try:
             from backend.content.diagram_generator import _try_bullets
             from backend.content.models import Topic as _Topic
@@ -386,12 +396,13 @@ def present_concept(state: GraphState) -> dict:
                 source_section_ids=[], order=0,
             )
             bullets = _try_bullets(transcript[:2000], _topic, llm)
-            if bullets:
-                transcript = "\n".join(f"- {b}" for b in bullets) + "\n\n" + transcript
         except Exception:
-            pass
+            bullets = []
 
-    # Generate diagram-aware audio for the fallback slide (skip if disabled)
+        if not mermaid_code and bullets:
+            transcript = "\n".join(f"- {b}" for b in bullets) + "\n\n" + transcript
+
+    # Generate audio for the fallback slide (skip if disabled)
     fallback_audio = ""
     if state.get("audio_enabled", True):
         try:
@@ -399,7 +410,6 @@ def present_concept(state: GraphState) -> dict:
             fallback_audio = generate_audio(
                 transcript,
                 f"{concept}_tutor_fallback",
-                diagram_mermaid=mermaid_code,
                 topic_title=concept,
             )
         except Exception:
@@ -415,6 +425,7 @@ def present_concept(state: GraphState) -> dict:
         "mermaid_code": mermaid_code,
         "audio_path": fallback_audio,
         "audio_duration_s": audio_duration_s,
+        "key_takeaways": bullets,
     }
 
     history = list(state.get("chat_history", []))
