@@ -36,6 +36,8 @@ def render_observability_page() -> None:
 
     _render_phoenix_section()
     st.markdown("---")
+    _render_run_evals_button()
+    st.markdown("---")
     _render_deepeval_section()
 
 
@@ -56,6 +58,46 @@ def _render_phoenix_section() -> None:
         "Start Phoenix with: `PYTHONPATH=. uv run phoenix serve`  \n"
         "Then open the link above to browse traces."
     )
+
+
+def _render_run_evals_button() -> None:
+    """Explicit button to trigger DeepEval quality metrics for the last completed session."""
+    st.markdown("### Run Quality Evaluation")
+
+    pending = st.session_state.get("pending_eval")
+    if not pending:
+        st.info(
+            "No completed session available to evaluate.  \n"
+            "Complete a tutor session first, then return here to run evals."
+        )
+        return
+
+    module_id = pending.get("module_id", "")
+    st.markdown(
+        f"A completed session is ready to evaluate (module: `{module_id[:24] if module_id else '—'}`)."
+    )
+    st.caption(
+        "Running evals calls the active LLM judge for each test case — this may incur API cost."
+    )
+
+    if st.button("Run Evals", type="primary"):
+        try:
+            from backend.observability.eval_runner import run_session_evals_async
+
+            run_session_evals_async(
+                chat_history=pending["chat_history"],
+                source_text=pending["source_text"],
+                user_id=pending["user_id"],
+                module_id=pending["module_id"],
+                provider=pending.get("provider"),
+                model=pending.get("model"),
+                db_path=pending.get("db_path"),
+                concept_context=pending.get("concept_context"),
+            )
+            st.session_state.pop("pending_eval", None)
+            st.success("Evals started in the background. Refresh this page in a moment to see results.")
+        except Exception as exc:
+            st.error(f"Failed to start evals: {exc}")
 
 
 def _render_deepeval_section() -> None:

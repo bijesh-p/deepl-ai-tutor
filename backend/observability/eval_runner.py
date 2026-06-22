@@ -33,11 +33,17 @@ def run_session_evals_async(
     provider: str | None = None,
     model: str | None = None,
     db_path: str | None = None,
+    concept_context: dict[str, str] | None = None,
 ) -> None:
-    """Kick off DeepEval evals in a background daemon thread."""
+    """Kick off DeepEval evals in a background daemon thread.
+
+    concept_context maps concept title → enriched content_md so each slide
+    test case gets concept-scoped retrieval context instead of the full blob.
+    source_text is kept for backwards compatibility when concept_context is absent.
+    """
     t = threading.Thread(
         target=_run,
-        args=(chat_history, source_text, user_id, module_id, provider, model, db_path),
+        args=(chat_history, source_text, user_id, module_id, provider, model, db_path, concept_context),
         daemon=True,
         name="eval-worker",
     )
@@ -56,6 +62,7 @@ def _run(
     provider: str | None,
     model: str | None,
     db_path: str | None = None,
+    concept_context: dict[str, str] | None = None,
 ) -> None:
     try:
         from deepeval import evaluate
@@ -65,7 +72,7 @@ def _run(
         _log.warning("deepeval not installed — skipping evals")
         return
 
-    test_cases = _build_test_cases(chat_history, source_text)
+    test_cases = _build_test_cases(chat_history, source_text, concept_context=concept_context)
     if not test_cases:
         _log.info("No eval test cases built from session history")
         return
@@ -104,8 +111,18 @@ def _run(
 # Build test cases from chat history
 # ---------------------------------------------------------------------------
 
-def _build_test_cases(chat_history: list[dict], source_text: str) -> list[Any]:
-    """Extract slide + Q&A turns from chat history into DeepEval LLMTestCase objects."""
+def _build_test_cases(
+    chat_history: list[dict],
+    source_text: str,
+    concept_context: dict[str, str] | None = None,
+) -> list[Any]:
+    """Extract slide + Q&A turns from chat history into DeepEval LLMTestCase objects.
+
+    concept_context maps concept title → enriched content_md.  When provided,
+    each slide test case uses only that concept's content as retrieval_context
+    instead of the full module blob (F3).  Tutor turns are classified as
+    question or feedback so the input intent matches the output (F4).
+    """
     try:
         from deepeval.test_case import LLMTestCase
     except ImportError:
@@ -119,27 +136,60 @@ def _build_test_cases(chat_history: list[dict], source_text: str) -> list[Any]:
 
         if role == "slide":
             current_slide = msg
+            concept = msg.get("concept", "")
+            # Use concept-scoped content when available; fall back to full blob
+            if concept_context and concept in concept_context:
+                ctx = [concept_context[concept]]
+            elif source_text:
+                ctx = [source_text]
+            else:
+                ctx = []
             cases.append(
                 LLMTestCase(
-                    input=f"Explain the concept: {msg.get('concept', '')}",
+                    input=f"Explain the concept: {concept}",
                     actual_output=msg.get("transcript", ""),
-                    retrieval_context=[source_text] if source_text else [],
+                    retrieval_context=ctx,
                 )
             )
 
         elif role == "tutor" and current_slide:
             content = msg.get("content", "")
             # Skip hints and simplifications — only eval substantive tutor turns
-            if content and not content.startswith("Hint:") and not content.startswith("Let me break"):
-                cases.append(
-                    LLMTestCase(
-                        input=f"Ask a question about: {current_slide.get('concept', '')}",
-                        actual_output=content,
-                        retrieval_context=[current_slide.get("transcript", "")],
-                    )
+            if not content or content.startswith("Hint:") or content.startswith("Let me break"):
+                continue
+            concept = current_slide.get("concept", "")
+            # Classify turn intent: feedback follows a student answer; a question is standalone
+            is_feedback = msg.get("is_feedback", False) or _looks_like_feedback(content)
+            if is_feedback:
+                intent = f"Give feedback on the student's answer about: {concept}"
+            else:
+                intent = f"Ask a comprehension question about: {concept}"
+            cases.append(
+                LLMTestCase(
+                    input=intent,
+                    actual_output=content,
+                    retrieval_context=[current_slide.get("transcript", "")],
                 )
+            )
 
     return cases[:10]  # cap to limit judge LLM cost
+
+
+_FEEDBACK_PREFIXES = (
+    "great", "good job", "well done", "correct", "that's right", "exactly",
+    "not quite", "not exactly", "almost", "close", "actually", "unfortunately",
+    "that's not", "incorrect", "you're right", "you're close",
+)
+
+
+def _looks_like_feedback(content: str) -> bool:
+    """Heuristic: does this tutor turn read as answer feedback rather than a question?"""
+    lower = content.lower().strip()
+    return (
+        any(lower.startswith(p) for p in _FEEDBACK_PREFIXES)
+        or not content.rstrip().endswith("?")
+        and any(kw in lower for kw in ("your answer", "you said", "you mentioned", "you wrote"))
+    )
 
 
 # ---------------------------------------------------------------------------
