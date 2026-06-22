@@ -59,29 +59,48 @@ _TEMPLATE = """
   var fallbackHtml = @@FALLBACK_HTML_JSON@@;
   var panZoomEnabled = @@PAN_ZOOM_ENABLED@@;
   var wrap = document.getElementById('mmd-svg-wrap');
+  // Tracks whether the outcome has already been decided (success, error, or
+  // timeout) so a late-arriving result doesn't double-render a fallback that
+  // already fired, while a late-arriving success still replaces it.
+  var settled = false;
 
   function showFallback(err) {
     if (err) { console.log('mermaid render failed, showing fallback:', err); }
+    settled = true;
     wrap.innerHTML = fallbackHtml;
+  }
+
+  function showDiagram(svg) {
+    settled = true;
+    wrap.innerHTML = svg;
+    var svgEl = wrap.querySelector('svg');
+    if (svgEl && panZoomEnabled && window.svgPanZoom) {
+      window.__mmdPanZoom = window.svgPanZoom(svgEl, {
+        zoomEnabled: true,
+        panEnabled: true,
+        controlIconsEnabled: false,
+        fit: true,
+        center: true,
+        minZoom: 0.5,
+        maxZoom: 10
+      });
+    }
   }
 
   try {
     mermaid.initialize({ startOnLoad: false });
+    // mermaid.js's layout engine can hang (never resolve or reject) on some
+    // valid-but-pathological diagrams (e.g. cyclic flowcharts), so render is
+    // raced against a 5s timeout rather than awaited indefinitely.
     mermaid.render('mmd-graph', code).then(function (result) {
-      wrap.innerHTML = result.svg;
-      var svgEl = wrap.querySelector('svg');
-      if (svgEl && panZoomEnabled && window.svgPanZoom) {
-        window.__mmdPanZoom = window.svgPanZoom(svgEl, {
-          zoomEnabled: true,
-          panEnabled: true,
-          controlIconsEnabled: false,
-          fit: true,
-          center: true,
-          minZoom: 0.5,
-          maxZoom: 10
-        });
-      }
-    }).catch(showFallback);
+      showDiagram(result.svg);
+    }).catch(function (err) {
+      if (!settled) { showFallback(err); }
+    });
+
+    setTimeout(function () {
+      if (!settled) { showFallback(); }
+    }, 5000);
   } catch (err) {
     showFallback(err);
   }
@@ -126,6 +145,24 @@ def render_mermaid(
     `code` should already be sanitized (e.g. via `_sanitize_mermaid`) before
     being passed in — this function does not sanitize, only renders/falls back.
     """
+    # TEMPORARY debug instrumentation (mermaid-render-timeout investigation):
+    # dump every render attempt so a failing case can be inspected verbatim.
+    # Remove before merging.
+    try:
+        import time as _time
+        with open(
+            Path(__file__).parent.parent / "debug_mermaid_calls.log",
+            "a",
+            encoding="utf-8",
+        ) as _f:
+            _f.write(
+                f"\n--- {_time.strftime('%H:%M:%S')} ---\n"
+                f"CODE:\n{code}\n"
+                f"BULLETS: {fallback_bullets!r}\n"
+            )
+    except Exception:
+        pass
+
     bullets = fallback_bullets or []
     if bullets:
         items = "".join(f"<li>{_escape(b)}</li>" for b in bullets)
