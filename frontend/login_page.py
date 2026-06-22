@@ -8,11 +8,9 @@ from backend.analytics.persistence import load_user_profile, save_user
 
 _LOGIN_CSS = """
 <style>
-/* ── Login page — full-viewport centred canvas ─────────────────────────── */
+/* ── Login page — full-viewport centred canvas (dark theme) ─────────────── */
 
-/* Sidebar and its collapse control are completely absent on the login page.
-   _render_sidebar() is skipped in app.py so no sidebar content is rendered.
-   These rules are a belt-and-braces guard against any leftover sidebar DOM. */
+/* Sidebar and its collapse control are completely absent on the login page. */
 [data-testid="stSidebar"],
 section[data-testid="stSidebar"],
 [data-testid="stSidebarCollapseButton"] {
@@ -23,20 +21,13 @@ section[data-testid="stSidebar"],
     pointer-events: none !important;
 }
 
-/* Hide every Streamlit top-bar element on the login page */
-header[data-testid="stHeader"],
-[data-testid="stHeader"],
+/* Hide Streamlit dev-mode decoration on the login page (keep app menu) */
 [data-testid="stDecoration"],
-[data-testid="stStatusWidget"],
-[data-testid="stToolbar"],
-[data-testid="stAppToolbar"],
-.stAppToolbar,
-.stHeader,
-#MainMenu { display: none !important; }
+[data-testid="stStatusWidget"] { display: none !important; }
 
 /* Stretch the app to full viewport and center everything */
 .stApp {
-    background: linear-gradient(145deg, #EEF2FF 0%, #F5F0FF 50%, #EFF6FF 100%) !important;
+    background: radial-gradient(ellipse at 30% 20%, #1E1B4B 0%, #0F1117 60%) !important;
     min-height: 100vh !important;
 }
 .block-container {
@@ -49,29 +40,21 @@ header[data-testid="stHeader"],
     max-width: 100% !important;
 }
 
-/* The card itself.
-   Rendered via st.container(key="login_canvas") rather than a raw opening
-   <div> in one st.markdown() call closed by another later — Streamlit
-   renders each call as an independent sibling DOM node, so a div "opened"
-   in one markdown call is auto-closed by the browser before the next
-   call's content exists, meaning nothing (not even the title) actually
-   nests inside it. st.container(key=...) creates a single real wrapper
-   element (class `st-key-<key>`) that every child rendered in the `with`
-   block — title, tabs, forms — genuinely nests inside. */
+/* The card itself. */
 .st-key-login_canvas {
-    background: #FFFFFF;
+    background: #1A1D29;
     border-radius: 20px;
-    box-shadow: 0 8px 40px rgba(99,102,241,0.14), 0 2px 8px rgba(0,0,0,0.06);
+    box-shadow: 0 8px 40px rgba(99,102,241,0.18), 0 2px 8px rgba(0,0,0,0.4);
     padding: 2.5rem 2rem 2rem;
     width: 100%;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    border: 1px solid #E0E7FF;
+    border: 1px solid #2D2F3D;
 }
 
 /* Tab styling inside the card */
 .st-key-login_canvas .stTabs [data-baseweb="tab-list"] {
     gap: 4px;
-    background: #F5F3FF;
+    background: #0F1117;
     border-radius: 10px;
     padding: 4px;
 }
@@ -80,26 +63,36 @@ header[data-testid="stHeader"],
     font-size: 13px !important;
     font-weight: 500 !important;
     padding: 6px 16px !important;
-    color: #6B7280 !important;
+    color: #94A3B8 !important;
     background: transparent !important;
     border: none !important;
 }
 .st-key-login_canvas .stTabs [aria-selected="true"] {
-    background: #FFFFFF !important;
-    color: #1E1B4B !important;
+    background: #1A1D29 !important;
+    color: #F1F5F9 !important;
     font-weight: 600 !important;
-    box-shadow: 0 1px 4px rgba(99,102,241,0.15) !important;
+    box-shadow: 0 1px 4px rgba(99,102,241,0.25) !important;
 }
 
 /* Input fields */
 .st-key-login_canvas input {
     border-radius: 8px !important;
-    border: 1px solid #C7D2FE !important;
+    border: 1px solid #3D3F55 !important;
+    background: #0F1117 !important;
+    color: #F1F5F9 !important;
     font-family: 'Inter', sans-serif !important;
 }
 .st-key-login_canvas input:focus {
     border-color: #6366F1 !important;
-    box-shadow: 0 0 0 3px rgba(99,102,241,0.12) !important;
+    box-shadow: 0 0 0 3px rgba(99,102,241,0.2) !important;
+}
+.st-key-login_canvas input::placeholder {
+    color: #64748B !important;
+}
+
+/* Labels above inputs */
+.st-key-login_canvas label, .st-key-login_canvas p {
+    color: #94A3B8 !important;
 }
 
 /* Sign-in button */
@@ -112,12 +105,12 @@ header[data-testid="stHeader"],
     font-size: 14px !important;
     padding: 0.55rem 1rem !important;
     font-family: 'Inter', sans-serif !important;
-    box-shadow: 0 2px 8px rgba(79,70,229,0.3) !important;
+    box-shadow: 0 2px 8px rgba(79,70,229,0.4) !important;
     transition: all 0.15s ease !important;
 }
 .st-key-login_canvas .stFormSubmitButton > button:hover {
     background: linear-gradient(135deg, #4338CA 0%, #1D4ED8 100%) !important;
-    box-shadow: 0 4px 14px rgba(79,70,229,0.4) !important;
+    box-shadow: 0 4px 14px rgba(79,70,229,0.5) !important;
     transform: translateY(-1px) !important;
 }
 </style>
@@ -145,7 +138,7 @@ def _do_login(name: str, is_admin: bool) -> None:
         st.session_state["llm_provider"] = saved_provider
     if saved_model:
         st.session_state["llm_model"] = saved_model
-    st.session_state["dark_mode"] = bool(profile.get("dark_mode"))
+    st.session_state["dark_mode"] = profile.get("dark_mode", True)  # default dark if no saved preference
 
     st.session_state["page"] = "upload"
     st.rerun()
@@ -167,13 +160,13 @@ def render_login_page() -> None:
 <div style="text-align:center;padding:0.5rem 0 1.5rem;
     font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
   <div style="font-size:1.9rem;font-weight:800;letter-spacing:-0.03em;
-      background:linear-gradient(135deg,#1E1B4B 0%,#4F46E5 50%,#2563EB 100%);
+      background:linear-gradient(135deg,#A5B4FC 0%,#818CF8 50%,#60A5FA 100%);
       -webkit-background-clip:text;-webkit-text-fill-color:transparent;
       background-clip:text;line-height:1.1;">AI Tutor</div>
-  <div style="margin-top:8px;font-size:14px;font-weight:600;color:#4B5563;
+  <div style="margin-top:8px;font-size:14px;font-weight:600;color:#94A3B8;
       letter-spacing:-0.01em;line-height:1.5;">
     Transform documents into<br>
-    <span style="color:#4F46E5;font-weight:700;">interactive learning modules</span>
+    <span style="color:#818CF8;font-weight:700;">interactive learning modules</span>
   </div>
 </div>
 """,

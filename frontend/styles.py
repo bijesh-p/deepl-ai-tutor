@@ -412,13 +412,9 @@ p  { font-weight: 400 !important; line-height: 1.6 !important; }
     font-weight: 600 !important;
 }
 
-/* ── Hide Streamlit dev-mode chrome (Rerun / Always rerun / file-change) ─── */
-#MainMenu                         { visibility: hidden !important; }
-[data-testid="stToolbar"]         { display: none !important; }
+/* ── Hide Streamlit dev-mode chrome (keep the top-right app menu visible) ── */
 [data-testid="stDecoration"]      { display: none !important; }
 [data-testid="stStatusWidget"]    { display: none !important; }
-.stAppToolbar                     { display: none !important; }
-[data-testid="stAppToolbar"]      { display: none !important; }
 
 /* ── Keyframe animations ─────────────────────────────────────────────────── */
 @keyframes ai-pulse {
@@ -626,12 +622,13 @@ def _theme_overrides_css(dark: bool) -> str:
 
 
 def inject_global_css() -> None:
-    """Inject global CSS, then dark-mode overrides if enabled for this session.
+    """Inject global CSS, then dark-mode overrides based on session state.
 
+    Dark mode defaults to True (set in app.py before this call).
     Call once at the top of app.py after set_page_config.
     """
     st.markdown(_GLOBAL_CSS, unsafe_allow_html=True)
-    overrides = _theme_overrides_css(bool(st.session_state.get("dark_mode", False)))
+    overrides = _theme_overrides_css(bool(st.session_state.get("dark_mode", True)))
     if overrides:
         st.markdown(overrides, unsafe_allow_html=True)
 

@@ -16,7 +16,7 @@ import streamlit as st
 
 def render_sidebar_toggle() -> None:
     """Render the floating toggle. Call once per page, after set_page_config."""
-    dark = bool(st.session_state.get("dark_mode", False))
+    dark = bool(st.session_state.get("dark_mode", True))
     if dark:
         bg, bg_hover = "#475569 0%, #1E293B 100%", "#64748B 0%, #334155 100%"
         shadow, shadow_hover = "rgba(71,85,105,0.45)", "rgba(100,116,139,0.55)"

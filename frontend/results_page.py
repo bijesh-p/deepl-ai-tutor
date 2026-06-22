@@ -21,7 +21,7 @@ def render_results_page(result: QuizResult) -> None:
     # This div has no background of its own — it sits directly on the
     # expander's background, which is dark in dark mode, so the text color
     # must follow the theme instead of being hardcoded to dark text.
-    question_text_color = "#F1F5F9" if st.session_state.get("dark_mode") else "#111827"
+    question_text_color = "#F1F5F9" if st.session_state.get("dark_mode", True) else "#111827"
 
     # ── Big score banner ──────────────────────────────────────────────────────
     st.markdown(

@@ -23,6 +23,7 @@ st.set_page_config(
 
 from frontend.styles import inject_global_css
 inject_global_css()
+st.session_state.setdefault("dark_mode", True)
 
 # ---------------------------------------------------------------------------
 # Provider → available models (from env or sensible defaults)
@@ -83,7 +84,7 @@ def _render_sidebar() -> None:
     import os
 
     logged_in = bool(st.session_state.get("username"))
-    header_text_color = "#F1F5F9" if st.session_state.get("dark_mode") else "#1E1B4B"
+    header_text_color = "#F1F5F9" if st.session_state.get("dark_mode", True) else "#1E1B4B"
 
     with st.sidebar:
         # ── App name ──────────────────────────────────────────────────────────
@@ -169,28 +170,9 @@ def _render_sidebar() -> None:
                 help="Run DeepEval quality metrics using the active LLM as judge",
                 key="_evals_toggle",
             )
-            dark_mode_on = st.toggle(
-                "Dark mode",
-                value=st.session_state.get("dark_mode", False),
-                help="Switch the app to a dark color theme",
-                key="_dark_mode_toggle",
-            )
             st.session_state["audio_enabled"] = audio_on
             st.session_state["tracing_enabled"] = tracing_on
             st.session_state["evals_enabled"] = evals_on
-            if dark_mode_on != st.session_state.get("dark_mode", False):
-                st.session_state["dark_mode"] = dark_mode_on
-                try:
-                    from backend.analytics.db import get_db
-                    from backend.analytics.persistence import save_dark_mode
-                    save_dark_mode(
-                        st.session_state["user_id"],
-                        dark_mode_on,
-                        db=get_db(st.session_state.get("db_path")),
-                    )
-                except Exception:
-                    pass  # don't let a DB hiccup break the toggle
-                st.rerun()
 
             # ── Navigation ────────────────────────────────────────────────────
             st.markdown("<div class='sb-label'>Navigate</div>", unsafe_allow_html=True)
