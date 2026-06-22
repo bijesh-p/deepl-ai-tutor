@@ -50,11 +50,14 @@ h3 { font-weight: 600 !important; letter-spacing: -0.01em !important; }
 p  { font-weight: 400 !important; line-height: 1.6 !important; }
 
 /* ── Buttons ───────────────────────────────────────────────────────────── */
+/* Sizing tokens — shared by primary and secondary so every button row is the
+   same height regardless of type. Only color differs between kinds. */
 .stButton button {
     border-radius: 8px !important;
     font-weight: 500 !important;
     transition: all 0.15s ease !important;
     padding: 0.4rem 1rem !important;
+    min-height: 2.25rem !important;
     overflow: hidden !important;
     text-overflow: ellipsis !important;
     white-space: nowrap !important;

@@ -81,19 +81,19 @@ def _render_my_modules(db, shared_db, is_admin: bool) -> None:
             unsafe_allow_html=True,
         )
 
-        action_cols = st.columns([1, 1, 1, 1, 1])
-        with action_cols[0]:
+        col_learn, col_mastery, col_delete, col_publish = st.columns([1, 1, 1, 1])
+        with col_learn:
             if st.button("Learn", key=f"learn_{mod['module_id']}", type="primary", use_container_width=True):
                 _load_and_navigate(mod["module_id"], db)
-        with action_cols[1]:
+        with col_mastery:
             if st.button("Mastery", key=f"mastery_{mod['module_id']}", type="secondary", use_container_width=True):
                 _load_for_mastery_report(mod["module_id"], db)
-        with action_cols[2]:
+        with col_delete:
             if st.button("Delete", key=f"del_{mod['module_id']}", type="secondary", use_container_width=True):
                 delete_module(mod["module_id"], db=db)
                 st.rerun()
-        if is_admin:
-            with action_cols[3]:
+        with col_publish:
+            if is_admin:
                 if is_pub:
                     if st.button("Unpublish", key=f"unpub_{mod['module_id']}", use_container_width=True):
                         unpublish_module(mod["module_id"], db=db, shared_db=shared_db)
