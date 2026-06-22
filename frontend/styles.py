@@ -91,12 +91,17 @@ p  { font-weight: 400 !important; line-height: 1.6 !important; }
  * Streamlit version (1.58.0) — see SPEC.md Open Questions, Phase 45/46/47.
  * `frontend/sidebar_toggle.py::render_sidebar_toggle()` renders a small
  * always-visible custom button (via `st.iframe()`) that forwards clicks to
- * the real hidden control; the rule below just pins that iframe
- * (`[data-testid="stIFrame"]`) to a fixed spot on the page edge.
+ * the real hidden control; the rule below pins that iframe to a fixed spot
+ * on the page edge. Scoped to `.st-key-sidebar_toggle_iframe` (the
+ * `st.container(key=...)` wrapper around that specific `st.iframe()` call,
+ * per the Phase 48 container-key pattern) rather than the bare
+ * `[data-testid="stIFrame"]` attribute — that attribute matches *every*
+ * `st.iframe()` on the page, which broke the mermaid diagram renderer
+ * (Phase 56) by force-pinning its iframe to this same 30x80 box too.
  * Do NOT override transform on the sidebar itself — that breaks the
  * slide-in/out animation.
  */
-[data-testid="stIFrame"] {
+.st-key-sidebar_toggle_iframe [data-testid="stIFrame"] {
     position: fixed !important;
     top: 0 !important;
     left: 0 !important;

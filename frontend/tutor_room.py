@@ -17,13 +17,8 @@ from backend.analytics.persistence import (
 )
 from backend.interactive_tutor import build_tutor_graph
 from frontend.audio_autostop import render_audio_autostop
+from frontend.mermaid_render import render_mermaid
 from frontend.styles import concept_rail_html
-
-try:
-    from streamlit_mermaid import st_mermaid
-    _HAS_MERMAID = True
-except ImportError:
-    _HAS_MERMAID = False
 
 
 def render_tutor_room() -> None:
@@ -403,18 +398,6 @@ def _render_diagnostic(state: dict, graph) -> None:
 _SLIDE_DURATION_DEFAULT_S = 60  # fallback when no audio duration available
 
 
-def _clean_for_render(mermaid_code: str) -> str:
-    import re
-    cleaned = []
-    for line in mermaid_code.strip().splitlines():
-        if re.match(r'\s*click\s', line):
-            continue
-        if ':::' in line:
-            line = re.sub(r':::[\w]+', '', line)
-        cleaned.append(line)
-    return "\n".join(cleaned)
-
-
 def _render_slide(state: dict, graph) -> None:
     history = state.get("chat_history", [])
     slide = next((m for m in reversed(history) if m.get("role") == "slide"), None)
@@ -447,14 +430,8 @@ def _render_slide(state: dict, graph) -> None:
     if mermaid_code and mermaid_code.strip():
         from backend.content.diagram_generator import _sanitize_mermaid
         clean_mermaid = _sanitize_mermaid(mermaid_code)
-        if _HAS_MERMAID and clean_mermaid:
-            render_code = _clean_for_render(clean_mermaid)
-            st.markdown("<div style='max-width:100%;overflow:hidden;'>", unsafe_allow_html=True)
-            try:
-                st_mermaid(render_code, height="350px")
-            except Exception:
-                st.info(concept)
-            st.markdown("</div>", unsafe_allow_html=True)
+        if clean_mermaid:
+            render_mermaid(clean_mermaid, slide.get("key_takeaways", []), height=350)
         else:
             st.info(concept)
         if diagram_caption:
