@@ -201,9 +201,11 @@ def _persist_results(results: Any, user_id: str, module_id: str, db_path: str | 
 
         scores: list[dict] = []
         for tr in getattr(results, "test_results", []) or []:
-            for md in getattr(tr, "metrics_metadata", []) or []:
+            # DeepEval 2.x uses metrics_data; 1.x used metrics_metadata
+            md_list = getattr(tr, "metrics_data", None) or getattr(tr, "metrics_metadata", []) or []
+            for md in md_list:
                 scores.append({
-                    "metric": getattr(md, "metric", "unknown"),
+                    "metric": getattr(md, "name", None) or getattr(md, "metric", "unknown"),
                     "score": getattr(md, "score", None),
                     "threshold": getattr(md, "threshold", None),
                     "passed": getattr(md, "success", None),
