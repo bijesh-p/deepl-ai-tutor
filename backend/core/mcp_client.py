@@ -28,6 +28,15 @@ _SERVER_MODULES = {
     "assessment_server": "mcp_servers.assessment_server.server",
 }
 
+# A stalled tool call must not hang its caller forever — bound it so callers'
+# existing exception handling can degrade gracefully instead. 30s gives
+# headroom for storage_server's first call in a session, which pays a
+# one-time cost importing chromadb/numpy (observed highly variable — as low
+# as ~1s standalone, 15s+ as a subprocess, likely antivirus/real-time-scan
+# interference on native extension loads); every later call in the same
+# session reuses the already-imported module and is fast.
+_CALL_TIMEOUT_S = 30.0
+
 
 class MCPClient:
     """Synchronous handle to a single MCP server subprocess."""
@@ -95,7 +104,7 @@ class MCPClient:
         future = asyncio.run_coroutine_threadsafe(
             self._session.call_tool(tool_name, kwargs), self._loop
         )
-        result = future.result()
+        result = future.result(timeout=_CALL_TIMEOUT_S)
         if result.isError:
             raise RuntimeError(f"{tool_name} failed: {result.content}")
         for block in result.content:
@@ -137,3 +146,36 @@ def close_all() -> None:
         for client in _clients.values():
             client.close()
         _clients.clear()
+
+
+_storage_server_warmed = False
+_storage_server_warm_lock = threading.Lock()
+
+
+def warm_up_storage_server() -> None:
+    """Trigger storage_server's slow first-call import cost early, in the
+    background, so a real caller (e.g. the tutor's diagnostic-submission
+    flow) never pays it synchronously.
+
+    storage_server's first tool call imports chromadb/numpy, which has been
+    observed to take anywhere from ~1s to 30s+ depending on the machine
+    (likely antivirus/real-time-scan interference on native extension
+    loads) — every later call in the same process is fast, since the import
+    is cached. Best-effort: failures are swallowed, same as the
+    non-fatal-by-design callers of this MCP server elsewhere in the app.
+    Safe to call repeatedly (e.g. once per Streamlit rerun) — only the
+    first call actually does anything.
+    """
+    global _storage_server_warmed
+    with _storage_server_warm_lock:
+        if _storage_server_warmed:
+            return
+        _storage_server_warmed = True
+
+    def _warm():
+        try:
+            get_client("storage_server").call("query_vector_db", query_text="", n_results=1)
+        except Exception:
+            pass
+
+    threading.Thread(target=_warm, daemon=True, name="mcp-storage-server-warmup").start()
