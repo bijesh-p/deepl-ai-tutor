@@ -110,6 +110,27 @@ def _render_deepeval_section() -> None:
         st.warning("Not logged in.")
         return
 
+    # ── Last-run status ──────────────────────────────────────────────────────
+    try:
+        from backend.observability.eval_runner import get_last_eval_run
+        last_run = get_last_eval_run(user_id, db_path=db_path)
+        if last_run:
+            ran_at = last_run["ran_at"][:19].replace("T", " ")
+            if last_run["error"]:
+                st.warning(
+                    f"Last eval run: **{ran_at} UTC** — "
+                    f"failed ({last_run['error'][:80]})"
+                )
+            elif last_run["case_count"] == 0:
+                st.info(f"Last eval run: **{ran_at} UTC** — no test cases found.")
+            else:
+                st.success(
+                    f"Last eval run: **{ran_at} UTC** — "
+                    f"{last_run['case_count']} test cases evaluated."
+                )
+    except Exception:
+        pass
+
     db = get_db(db_path)
     try:
         results = get_eval_results(user_id, db=db)

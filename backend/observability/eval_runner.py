@@ -75,6 +75,7 @@ def _run(
     test_cases = _build_test_cases(chat_history, source_text, concept_context=concept_context)
     if not test_cases:
         _log.info("No eval test cases built from session history")
+        record_eval_run(user_id, module_id, case_count=0, error="no test cases", db_path=db_path)
         return
 
     judge = LLMFactoryJudge(provider=provider, model=model)
@@ -102,9 +103,11 @@ def _run(
             print_results=False,
         )
         _persist_results(results, user_id, module_id, db_path=db_path)
+        record_eval_run(user_id, module_id, case_count=len(test_cases), db_path=db_path)
         _log.info("Eval complete — %d test cases, judge=%s", len(test_cases), judge.get_model_name())
     except Exception as exc:
         _log.warning("DeepEval evaluate() failed: %s", exc)
+        record_eval_run(user_id, module_id, case_count=len(test_cases), error=str(exc), db_path=db_path)
 
 
 # ---------------------------------------------------------------------------
@@ -293,3 +296,85 @@ def _ensure_eval_table(db: sqlite3.Connection) -> None:
         )
     """)
     db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Lightweight run-status record
+# ---------------------------------------------------------------------------
+
+def record_eval_run(
+    user_id: str,
+    module_id: str,
+    case_count: int,
+    error: str | None = None,
+    db_path: str | None = None,
+) -> None:
+    """Write a lightweight status row so the dashboard can show last-run info."""
+    try:
+        from backend.analytics.db import get_db
+        db = get_db(db_path)
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS eval_runs (
+                run_id      TEXT PRIMARY KEY,
+                user_id     TEXT NOT NULL,
+                module_id   TEXT NOT NULL,
+                case_count  INTEGER NOT NULL,
+                error       TEXT,
+                ran_at      TEXT NOT NULL
+            )
+        """)
+        db.execute(
+            """
+            INSERT INTO eval_runs (run_id, user_id, module_id, case_count, error, ran_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                str(uuid.uuid4()),
+                user_id,
+                module_id,
+                case_count,
+                error,
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+        db.commit()
+        db.close()
+    except Exception as exc:
+        _log.warning("Failed to record eval run status: %s", exc)
+
+
+def get_last_eval_run(user_id: str, db_path: str | None = None) -> dict | None:
+    """Return the most recent eval run status for a user, or None if none exists."""
+    try:
+        from backend.analytics.db import get_db
+        db = get_db(db_path)
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS eval_runs (
+                run_id      TEXT PRIMARY KEY,
+                user_id     TEXT NOT NULL,
+                module_id   TEXT NOT NULL,
+                case_count  INTEGER NOT NULL,
+                error       TEXT,
+                ran_at      TEXT NOT NULL
+            )
+        """)
+        row = db.execute(
+            """
+            SELECT module_id, case_count, error, ran_at
+            FROM eval_runs WHERE user_id = ?
+            ORDER BY ran_at DESC LIMIT 1
+            """,
+            (user_id,),
+        ).fetchone()
+        db.close()
+        if row is None:
+            return None
+        return {
+            "module_id": row["module_id"],
+            "case_count": row["case_count"],
+            "error": row["error"],
+            "ran_at": row["ran_at"],
+        }
+    except Exception as exc:
+        _log.warning("Failed to read eval run status: %s", exc)
+        return None
