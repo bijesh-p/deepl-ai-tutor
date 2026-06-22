@@ -101,6 +101,7 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
 | Streamlit upgrade + Windows/Linux audit (Phase 46) | Confirmed no Streamlit upgrade is possible (already on latest stable, 1.58.0); the sidebar-collapse bug is a recurring upstream issue with no fix version to wait for, not something this app's CSS caused. Removed the now-fully-confirmed-dead `stSidebarCollapsedControl` CSS (pre-1.38 testid name, renamed to `stSidebarCollapseButton`) from both `frontend/styles.py` and `frontend/login_page.py`. Audited `pyproject.toml`/`uv.lock` for Windows/Linux platform risk — none found beyond the already-handled `onnxruntime` pin. | ✅ Done |
 | Sidebar collapse/expand JS workaround (Phase 47) | New `frontend/sidebar_toggle.py::render_sidebar_toggle()` — a small always-visible custom button rendered via `st.iframe()`, forwarding clicks to Streamlit's hidden native sidebar control via `window.parent.document`. Pinned to the page edge via a new `[data-testid="stIFrame"]` rule in `_GLOBAL_CSS`. Theme-aware (violet in dark mode, indigo/blue in light). Resolves the Phase 45/46 open question. | ✅ Done |
 | UI polish round 2 (Phase 48) | Re-themed sidebar dark palette from violet to neutral slate-gray (`_DARK_PALETTE` + `sidebar_toggle.py`). Fixed quiz radio/checkbox options becoming invisible on hover/select in dark mode — the unconditional light `:hover`/`:has(input:checked)` backgrounds in `_GLOBAL_CSS` combined with near-white dark-mode text to produce near-white-on-near-white; added dark-appropriate hover/checked colors. Fixed the login page's "AI Tutor" title rendering outside its white card — the card was built by opening a `<div>` in one `st.markdown()` call and closing it in a later, separate call, which Streamlit doesn't nest content inside; replaced with `st.container(key="login_canvas")`, which gives every element rendered in the `with` block a real shared parent. | ✅ Done |
+| Configurable max topic limit | A numeric "Max topics" input on the upload page lets the user cap how many topics/slides the pipeline generates from the uploaded document. When set (e.g. 5), the pipeline selects the N most important topics from the document and terminates after enriching them — useful for quick demos or targeted study. When set to 0 or left blank, the pipeline generates topics for the entire document (current default behaviour). The limit applies uniformly to all document types (PDF, PPTX, DOCX, VTT). Implemented as: (1) `st.number_input` on the upload page, stored in `session_state["max_topics"]`; (2) passed through to `sliding_pipeline.run()` which truncates the decomposed topic list to the configured cap before enrichment begins; (3) parsers' existing `max_slides`/`max_sections` defaults (16) remain unchanged — the new cap operates at the pipeline level after decomposition, not at the parser level. Default: 0 (unlimited / generate all). Environment-variable override: `AI_TUTOR_DEFAULT_MAX_TOPICS` sets the default value shown in the input. | 🔲 Planned |
 
 **Definition of done for Phase 3:**
 - [x] Admin user can publish a module to the shared library; all other users see it in their module library without generating it themselves
@@ -113,6 +114,7 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
 - [x] Dark mode toggle persists per-user and is legible (WCAG-checked) across every page
 - [x] Every page has a single, consistent top-of-page back affordance
 - [x] Adaptive tutor and module viewer show a clear position/progress indicator among topics
+- [ ] Upload page exposes a "Max topics" numeric input; when set to N > 0 the pipeline generates at most N topics; when 0 or blank it generates all topics from the document
 
 ---
 
@@ -163,6 +165,7 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
 ### 1.1 File Constraints
 - Max upload: 50 MB
 - Phase 2: `.pdf` only; Phase 3 adds `.pptx` and `.docx`; Phase 4 adds `.vtt`
+- **Max topics per module:** Configurable via a numeric input on the upload page. When set to N > 0, the pipeline generates at most the N most important topics from the document. When 0 or blank, all topics are generated (default). Env-var default: `AI_TUTOR_DEFAULT_MAX_TOPICS` (default `0`). Applies to all document types uniformly.
 
 ### 1.2 LLM Usage
 - All LLM calls go through `BaseLLMClient` — no direct SDK imports outside `adapters/`
