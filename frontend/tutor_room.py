@@ -18,7 +18,7 @@ from backend.analytics.persistence import (
 from backend.interactive_tutor import build_tutor_graph
 from frontend.audio_autostop import render_audio_autostop
 from frontend.mermaid_render import render_mermaid
-from frontend.styles import concept_rail_html
+from frontend.styles import concept_rail_html, topic_highlight_chips_html
 
 
 def render_tutor_room() -> None:
@@ -463,7 +463,8 @@ def _render_slide(state: dict, graph) -> None:
     st.subheader(concept)
 
     if top_concepts:
-        st.info("**Key concepts:** " + " | ".join(f"`{c}`" for c in top_concepts))
+        st.markdown("**Key concepts:**")
+        st.markdown(topic_highlight_chips_html(top_concepts), unsafe_allow_html=True)
 
     if mermaid_code and mermaid_code.strip():
         from backend.content.diagram_generator import _sanitize_mermaid
