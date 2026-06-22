@@ -303,19 +303,15 @@ def present_concept(state: GraphState) -> dict:
                     system="You are a patient tutor adapting content for a specific learner.",
                 )
                 transcript = adapted if isinstance(adapted, str) else content_md
-                # Generate audio synced to diagram only if audio is enabled
+                # Generate audio only if audio is enabled
                 if audio_enabled:
                     try:
                         from backend.content.audio_generator import generate_audio
-                        diagram_caption = (enriched.get("diagrams", [{}])[0].get("caption", "")
-                                           if enriched.get("diagrams") else "")
                         # Limit TTS to first 400 chars so audio stays ~30-60s
                         short_transcript = transcript[:400].rsplit(" ", 1)[0] + "..."
                         audio_path = generate_audio(
                             short_transcript,
                             f"{concept}_tutor",
-                            diagram_caption=diagram_caption,
-                            diagram_mermaid=mermaid_code,
                             topic_title=concept,
                         )
                     except Exception:
@@ -406,7 +402,7 @@ def present_concept(state: GraphState) -> dict:
         if not mermaid_code and bullets:
             transcript = "\n".join(f"- {b}" for b in bullets) + "\n\n" + transcript
 
-    # Generate diagram-aware audio for the fallback slide (skip if disabled)
+    # Generate audio for the fallback slide (skip if disabled)
     fallback_audio = ""
     if state.get("audio_enabled", True):
         try:
@@ -414,7 +410,6 @@ def present_concept(state: GraphState) -> dict:
             fallback_audio = generate_audio(
                 transcript,
                 f"{concept}_tutor_fallback",
-                diagram_mermaid=mermaid_code,
                 topic_title=concept,
             )
         except Exception:
