@@ -716,6 +716,18 @@ test infra exists for `tutor_room.py`).
 
 ---
 
+## Phase 64 — Highlight each slide's "Key concepts" in different colors ✅ Complete
+
+**Goal:** In the tutor room, make the "Key concepts" list at the top of each slide's explanation visually distinguish individual topics from each other, instead of one undifferentiated `st.info()` box.
+
+**Change:** added `topic_highlight_chips_html()` to `frontend/styles.py` — renders each concept as its own colored pill, cycling through a fixed 6-color palette (blue/purple/teal/orange/pink/green), each chip self-contained with its own pastel background + matching dark text (same pattern as the existing `slide_chips_html`/`concept_rail_html` mastery chips, so it looks the same in light and dark mode without needing a theme check). `frontend/tutor_room.py::_render_slide()` now renders a plain `st.markdown("**Key concepts:**")` label followed by the chip row, instead of the old single-color `st.info()` box.
+
+**Verified:** synthetic harness with 6 concepts — confirmed 6 visually distinct chip colors render correctly in both light and dark mode (chips unaffected by theme, as expected; label text correctly follows theme). Full pytest suite: 139 passed, 0 failures.
+
+**Files:** `frontend/styles.py`, `frontend/tutor_room.py`.
+
+---
+
 ## Commit convention
 
 Format: `[Phase N] <short description>`
