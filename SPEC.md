@@ -1,7 +1,10 @@
 # SPEC.md — AI Tutor System Specification
 
-> **Version:** 0.23 | **Last updated:** 2026-06-20
+> **Version:** 0.29 | **Last updated:** 2026-06-22
 > Architecture, directory layout, and component design are in [ARCHITECTURE.md](ARCHITECTURE.md).
+> **GUI / frontend requirements are specified in [gui_spec.md](gui_spec.md)** — that document
+> is authoritative for all GUI features, normative UI decisions (dark-theme default, button
+> consistency), and suggested frontend improvements.
 
 ---
 
@@ -102,6 +105,7 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
 | Streamlit upgrade + Windows/Linux audit (Phase 46) | Confirmed no Streamlit upgrade is possible (already on latest stable, 1.58.0); the sidebar-collapse bug is a recurring upstream issue with no fix version to wait for, not something this app's CSS caused. Removed the now-fully-confirmed-dead `stSidebarCollapsedControl` CSS (pre-1.38 testid name, renamed to `stSidebarCollapseButton`) from both `frontend/styles.py` and `frontend/login_page.py`. Audited `pyproject.toml`/`uv.lock` for Windows/Linux platform risk — none found beyond the already-handled `onnxruntime` pin. | ✅ Done |
 | Sidebar collapse/expand JS workaround (Phase 47) | New `frontend/sidebar_toggle.py::render_sidebar_toggle()` — a small always-visible custom button rendered via `st.iframe()`, forwarding clicks to Streamlit's hidden native sidebar control via `window.parent.document`. Pinned to the page edge via a new `[data-testid="stIFrame"]` rule in `_GLOBAL_CSS`. Theme-aware (violet in dark mode, indigo/blue in light). Resolves the Phase 45/46 open question. | ✅ Done |
 | UI polish round 2 (Phase 48) | Re-themed sidebar dark palette from violet to neutral slate-gray (`_DARK_PALETTE` + `sidebar_toggle.py`). Fixed quiz radio/checkbox options becoming invisible on hover/select in dark mode — the unconditional light `:hover`/`:has(input:checked)` backgrounds in `_GLOBAL_CSS` combined with near-white dark-mode text to produce near-white-on-near-white; added dark-appropriate hover/checked colors. Fixed the login page's "AI Tutor" title rendering outside its white card — the card was built by opening a `<div>` in one `st.markdown()` call and closing it in a later, separate call, which Streamlit doesn't nest content inside; replaced with `st.container(key="login_canvas")`, which gives every element rendered in the `with` block a real shared parent. | ✅ Done |
+| Configurable max topic limit | A numeric "Max topics" input on the upload page lets the user cap how many topics/slides the pipeline generates from the uploaded document. When set (e.g. 5), the pipeline selects the N most important topics from the document and terminates after enriching them — useful for quick demos or targeted study. When set to 0 or left blank, the pipeline generates topics for the entire document (current default behaviour). The limit applies uniformly to all document types (PDF, PPTX, DOCX, VTT). Implemented as: (1) `st.number_input` on the upload page, stored in `session_state["max_topics"]`; (2) passed through to `sliding_pipeline.run()` which truncates the decomposed topic list to the configured cap before enrichment begins; (3) parsers' existing `max_slides`/`max_sections` defaults (16) remain unchanged — the new cap operates at the pipeline level after decomposition, not at the parser level. Default: 0 (unlimited / generate all). Environment-variable override: `AI_TUTOR_DEFAULT_MAX_TOPICS` sets the default value shown in the input. | 🔲 Planned |
 
 **Definition of done for Phase 3:**
 - [x] Admin user can publish a module to the shared library; all other users see it in their module library without generating it themselves
@@ -168,6 +172,7 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
 ### 1.1 File Constraints
 - Max upload: 50 MB
 - Phase 2: `.pdf` only; Phase 3 adds `.pptx` and `.docx`; Phase 4 adds `.vtt`
+- **Max topics per module:** Configurable via a numeric input on the upload page. When set to N > 0, the pipeline generates at most the N most important topics from the document. When 0 or blank, all topics are generated (default). Env-var default: `AI_TUTOR_DEFAULT_MAX_TOPICS` (default `0`). Applies to all document types uniformly.
 
 ### 1.2 LLM Usage
 - All LLM calls go through `BaseLLMClient` — no direct SDK imports outside `adapters/`
@@ -225,6 +230,130 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
   3. **Black-on-black question text:** `frontend/results_page.py` hardcoded `color:#111827` on the question-text div with no background of its own — it sits directly on the expander's background, which is dark in dark mode. Fixed by computing a theme-aware `question_text_color` (mirrors the `header_text_color` pattern already used in `app.py`) instead of hardcoding it.
   All three verified live via a synthetic results-page harness (`AnswerResult`/`QuizResult` fixtures, no real quiz needed) — dark mode: header `rgb(241,245,249)` text on `rgb(26,29,41)` background, question text `rgb(241,245,249)` on transparent (inherits the same dark background); light mode confirmed pixel-unchanged. Full pytest suite: 139 passed, 0 failures (CSS/audio-only changes, no logic under test).
 - [x] **`PYTHONPATH=. uv run phoenix serve` fails with "Failed to spawn: `phoenix`" (Phase 55)** — **Resolved:** Phase 51's restoration of dependencies dropped by `main`'s pre-merge lineage explicitly left `arize-phoenix` out, reasoning that it has zero direct Python imports in the codebase (Phoenix runs as an external process, reached only via the already-present `opentelemetry-exporter-otlp-proto-http` exporter). That reasoning missed that the README (and `observability_page.py`'s own caption) documents starting that external process via `PYTHONPATH=. uv run phoenix serve` — a CLI entry point provided by the `arize-phoenix` package itself, not by any OTEL exporter package. Without it installed in the `uv` venv, `uv run phoenix` has no `phoenix` console script to spawn. Fixed via `uv add arize-phoenix`, verified by running the exact documented command and confirming the server starts and serves the UI at `http://localhost:6006`.
+- [x] **GUI overhaul: dark-theme default + button consistency (Phase 56–57)** — **Resolved.** (1) Dark theme is the single application default — `inject_global_css()` applies dark overrides on every page (including login); `dark_mode` seeded to `True` at startup in `app.py`; login page `_LOGIN_CSS` rewritten for dark palette. No light-theme flash on first load. (2) Dark-mode sidebar toggle and `save_dark_mode` call removed; Streamlit native top-right app menu restored. (3) All multi-button rows use equal-width `st.columns` with `use_container_width=True`; shared `min-height: 2.25rem` token in `.stButton button`; Module Library action row normalised to 4 equal columns (Publish column always rendered, empty for non-admins). Full pytest suite: 140 passed.
+
+---
+
+## 3. Bug Fixes — Navaneeth
+
+Compiled from standalone change specs scoped under `changes/` via the `/spec-plan`
+skill before implementation (see each `changes/<name>.spec.md` for full detail —
+problem, current behavior, root cause, decisions, requirements, out of scope).
+
+### Mermaid diagram rendering reliability
+
+**Problem:** Diagram slides could show mermaid.js's raw `Syntax error in text
+mermaid version ...` directly to the user, with no diagram and no fallback —
+`st_mermaid()`'s failure happens client-side, after Python's call has already
+returned successfully, so the existing `try/except` around it never caught
+anything.
+
+**Fix:** Replaced `streamlit-mermaid` with a custom renderer
+(`frontend/mermaid_render.py`) that runs vendored mermaid.js + `svg-pan-zoom`
+directly inside an `st.iframe()`, wrapped in a JS `try/catch`. On failure, it
+falls back to the topic's existing `key_takeaways` bullets instead of
+mermaid's error text. `key_takeaways` is threaded into `present_concept`'s
+slide dict (previously only stored when no diagram was generated at all) so
+every diagram-bearing slide also carries fallback content.
+
+**Files:** `frontend/mermaid_render.py` (new),
+`frontend/static/vendor/{mermaid.min.js,svg-pan-zoom.min.js}` (new),
+`backend/interactive_tutor/graph.py`, `frontend/tutor_room.py`,
+`frontend/module_viewer.py`; `streamlit-mermaid` removed from `pyproject.toml`.
+
+### Mermaid render timeout (hung diagrams)
+
+**Problem:** A diagram could render as a permanently blank box with no
+fallback ever appearing — confirmed live on a topic with a cyclic flowchart
+("Orchestrator-Subagent" pattern).
+
+**Root cause:** `mermaid.render()`'s dagre/d3 layout phase can hang
+indefinitely on syntactically-valid but structurally pathological graphs
+(e.g. cycles) — a known class of issue in mermaid's own layout engine, not a
+defect in this app's code.
+
+**Fix:** The renderer's inline script races `mermaid.render()` against a
+5-second timer; if the timer wins, the same bullets fallback shows (no
+visual distinction from an error/rejection fallback). A late-resolving render
+still replaces the fallback with the real diagram if it eventually succeeds.
+
+**Files:** `frontend/mermaid_render.py`.
+
+### Mermaid diagrams broken for every topic except the first
+
+**Problem:** Every topic's diagram in the Module Viewer rendered as a
+near-invisible speck (`viewBox="-8 -8 16 16"`, every text label measuring
+`0×0`) except the first topic's.
+
+**Root cause:** Streamlit's `st.tabs()` puts every tab panel into the DOM at
+once, hiding inactive ones via CSS. Mermaid measures label text by
+temporarily rendering it and reading its real pixel size — browsers return
+zero for layout queries inside a hidden ancestor, so a diagram rendered while
+its tab is inactive gets a permanently-baked-in zero-size layout (mermaid
+never re-measures later when the tab becomes visible). Confirmed by direct
+reproduction, independent of diagram content, pan/zoom, and the timeout fix
+above.
+
+**Fix:** The renderer's script now waits for an `IntersectionObserver` to
+confirm the diagram's content is actually visible before calling
+`mermaid.render()` for the first time — already-visible content (the common
+case) renders with no perceptible delay; content in a hidden tab defers
+rendering until the tab is opened. The 5s timeout now starts when rendering
+is actually attempted, not at script load.
+
+**Files:** `frontend/mermaid_render.py`.
+
+### MCP client reliability: storage_server hang with no timeout
+
+**Problem:** In the Adaptive Tutor, after answering all of a topic's
+questions the app could hang indefinitely instead of advancing to the next
+topic.
+
+**Root cause:** `storage_server`'s first MCP tool call in a session pays a
+one-time, highly variable (observed ~1s–30s+) cost importing
+`chromadb`/`numpy` — likely antivirus/real-time-scan interference on native
+extension loads (confirmed via `py-spy` stack-trace dumping of the hung
+subprocess, stuck inside `numpy._core.multiarray` native loading).
+`backend/core/mcp_client.py::MCPClient.call()` had no timeout at all, so a
+slow import on this path could block the tutor's `present_concept` →
+`_retrieve_context` call forever.
+
+**Fix:** Added a 30-second timeout to `MCPClient.call()` (via
+`future.result(timeout=...)`) as a safety net, plus a
+`warm_up_storage_server()` background-thread pre-warm called once at app
+startup (`app.py`), so the slow import cost is paid before a real user ever
+reaches the tutor flow rather than synchronously on their critical path.
+
+**Files:** `backend/core/mcp_client.py`, `app.py`. *(Implemented directly,
+no standalone `changes/*.spec.md` — noted for the record since every other
+entry above has one.)*
+
+### Diagnostic quiz review screen
+
+**Goal** (feature, not a bug — included here per compilation request):
+the diagnostic quiz's "Submit & Start Learning" button immediately evaluated
+answers and jumped straight to the lesson slide, with no feedback shown on
+what the student got right or wrong.
+
+**Fix:** Added a required `explanation` field to each diagnostic question
+(`_DIAGNOSTIC_SCHEMA`/`_DIAGNOSTIC_SYSTEM` in `graph.py`) and a new
+`diagnostic_review` UI phase (`frontend/tutor_room.py::_render_diagnostic_review`)
+shown after every topic's diagnostic, before the lesson: overall score plus a
+per-question breakdown (chosen answer, correct answer, ✅/❌, explanation),
+with a "Continue to lesson →" button to proceed.
+
+**Files:** `backend/interactive_tutor/graph.py`, `frontend/tutor_room.py`,
+`tests/test_tutor/test_graph_nodes.py`.
+
+---
+
+## 4. Bug Fixes — ported from `experiment/improve-ui`
+
+- [x] **"Download Results" button white-on-white in dark mode (Phase 62)** — **Resolved:** same coverage gap as the Phase 50 upload-button fix, on a different native element. `st.download_button()` (`frontend/results_page.py:142`) renders inside `[data-testid="stDownloadButton"]`, not `.stButton`, so the existing `.stButton button[kind="secondary"]` dark-mode rule never matched it — the button kept Streamlit's native white background while its text inherited the page-wide dark `color: #F1F5F9` from `.stApp`. Fixed by adding a dedicated `[data-testid="stDownloadButton"] button[kind="secondary"]` rule to `_theme_overrides_css()` in `frontend/styles.py`, using the same `card_bg`/`text_primary` tokens as the upload-button fix. Verified live via a synthetic results-page harness: dark mode now resolves to `rgb(26,29,41)` background / `rgb(241,245,249)` text (was white-on-white); light mode confirmed pixel-unchanged (`rgb(255,255,255)` / `rgb(17,24,39)`). Full pytest suite: 139 passed, 0 failures.
+- [x] **Module Library shows uploaded file as `tmpXXXXXX.<ext>` instead of the original filename (Phase 63)** — **Resolved:** `Document.source_filename` (set by every parser in `backend/ingestion/*_parser.py` as `path.name`) was always derived from the `tempfile.NamedTemporaryFile` path the upload form writes the bytes to before parsing — never from the user's actual filename. `frontend/upload_page.py`'s `save_module(..., source_filename=doc.source_filename, ...)` call therefore persisted the temp-file name (e.g. `tmpa_dwvrll.pdf`) into the `modules` table, which `module_library_page.py` then displays verbatim as "Source: tmpXXXXXX.pdf". Fixed by threading the original filename (`uploaded.name`, already cached in `st.session_state["_cached_upload_name"]` for the retry-with-same-file path) through `_start_pipeline` → `_run_pipeline_bg` as an explicit `original_filename` argument — required because the pipeline runs on a background thread that cannot reliably read `st.session_state` — and using it instead of `doc.source_filename` at the `save_module()` call site. `Document.source_filename` itself is otherwise unused outside that one call site, so no parser/model changes were needed. Verified by driving `_run_pipeline_bg` directly end-to-end against `tests/fixtures/sample.pdf` with `original_filename="Intro_to_ML_Lecture.pdf"` and confirming the saved row's `source_filename` matches the original name, not the temp path. **Note:** the 3 modules already in this user's local DB before the fix permanently lost their original filenames (never captured) and will continue to show their old `tmpXXXXXX.pdf` names — only new uploads are affected by the fix. Full pytest suite: 139 passed, 0 failures.
+- [x] **Highlight each slide's "Key concepts" in different colors in the tutor room (Phase 64)** — **Resolved (enhancement):** `frontend/tutor_room.py::_render_slide()` previously rendered `top_concepts` as a single `st.info()` box with all concepts in identical backtick-styled text (`` `concept` | `concept` ``), giving no visual distinction between individual topics. Added `topic_highlight_chips_html()` to `frontend/styles.py` — renders each concept as its own colored pill, cycling through a fixed 6-color palette (blue/purple/teal/orange/pink/green, each a pastel background + matching dark text, same self-contained style as the existing `slide_chips_html`/`concept_rail_html` chips) — and swapped the `st.info()` call for a plain `st.markdown("**Key concepts:**")` label (inherits theme text color normally) followed by the chip row. Verified live in both themes via a synthetic harness: 6 distinct chip colors render correctly in light mode and remain identical (self-contained backgrounds, unaffected by theme CSS) in dark mode, with the label text correctly following the theme. Full pytest suite: 139 passed, 0 failures.
+- [x] **"Top concepts" still shown as one undifferentiated blue box in the Module Viewer (Phase 65)** — **Resolved:** Phase 64 only fixed the live Adaptive Tutor's slide rendering (`frontend/tutor_room.py::_render_slide()`). The static Module Viewer page (shown when browsing a module's topics directly, outside a tutor session) has its own, separate "Top concepts" rendering in `frontend/module_viewer.py` — `st.info(f"Top concepts: {' | '.join(f'**{c}**' for c in et.top_concepts)}")` — which Phase 64 never touched, so it still wrapped every concept in one uniform `st.info()` box (Streamlit's info boxes render with a single blue-tinted background/text, which is exactly what made every concept look "all blue" regardless of content). Reported live with real content: "Self-Attention Mechanism", "Token Representation in Embedding Space", "Attention Weights" all rendering blue and pipe-separated. Fixed by applying the same `topic_highlight_chips_html()` treatment used in Phase 64: replaced the `st.info(...)` call with `st.markdown("**Top concepts:**")` + the chip row. Verified live with the exact 3 reported concept strings, in both light and dark mode — now rendering as 3 distinct chips (blue/purple/teal). Full pytest suite: 147 passed, 0 failures.
+- [x] **Module Viewer: switching topic tabs doesn't stop the previous tab's audio; two tabs' audio can play simultaneously (Phase 66)** — **Resolved:** `frontend/module_viewer.py` renders each topic as an `st.tabs()` panel with its own `st.audio(et.audio_path, format="audio/mp3")` (no autoplay — user clicks play manually). Streamlit's `st.tabs()` keeps every tab panel (and its `<audio>` element) mounted in the DOM at all times, only hiding inactive ones via CSS — the same "all panels stay mounted" mechanic already documented as the root cause of the earlier Mermaid-in-tabs bug. Since nothing paused the previous tab's audio on switch, playing audio in tab 1 then clicking tab 2 left tab 1's audio running; playing tab 2's audio too then overlapped both. The existing fix for this exact class of bug, `frontend/audio_autostop.py::render_audio_autostop()` (Phase 54, built for the Adaptive Tutor — an invisible iframe whose script pauses every `<audio>` element on any `<button>` click), was wired into `tutor_room.py` but never into `module_viewer.py`. Confirmed live via Playwright DOM inspection that Streamlit's `st.tabs()` headers render as real `<button role="tab" data-testid="stTab">` elements, so the existing click selector (`e.target.closest('button')`) already covers tab switches with no changes needed to `audio_autostop.py` itself — the only gap was the missing call. Fixed by adding `render_audio_autostop()` to the top of `render_module_viewer()`, identical to the existing `tutor_room.py` pattern. Verified live with two real audio files across two tabs: starting tab 1's audio then clicking tab 2 paused tab 1's audio (confirmed via the audio element's `paused` property, not just visual hiding); starting tab 2's audio afterward left tab 1 still paused (no overlap); switching back to tab 1 likewise paused tab 2's audio. Full pytest suite: 147 passed, 0 failures.
 
 ---
 

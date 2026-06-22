@@ -17,13 +17,8 @@ from backend.analytics.persistence import (
 )
 from backend.interactive_tutor import build_tutor_graph
 from frontend.audio_autostop import render_audio_autostop
-from frontend.styles import concept_rail_html
-
-try:
-    from streamlit_mermaid import st_mermaid
-    _HAS_MERMAID = True
-except ImportError:
-    _HAS_MERMAID = False
+from frontend.mermaid_render import render_mermaid
+from frontend.styles import concept_rail_html, topic_highlight_chips_html
 
 
 def render_tutor_room() -> None:
@@ -82,6 +77,7 @@ def render_tutor_room() -> None:
             mastered=state.get("mastered_concepts", []),
             current=state.get("current_concept", "") if phase != "done" else "",
             remaining=state.get("remaining_concepts", []),
+            dark=st.session_state.get("dark_mode", True),
         ),
         unsafe_allow_html=True,
     )
@@ -127,6 +123,9 @@ def render_tutor_room() -> None:
         if phase == "diagnostic":
             _render_diagnostic(state, graph)
 
+        elif phase == "diagnostic_review":
+            _render_diagnostic_review(state, graph)
+
         elif phase == "slide":
             _render_slide(state, graph)
 
@@ -152,26 +151,26 @@ def render_tutor_room() -> None:
                             st.rerun()
             remaining = state.get("remaining_concepts", [])
             st.caption("The tutor will ask you a question to check your understanding of this topic.")
-            col_ask, col_skip, col_lib = st.columns([2, 2, 2])
+            col_ask, col_skip, col_lib = st.columns(3)
             with col_ask:
-                if st.button("Ask me a question", type="primary"):
+                if st.button("Ask me a question", type="primary", use_container_width=True):
                     with st.spinner("Generating a question for you..."):
                         _run_node(graph, state, "ask_question")
                     st.session_state["tutor_phase"] = "answer"
                     st.rerun()
             with col_skip:
                 if remaining:
-                    if st.button("Next topic →", type="secondary"):
+                    if st.button("Next topic →", type="secondary", use_container_width=True):
                         content_map = st.session_state.get("tutor_content_map", {})
                         _advance_to_next(state, graph, content_map)
                         st.rerun()
                 else:
-                    if st.button("Finish session ✓", type="secondary"):
+                    if st.button("Finish session ✓", type="secondary", use_container_width=True):
                         _run_node(graph, state, "session_complete")
                         st.session_state["tutor_phase"] = "done"
                         st.rerun()
             with col_lib:
-                if st.button("Back to Module Library"):
+                if st.button("Back to Library", type="secondary", use_container_width=True):
                     st.session_state["page"] = "module_library"
                     st.rerun()
 
@@ -392,8 +391,42 @@ def _render_diagnostic(state: dict, graph) -> None:
 
     if st.button("Submit & Start Learning", type="primary"):
         state["diagnostic_answers"] = answers
-        with st.spinner("Analysing your answers and preparing your personalised session..."):
+        with st.spinner("Analysing your answers..."):
             _run_node(graph, state, "evaluate_diagnostic")
+        st.session_state["tutor_phase"] = "diagnostic_review"
+        st.rerun()
+
+
+def _render_diagnostic_review(state: dict, graph) -> None:
+    questions = state.get("diagnostic_questions", [])
+    answers = state.get("diagnostic_answers", [])
+    score = state.get("diagnostic_score", 0.0)
+    concept = state["current_concept"]
+
+    st.subheader(f"Diagnostic results: {concept}")
+    correct_count = sum(
+        1 for q, a in zip(questions, answers) if a == q.get("correct_index")
+    )
+    st.metric("Score", f"{correct_count}/{len(questions)}", f"{score:.0%}")
+
+    for i, q in enumerate(questions):
+        chosen_idx = answers[i] if i < len(answers) else None
+        correct_idx = q.get("correct_index")
+        is_correct = chosen_idx == correct_idx
+        icon = "✅" if is_correct else "❌"
+        st.markdown(f"**{icon} Q{i+1}: {q['question_text']}**")
+        options = q.get("options", [])
+        if chosen_idx is not None and 0 <= chosen_idx < len(options):
+            st.markdown(f"Your answer: {options[chosen_idx]}")
+        if not is_correct and 0 <= correct_idx < len(options):
+            st.markdown(f"Correct answer: {options[correct_idx]}")
+        explanation = q.get("explanation", "")
+        if explanation:
+            st.caption(explanation)
+        st.markdown("")
+
+    if st.button("Continue to lesson →", type="primary"):
+        with st.spinner("Preparing your personalised session..."):
             _inject_enriched_topic()
             _run_node(graph, state, "present_concept")
         st.session_state["tutor_phase"] = "slide"
@@ -401,18 +434,6 @@ def _render_diagnostic(state: dict, graph) -> None:
 
 
 _SLIDE_DURATION_DEFAULT_S = 60  # fallback when no audio duration available
-
-
-def _clean_for_render(mermaid_code: str) -> str:
-    import re
-    cleaned = []
-    for line in mermaid_code.strip().splitlines():
-        if re.match(r'\s*click\s', line):
-            continue
-        if ':::' in line:
-            line = re.sub(r':::[\w]+', '', line)
-        cleaned.append(line)
-    return "\n".join(cleaned)
 
 
 def _render_slide(state: dict, graph) -> None:
@@ -442,19 +463,14 @@ def _render_slide(state: dict, graph) -> None:
     st.subheader(concept)
 
     if top_concepts:
-        st.info("**Key concepts:** " + " | ".join(f"`{c}`" for c in top_concepts))
+        st.markdown("**Key concepts:**")
+        st.markdown(topic_highlight_chips_html(top_concepts), unsafe_allow_html=True)
 
     if mermaid_code and mermaid_code.strip():
         from backend.content.diagram_generator import _sanitize_mermaid
         clean_mermaid = _sanitize_mermaid(mermaid_code)
-        if _HAS_MERMAID and clean_mermaid:
-            render_code = _clean_for_render(clean_mermaid)
-            st.markdown("<div style='max-width:100%;overflow:hidden;'>", unsafe_allow_html=True)
-            try:
-                st_mermaid(render_code, height="350px")
-            except Exception:
-                st.info(concept)
-            st.markdown("</div>", unsafe_allow_html=True)
+        if clean_mermaid:
+            render_mermaid(clean_mermaid, slide.get("key_takeaways", []), height=350)
         else:
             st.info(concept)
         if diagram_caption:
@@ -941,29 +957,31 @@ def _end_session(state: dict | None = None) -> None:
 
 
 def _trigger_evals(state: dict) -> None:
-    """Start DeepEval quality checks in a background thread — only if enabled in sidebar."""
-    if not st.session_state.get("evals_enabled", False):
-        return
+    """Stash completed session data so the user can trigger evals explicitly from the
+    Observability page.  Evals are no longer fired automatically at session end to avoid
+    unintended LLM judge API cost."""
     try:
-        from backend.observability.eval_runner import run_session_evals_async
-
-        # Capture provider/model now (session_state not safe to read from daemon thread)
-        provider = st.session_state.get("llm_provider")
-        model = st.session_state.get("llm_model")
-
-        # Collect source text from pipeline progress for faithfulness checks
         progress = st.session_state.get("pipeline_progress", {})
         enriched_list = progress.get("enriched_topics", [])
+
+        # Build concept → content map for scoped faithfulness context
+        concept_context: dict[str, str] = {
+            et.topic.title: et.content_md
+            for et in enriched_list
+            if et.content_md
+        }
+        # Keep a full-blob fallback for any concept not individually mapped
         source_text = "\n\n".join(et.content_md for et in enriched_list)
 
-        run_session_evals_async(
-            chat_history=state.get("chat_history", []),
-            source_text=source_text,
-            user_id=state.get("user_id", ""),
-            module_id=state.get("module_id", ""),
-            provider=provider,
-            model=model,
-            db_path=st.session_state.get("db_path"),
-        )
+        st.session_state["pending_eval"] = {
+            "chat_history": list(state.get("chat_history", [])),
+            "source_text": source_text,
+            "concept_context": concept_context,
+            "user_id": state.get("user_id", ""),
+            "module_id": state.get("module_id", ""),
+            "provider": st.session_state.get("llm_provider"),
+            "model": st.session_state.get("llm_model"),
+            "db_path": st.session_state.get("db_path"),
+        }
     except Exception:
-        pass  # evals are best-effort — never crash the UI
+        pass  # best-effort — never crash the UI

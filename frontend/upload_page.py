@@ -52,8 +52,7 @@ def render_upload_page() -> None:
     if progress:
         state = progress["state"]
         if state == "completed":
-            # Pipeline finished in the background — redirect now
-            _handle_completed(progress)
+            _render_completed_state(progress)
             return
         if state == "aborted":
             elapsed = int(time.monotonic() - progress.get("started_at", time.monotonic()))
@@ -75,9 +74,12 @@ def render_upload_page() -> None:
             "New Learning Module",
             "Upload a document and AI Tutor will generate slides, diagrams, audio, and a quiz for you.",
             "📄",
+            dark=st.session_state.get("dark_mode", True),
         ),
         unsafe_allow_html=True,
     )
+
+    _default_max_topics = int(os.environ.get("AI_TUTOR_DEFAULT_MAX_TOPICS", "0"))
 
     with st.form("upload_form"):
         uploaded = st.file_uploader(
@@ -89,9 +91,17 @@ def render_upload_page() -> None:
         cached_name = st.session_state.get("_cached_upload_name")
         if cached_name:
             st.info(f"Re-using **{cached_name}** — upload a new file to replace it.")
+        max_topics = st.slider(
+            "Slide count (0 = all)",
+            min_value=0,
+            max_value=20,
+            value=_default_max_topics,
+            step=1,
+            help="Maximum number of slides to generate. Set to 0 to generate all slides from the document.",
+        )
         col_btn, col_hint = st.columns([1, 3])
         with col_btn:
-            submitted = st.form_submit_button("Start Learning →", type="primary", use_container_width=True)
+            submitted = st.form_submit_button("Generate Module →", type="primary", use_container_width=True)
         with col_hint:
             st.markdown(
                 "<div style='padding-top:8px;font-size:12px;color:#9CA3AF;'>"
@@ -108,12 +118,14 @@ def render_upload_page() -> None:
             st.error("Please upload a PDF, PPTX, DOCX, or VTT file.")
             return
         uploaded_bytes = cached
-        file_ext = Path(st.session_state.get("_cached_upload_name", ".pdf")).suffix.lower()
+        original_filename = st.session_state.get("_cached_upload_name", "document.pdf")
+        file_ext = Path(original_filename).suffix.lower()
     else:
         uploaded_bytes = uploaded.read()
-        file_ext = Path(uploaded.name).suffix.lower()
+        original_filename = uploaded.name
+        file_ext = Path(original_filename).suffix.lower()
         st.session_state["_cached_upload_bytes"] = uploaded_bytes
-        st.session_state["_cached_upload_name"] = uploaded.name
+        st.session_state["_cached_upload_name"] = original_filename
 
     if file_ext not in _TOOL_FOR_EXT:
         st.error(f"Unsupported file type: {file_ext!r}. Please upload a PDF, PPTX, DOCX, or VTT.")
@@ -123,11 +135,15 @@ def render_upload_page() -> None:
         tmp.write(uploaded_bytes)
         tmp_path = tmp.name
 
-    _start_pipeline(tmp_path, file_ext, user_id, username, db_path)
+    original_filename = st.session_state.get("_cached_upload_name", "")
+    _start_pipeline(tmp_path, file_ext, user_id, username, db_path, int(max_topics), original_filename)
     st.rerun()
 
 
-def _start_pipeline(tmp_path: str, file_ext: str, user_id: str, username: str, db_path: str) -> None:
+def _start_pipeline(
+    tmp_path: str, file_ext: str, user_id: str, username: str, db_path: str,
+    max_topics: int = 0, original_filename: str = "",
+) -> None:
     provider = st.session_state.get("llm_provider", "anthropic")
     model = st.session_state.get("llm_model", "claude-sonnet-4-6")
     tracing_enabled = st.session_state.get("tracing_enabled", True)
@@ -159,6 +175,8 @@ def _start_pipeline(tmp_path: str, file_ext: str, user_id: str, username: str, d
         "db_path": db_path,
         "tracing_enabled": tracing_enabled,
         "audio_enabled": audio_enabled,
+        "max_topics": max_topics,
+        "original_filename": original_filename,
         "log": [],
     }
 
@@ -167,7 +185,10 @@ def _start_pipeline(tmp_path: str, file_ext: str, user_id: str, username: str, d
 
     thread = threading.Thread(
         target=_run_pipeline_bg,
-        args=(tmp_path, file_ext, user_id, username, provider, model, db_path, progress, abort_event),
+        args=(
+            tmp_path, file_ext, user_id, username, provider, model, db_path,
+            progress, abort_event, max_topics, original_filename,
+        ),
         daemon=True,
         name="pipeline-worker",
     )
@@ -191,6 +212,8 @@ def _run_pipeline_bg(
     db_path: str,
     progress: dict,
     abort_event: threading.Event,
+    max_topics: int = 0,
+    original_filename: str = "",
 ) -> None:
     def _log(msg: str) -> None:
         elapsed = int(time.monotonic() - progress["started_at"])
@@ -203,6 +226,8 @@ def _run_pipeline_bg(
         from backend.ingestion.pdf_parser import parse_pdf
         from backend.quiz.question_bank import generate_question_bank
         tracer = _noop_tracer()
+
+        _log(f"max_topics={max_topics}")
 
         # ── Step 1: Parse (direct — no MCP needed) ───────────────────────────
         progress["state"] = "parsing"
@@ -217,8 +242,15 @@ def _run_pipeline_bg(
             elif file_ext == ".docx":
                 from backend.ingestion.docx_parser import parse_docx
                 doc = parse_docx(tmp_path)
+            elif file_ext == ".vtt":
+                from backend.ingestion.vtt_parser import parse_vtt
+                doc = parse_vtt(tmp_path)
             else:
                 raise ValueError(f"Unsupported format: {file_ext}")
+            if original_filename:
+                doc.source_filename = original_filename
+                if doc.title == Path(tmp_path).stem:
+                    doc.title = Path(original_filename).stem
             progress["doc_title"] = doc.title
             progress["doc_id"] = doc.doc_id
             _log(f"Parsed '{doc.title}' — {len(doc.sections)} section(s), {doc.total_pages} page(s)")
@@ -263,7 +295,8 @@ def _run_pipeline_bg(
         # ── Step 3: Enrich (sliding-window pipeline) ──────────────────────────
         try:
             enriched_topics = run_sliding_pipeline(
-                doc, llm, progress, abort_event, tracer
+                doc, llm, progress, abort_event, tracer,
+                max_topics=max_topics,
             )
         except ValueError as exc:
             # Raised when the document has no extractable text (e.g. scanned image PDF)
@@ -334,7 +367,7 @@ def _run_pipeline_bg(
                 save_module(
                     module_id=module.module_id,
                     title=module.title,
-                    source_filename=doc.source_filename,
+                    source_filename=original_filename,
                     module_json=module.to_json(),
                     question_bank_json=json.dumps(_bank_to_dict(bank)),
                     created_by=user_id,
@@ -381,64 +414,134 @@ def _pipeline_status_fragment() -> None:
 
     # ── Step progress bar (always shown) ─────────────────────────────────────
     step_idx = _STATE_TO_STEP.get(state, 1)
-    st.markdown(step_progress_html(_PIPELINE_STEPS, step_idx), unsafe_allow_html=True)
+    st.markdown(step_progress_html(_PIPELINE_STEPS, step_idx, dark=st.session_state.get("dark_mode", True)), unsafe_allow_html=True)
 
     # ── Per-state animated status cards ──────────────────────────────────────
+    dark = st.session_state.get("dark_mode", True)
+
     if state == "parsing":
         detail = progress.get("detail") or "Reading document…"
-        st.markdown(parsing_status_html(detail, elapsed), unsafe_allow_html=True)
+        st.markdown(parsing_status_html(detail, elapsed, dark=dark), unsafe_allow_html=True)
 
     elif state == "enriching":
-        if progress.get("ready"):
-            _redirect_to_viewer(progress)
-            return
-
         done = progress.get("topics_enriched", 0)
         total = max(progress.get("total_topics", 0), done)
         enriched = progress.get("enriched_topics", [])
         current = progress.get("current_topic", "")
+        detail = progress.get("detail", "")
+        avg_secs = progress.get("avg_seconds_per_topic", 0)
+        # "active" = slide currently being generated (done + 1 if something is in flight)
+        active = done + 1 if (current or done == 0) and (total == 0 or done < total) else done
 
-        # Slide chips — completed (green) + current (pulsing blue)
-        st.markdown(slide_chips_html(enriched, current, total), unsafe_allow_html=True)
+        # Status line
+        if done == 0:
+            status_line = detail or "Generating first slide…"
+        elif avg_secs > 0 and total > 0:
+            remaining = total - done
+            eta = int(remaining * avg_secs)
+            eta_str = f"~{eta // 60}m {eta % 60}s" if eta > 60 else f"~{eta}s"
+            status_line = f"{done} of {total} slides ready · {eta_str} remaining"
+        else:
+            status_line = detail or f"{done} slide(s) ready"
 
-        # Skeleton shimmer for the in-flight slide
-        if current:
-            st.markdown(skeleton_slide_html(f"Writing «{current}»…"), unsafe_allow_html=True)
-        elif done == 0:
-            st.markdown(skeleton_slide_html("Connecting to AI…"), unsafe_allow_html=True)
+        st.markdown(_enriching_card_html(
+            done=done, total=total, active=active, enriched=enriched,
+            current=current, status=status_line, elapsed=elapsed, dark=dark,
+        ), unsafe_allow_html=True)
 
         # Progress bar
         if total > 0:
-            st.progress(min(done / total, 1.0), text=f"{done} of {total} slides ready")
+            st.progress(min(active / total, 1.0), text=f"Generating slide {active} of {total}")
         else:
             st.progress(0.0, text="Assessing document structure…")
 
-        # ETA row
-        avg_secs = progress.get("avg_seconds_per_topic", 0)
-        col_stat, col_abort = st.columns([3, 1])
-        with col_stat:
-            if done == 0:
-                st.caption("Generating first slide… please wait")
-            elif avg_secs > 0:
-                if total > 0:
-                    remaining = total - done
-                    eta = int(remaining * avg_secs)
-                    eta_str = f"~{eta // 60}m {eta % 60}s" if eta > 60 else f"~{eta}s"
-                    st.caption(f"{done} of {total} slides ready · {eta_str} remaining")
-                else:
-                    st.caption(f"{done} slide(s) ready · ~{avg_secs:.0f}s per slide · counting total…")
-            else:
-                st.caption(f"{done} slide(s) ready — calculating time…")
-        with col_abort:
-            _abort_button()
+        _abort_button()
 
     elif state == "quiz":
-        st.markdown(quiz_generating_html(elapsed), unsafe_allow_html=True)
+        st.markdown(quiz_generating_html(elapsed, dark=dark), unsafe_allow_html=True)
         _abort_button()
 
     elif state == "saving":
-        st.markdown(saving_status_html(elapsed), unsafe_allow_html=True)
+        st.markdown(saving_status_html(elapsed, dark=dark), unsafe_allow_html=True)
 
+    elif state == "completed":
+        st.rerun()
+
+
+def _enriching_card_html(
+    done: int, total: int, active: int, enriched: list, current: str,
+    status: str, elapsed: int, dark: bool = False,
+) -> str:
+    """Single cohesive card for the slide-generation stage."""
+    if dark:
+        card_bg, card_border = "#0C1929", "#1E3A5F"
+        title_color, sub_color = "#93C5FD", "#60A5FA"
+        chip_done_bg, chip_done_border, chip_done_text = "#064E3B", "#059669", "#6EE7B7"
+        chip_cur_bg, chip_cur_border, chip_cur_text = "#0F1F3D", "#3B82F6", "#93C5FD"
+    else:
+        card_bg, card_border = "#EFF6FF", "#BFDBFE"
+        title_color, sub_color = "#1E3A8A", "#2563EB"
+        chip_done_bg, chip_done_border, chip_done_text = "#D1FAE5", "#6EE7B7", "#065F46"
+        chip_cur_bg, chip_cur_border, chip_cur_text = "#DBEAFE", "#93C5FD", "#1E40AF"
+
+    elapsed_str = f"{elapsed}s" if elapsed > 0 else "starting…"
+
+    chips = ""
+    for et in enriched:
+        t = getattr(getattr(et, "topic", None), "title", str(et))
+        short = (t[:20] + "…") if len(t) > 20 else t
+        chips += (
+            f'<span style="display:inline-flex;align-items:center;gap:4px;'
+            f'padding:3px 8px;background:{chip_done_bg};border:1px solid {chip_done_border};'
+            f'border-radius:999px;font-size:10px;color:{chip_done_text};font-weight:500;">'
+            f'✓ {short}</span> '
+        )
+    if current:
+        short = (current[:20] + "…") if len(current) > 20 else current
+        chips += (
+            f'<span style="display:inline-flex;align-items:center;gap:4px;'
+            f'padding:3px 8px;background:{chip_cur_bg};border:1px solid {chip_cur_border};'
+            f'border-radius:999px;font-size:10px;color:{chip_cur_text};font-weight:600;'
+            f'animation:ai-pulse 1.4s ease-in-out infinite;">'
+            f'● {short}…</span>'
+        )
+
+    chips_row = f'<div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:8px;">{chips}</div>' if chips else ""
+
+    progress_text = f"slide {active} of {total}" if total > 0 else "analyzing…"
+
+    return (
+        f'<div style="padding:18px 20px;background:{card_bg};border:1px solid {card_border};'
+        f'border-radius:12px;display:flex;align-items:flex-start;gap:16px;">'
+
+        f'<div style="flex-shrink:0;width:42px;height:42px;border-radius:50%;'
+        f'background:#2563EB;display:flex;align-items:center;justify-content:center;">'
+        f'<div style="font-size:20px;">📝</div>'
+        f'</div>'
+
+        f'<div style="flex:1;">'
+        f'<div style="font-weight:600;color:{title_color};font-size:14px;margin-bottom:4px;">'
+        f'Generating slides — {progress_text}</div>'
+        f'<div style="font-size:12px;color:{sub_color};">{status} · {elapsed_str}</div>'
+        f'{chips_row}'
+        f'</div>'
+
+        f'</div>'
+    )
+
+
+def _render_completed_state(progress: dict) -> None:
+    """Show a completion summary with step bar and a button to proceed."""
+    dark = st.session_state.get("dark_mode", True)
+    st.markdown(step_progress_html(_PIPELINE_STEPS, len(_PIPELINE_STEPS) - 1, dark=dark), unsafe_allow_html=True)
+    done = progress.get("topics_enriched", 0)
+    elapsed = int(time.monotonic() - progress["started_at"])
+    title = progress.get("doc_title", "Module")
+    bank = progress.get("bank")
+    q_count = len(bank.questions) if bank else 0
+    st.success(f"**{title}** — {done} slide(s) and {q_count} quiz question(s) generated in {elapsed}s.")
+    if st.button("Start Learning →", type="primary", key="_btn_go_learn_top"):
+        _handle_completed(progress)
 
 
 def _render_failed_state(progress: dict, elapsed: int) -> None:
@@ -535,31 +638,12 @@ def _handle_completed(progress: dict) -> None:
         st.session_state["bank"] = bank
     if module is not None:
         st.session_state["module"] = module
-        st.session_state["page"] = "module_viewer"
+        st.session_state["page"] = "learn"
     else:
         st.session_state["page"] = "module_library"
     _cleanup_pipeline_state()
     st.rerun()
 
-
-def _redirect_to_viewer(progress: dict) -> None:
-    """Early redirect — first slide ready, background continues enriching."""
-    from backend.content.models import LearningModule
-
-    enriched = progress.get("enriched_topics", [])
-    if not enriched:
-        return
-
-    module = LearningModule(
-        module_id=progress["module_id"],
-        title=progress["doc_title"],
-        source_doc_id=progress["doc_id"],
-        topics=list(enriched),
-        created_at=datetime.now(timezone.utc).isoformat(),
-    )
-    st.session_state["module"] = module
-    st.session_state["page"] = "module_library"
-    st.rerun()
 
 
 def _prefetch_diagnostic(llm, doc, progress: dict) -> Future:

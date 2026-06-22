@@ -11,11 +11,21 @@ from frontend.nav import render_back_button
 from frontend.styles import question_card_html, page_header_html
 
 
-_DIFFICULTY_META = {
-    "easy":   ("🟢", "Easy",   "Foundational concepts and definitions",     "#F0FDF4", "#10B981", "#065F46"),
-    "medium": ("🟡", "Intermediate", "Applied understanding and key relationships", "#FFFBEB", "#F59E0B", "#92400E"),
-    "hard":   ("🔴", "Hard",   "Deep analysis and edge cases",               "#FEF2F2", "#EF4444", "#991B1B"),
+_DIFFICULTY_META_LIGHT = {
+    "easy":   ("🟢", "Easy",   "Foundational concepts and definitions",      "#F0FDF4", "#10B981", "#065F46"),
+    "medium": ("🟡", "Medium", "Applied understanding and key relationships", "#FFFBEB", "#F59E0B", "#92400E"),
+    "hard":   ("🔴", "Hard",   "Deep analysis and edge cases",                "#FEF2F2", "#EF4444", "#991B1B"),
 }
+_DIFFICULTY_META_DARK = {
+    "easy":   ("🟢", "Easy",   "Foundational concepts and definitions",      "#052E16", "#10B981", "#6EE7B7"),
+    "medium": ("🟡", "Medium", "Applied understanding and key relationships", "#1C1000", "#D97706", "#FCD34D"),
+    "hard":   ("🔴", "Hard",   "Deep analysis and edge cases",                "#1C0505", "#DC2626", "#FCA5A5"),
+}
+
+def _difficulty_meta() -> dict:
+    if st.session_state.get("dark_mode", True):
+        return _DIFFICULTY_META_DARK
+    return _DIFFICULTY_META_LIGHT
 
 _TIMER_SECONDS = {"easy": 300, "medium": 600, "hard": 900}
 
@@ -68,6 +78,9 @@ def _is_answered(q: QuizQuestion, ss: dict) -> bool:
 
 
 def _dot_progress_html(questions: list[QuizQuestion], current_idx: int, ss: dict) -> str:
+    dark = st.session_state.get("dark_mode", True)
+    pending_bg = "#334155" if dark else "#E5E7EB"
+    pending_fg = "#64748B" if dark else "#9CA3AF"
     dots = []
     for i, q in enumerate(questions):
         is_current = i == current_idx
@@ -80,7 +93,7 @@ def _dot_progress_html(questions: list[QuizQuestion], current_idx: int, ss: dict
         elif is_answered:
             bg, color, label, glow = "#10B981", "white", "✓", ""
         else:
-            bg, color, label, glow = "#E5E7EB", "#9CA3AF", str(i + 1), ""
+            bg, color, label, glow = pending_bg, pending_fg, str(i + 1), ""
 
         dots.append(
             f'<div style="width:28px;height:28px;border-radius:50%;background:{bg};color:{color};'
@@ -120,6 +133,7 @@ def _render_difficulty_selector(bank: QuestionBank) -> None:
             "Module Quiz",
             "Test your understanding across all topics. Click a difficulty card to begin.",
             "🎯",
+            dark=st.session_state.get("dark_mode", True),
         ),
         unsafe_allow_html=True,
     )
@@ -128,7 +142,9 @@ def _render_difficulty_selector(bank: QuestionBank) -> None:
     selected = st.session_state.get("_quiz_difficulty_pick", "medium")
 
     cols = st.columns(3)
-    for col, (key, (icon, label, desc, bg, border, text)) in zip(cols, _DIFFICULTY_META.items()):
+    diff_meta = _difficulty_meta()
+    desc_color = "#94A3B8" if st.session_state.get("dark_mode", True) else "#6B7280"
+    for col, (key, (icon, label, desc, bg, border, text)) in zip(cols, diff_meta.items()):
         is_selected = selected == key
         outline = f"box-shadow:0 0 0 3px {border};" if is_selected else ""
         opacity = "1" if is_selected else "0.72"
@@ -139,14 +155,13 @@ def _render_difficulty_selector(bank: QuestionBank) -> None:
         )
         with col:
             st.markdown(
-                f"""<div style="padding:22px 16px;background:{bg};border:2px solid {border};
-  border-radius:16px;text-align:center;min-height:130px;opacity:{opacity};
-  {outline}{scale}transition:all 0.2s ease;margin-bottom:6px;">
-  <div style="font-size:2.2rem;margin-bottom:8px;">{icon}</div>
-  <div style="font-weight:700;font-size:16px;color:{text};font-family:'Inter',sans-serif;">{label}</div>
-  <div style="font-size:11.5px;color:#6B7280;margin-top:6px;line-height:1.4;">{desc}</div>
-  {check}
-</div>""",
+                f'<div style="padding:22px 16px;background:{bg};border:2px solid {border};'
+                f'border-radius:16px;text-align:center;min-height:130px;opacity:{opacity};'
+                f'{outline}{scale}transition:all 0.2s ease;margin-bottom:6px;">'
+                f'<div style="font-size:2.2rem;margin-bottom:8px;">{icon}</div>'
+                f'<div style="font-weight:700;font-size:16px;color:{text};font-family:\'Inter\',sans-serif;">{label}</div>'
+                f'<div style="font-size:11.5px;color:{desc_color};margin-top:6px;line-height:1.4;">{desc}</div>'
+                f'{check}</div>',
                 unsafe_allow_html=True,
             )
             if st.button(
@@ -163,7 +178,7 @@ def _render_difficulty_selector(bank: QuestionBank) -> None:
     if bank and bank.questions:
         count = sum(1 for q in bank.questions if q.difficulty == difficulty)
         total = len(bank.questions)
-        icon_d, label_d = _DIFFICULTY_META[difficulty][0], _DIFFICULTY_META[difficulty][1]
+        icon_d, label_d = diff_meta[difficulty][0], diff_meta[difficulty][1]
         st.caption(f"{icon_d} **{label_d}** selected · {count} of {total} questions · quiz draws up to 10.")
 
     st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
@@ -237,8 +252,12 @@ def _render_quiz_question() -> None:
     is_last = idx == total_q - 1
     all_answered = answered_count == total_q
 
-    diff_icon, diff_label, _, diff_bg, diff_border, diff_fg = _DIFFICULTY_META[difficulty]
+    diff_icon, diff_label, _, diff_bg, diff_border, diff_fg = _difficulty_meta()[difficulty]
     unanswered = total_q - answered_count
+    dark = st.session_state.get("dark_mode", True)
+    h2_color = "#F1F5F9" if dark else "#1E1B4B"
+    q_num_color = "#F1F5F9" if dark else "#1E1B4B"
+    left_color = "#64748B" if dark else "#9CA3AF"
 
     # ── Countdown timer ───────────────────────────────────────────────────────
     if deadline:
@@ -248,16 +267,16 @@ def _render_quiz_question() -> None:
     st.markdown(
         f"<div style='display:flex;align-items:center;justify-content:space-between;"
         f"margin-bottom:6px;flex-wrap:wrap;gap:6px;'>"
-        f"<h2 style='margin:0;font-size:1.3rem;font-weight:700;color:#1E1B4B;'>Quiz</h2>"
+        f"<h2 style='margin:0;font-size:1.3rem;font-weight:700;color:{h2_color};'>Quiz</h2>"
         f"<div style='display:flex;align-items:center;gap:10px;flex-wrap:wrap;'>"
         f"<span style='font-size:12px;color:#10B981;font-weight:600;'>✓ {answered_count}</span>"
-        f"<span style='font-size:12px;color:#9CA3AF;'>{unanswered} left</span>"
+        f"<span style='font-size:12px;color:{left_color};'>{unanswered} left</span>"
         f"<span style='background:{diff_bg};color:{diff_fg};border:1px solid {diff_border};"
         f"padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;'>"
         f"{diff_icon} {diff_label}</span>"
         f"</div></div>"
-        f"<div style='font-size:11px;color:#9CA3AF;margin-bottom:4px;'>"
-        f"Question <b style='color:#1E1B4B;'>{idx + 1}</b> / {total_q}</div>",
+        f"<div style='font-size:11px;color:{left_color};margin-bottom:4px;'>"
+        f"Question <b style='color:{q_num_color};'>{idx + 1}</b> / {total_q}</div>",
         unsafe_allow_html=True,
     )
     st.progress((idx + 1) / total_q)
@@ -266,7 +285,7 @@ def _render_quiz_question() -> None:
     st.markdown(_dot_progress_html(questions, idx, ss), unsafe_allow_html=True)
 
     # ── Question card ─────────────────────────────────────────────────────────
-    st.markdown(question_card_html(idx + 1, q.question_text, q.question_type), unsafe_allow_html=True)
+    st.markdown(question_card_html(idx + 1, q.question_text, q.question_type, dark=st.session_state.get("dark_mode", True)), unsafe_allow_html=True)
 
     # ── Answer inputs (no extra border container — CSS cards handle styling) ──
     if q.question_type == "single_choice":

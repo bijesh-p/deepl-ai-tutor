@@ -16,7 +16,7 @@ import streamlit as st
 
 def render_sidebar_toggle() -> None:
     """Render the floating toggle. Call once per page, after set_page_config."""
-    dark = bool(st.session_state.get("dark_mode", False))
+    dark = bool(st.session_state.get("dark_mode", True))
     if dark:
         bg, bg_hover = "#475569 0%, #1E293B 100%", "#64748B 0%, #334155 100%"
         shadow, shadow_hover = "rgba(71,85,105,0.45)", "rgba(100,116,139,0.55)"
@@ -24,8 +24,9 @@ def render_sidebar_toggle() -> None:
         bg, bg_hover = "#4F46E5 0%, #2563EB 100%", "#4338CA 0%, #1D4ED8 100%"
         shadow, shadow_hover = "rgba(37,99,235,0.35)", "rgba(37,99,235,0.5)"
 
-    st.iframe(
-        f"""
+    with st.container(key="sidebar_toggle_iframe"):
+        st.iframe(
+            f"""
         <html><body style="margin:0;padding:0;overflow:hidden;background:transparent;">
         <button id="ai-tutor-sb-toggle" title="Toggle sidebar" style="
             position:fixed; top:18px; left:0; width:18px; height:56px;
@@ -58,5 +59,5 @@ def render_sidebar_toggle() -> None:
         </script>
         </body></html>
         """,
-        height=80,
-    )
+            height=80,
+        )

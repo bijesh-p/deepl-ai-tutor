@@ -82,6 +82,7 @@ def run_sliding_pipeline(
     abort_event: threading.Event,
     tracer,
     chunk_words: int = CHUNK_WORDS,
+    max_topics: int = 0,
 ) -> list[EnrichedTopic]:
     """Process the document in sliding windows, publishing slides as they emerge.
 
@@ -91,6 +92,9 @@ def run_sliding_pipeline(
 
     Returns the final list of published EnrichedTopics.
     """
+    if max_topics <= 0:
+        max_topics = progress.get("max_topics", 0)
+
     all_words = _doc_words(doc)
     if not all_words:
         raise ValueError(
@@ -99,14 +103,17 @@ def run_sliding_pipeline(
         )
 
     if doc.source_type == SourceType.VTT:
-        return _run_pre_segmented(doc, llm, progress, abort_event, tracer)
+        return _run_pre_segmented(doc, llm, progress, abort_event, tracer, max_topics=max_topics)
     accumulated: list[tuple[str, str]] = []   # (word, section_id)
     published: list[EnrichedTopic] = []
     idx = 0
     total_words = len(all_words)
     module_id = progress.get("module_id", "")
     # Initial estimate: one topic per MAX_ACCUMULATE_WORDS words
-    progress["total_topics"] = max(1, total_words // MAX_ACCUMULATE_WORDS)
+    estimated = max(1, total_words // MAX_ACCUMULATE_WORDS)
+    if max_topics > 0:
+        estimated = min(estimated, max_topics)
+    progress["total_topics"] = estimated
 
     for start in range(0, total_words, chunk_words):
         if abort_event.is_set():
@@ -152,17 +159,24 @@ def run_sliding_pipeline(
                 # Refine total estimate using actual words-per-topic rate
                 words_processed = start + len(chunk)
                 words_per_topic = words_processed / len(published)
-                progress["total_topics"] = max(len(published), round(total_words / words_per_topic))
+                refined = max(len(published), round(total_words / words_per_topic))
+                if max_topics > 0:
+                    refined = min(refined, max_topics)
+                progress["total_topics"] = refined
 
                 if len(published) == 1:
                     progress["ready"] = True   # triggers redirect to tutor room
 
                 idx += 1
 
+                if max_topics > 0 and len(published) >= max_topics:
+                    break
+
             accumulated = []   # reset — next chunk starts fresh
 
     # Handle leftover text at end of document
-    if accumulated and not abort_event.is_set():
+    reached_cap = max_topics > 0 and len(published) >= max_topics
+    if accumulated and not abort_event.is_set() and not reached_cap:
         assessment = _assess(llm, accumulated)
         # Always publish leftover if nothing was published yet — last resort fallback
         force = not published
@@ -206,6 +220,7 @@ def _run_pre_segmented(
     progress: dict,
     abort_event: threading.Event,
     tracer,
+    max_topics: int = 0,
 ) -> list[EnrichedTopic]:
     """Fast path for documents whose parser already segments content by topic.
 
@@ -214,6 +229,10 @@ def _run_pre_segmented(
     """
     published: list[EnrichedTopic] = []
     module_id = progress.get("module_id", "")
+    total = len(doc.sections)
+    if max_topics > 0:
+        total = min(total, max_topics)
+    progress["total_topics"] = total
 
     non_empty = [s for s in doc.sections if s.body.strip()]
     progress["total_topics"] = len(non_empty) or 1
@@ -254,6 +273,9 @@ def _run_pre_segmented(
 
             if len(published) == 1:
                 progress["ready"] = True
+
+            if max_topics > 0 and len(published) >= max_topics:
+                break
 
     progress["total_topics"] = len(published)
     return published
@@ -409,8 +431,6 @@ def _enrich_one(
         return None
 
     # Steps 3 + 4 — questions and audio in parallel (neither depends on the other)
-    diagram = enriched.diagrams[0] if enriched.diagrams else None
-
     def _gen_questions():
         try:
             return generate_inline_questions(enriched, llm)
@@ -425,8 +445,6 @@ def _enrich_one(
                 return generate_audio(
                     enriched.content_md,
                     topic.topic_id,
-                    diagram_caption=diagram.caption if diagram else "",
-                    diagram_mermaid=diagram.content if diagram else "",
                     bullets=anchor.bullets if not anchor.has_diagram else [],
                     topic_title=topic.title,
                 )

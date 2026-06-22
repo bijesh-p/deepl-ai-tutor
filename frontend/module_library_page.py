@@ -26,9 +26,11 @@ def render_module_library_page() -> None:
     # ── Page header ─────────────────────────────────────────────────────────
     col_title, col_obs, col_new = st.columns([5, 1.3, 1.2])
     with col_title:
+        dark = st.session_state.get("dark_mode", True)
+        sub_color = "#94A3B8" if dark else "#6B7280"
         st.markdown(
             f"<h1 style='margin-bottom:2px;'>📚 Module Library</h1>"
-            f"<div style='font-size:14px;color:#6B7280;margin-bottom:1rem;'>Welcome back, <b>{username}</b></div>",
+            f"<div style='font-size:14px;color:{sub_color};margin-bottom:1rem;'>Welcome back, <b>{username}</b></div>",
             unsafe_allow_html=True,
         )
     with col_obs:
@@ -57,15 +59,20 @@ def render_module_library_page() -> None:
 
 def _render_my_modules(db, shared_db, is_admin: bool) -> None:
     modules = list_modules(db=db)
+    dark = st.session_state.get("dark_mode", True)
 
     st.markdown("### My Modules")
     if not modules:
+        if dark:
+            empty_bg, empty_border, title_c, sub_c = "#1A1D29", "#334155", "#F1F5F9", "#64748B"
+        else:
+            empty_bg, empty_border, title_c, sub_c = "#F9FAFB", "#E5E7EB", "#374151", "#9CA3AF"
         st.markdown(
-            """<div style="padding:2rem;text-align:center;background:#F9FAFB;border:2px dashed #E5E7EB;border-radius:14px;">
-  <div style="font-size:2rem;margin-bottom:8px;">📄</div>
-  <div style="font-weight:600;color:#374151;margin-bottom:4px;">No modules yet</div>
-  <div style="font-size:13px;color:#9CA3AF;">Upload a PDF, PPTX, or DOCX to generate your first learning module.</div>
-</div>""",
+            f'<div style="padding:2rem;text-align:center;background:{empty_bg};border:2px dashed {empty_border};border-radius:14px;">'
+            f'<div style="font-size:2rem;margin-bottom:8px;">📄</div>'
+            f'<div style="font-weight:600;color:{title_c};margin-bottom:4px;">No modules yet</div>'
+            f'<div style="font-size:13px;color:{sub_c};">Upload a PDF, PPTX, or DOCX to generate your first learning module.</div>'
+            f'</div>',
             unsafe_allow_html=True,
         )
         return
@@ -78,15 +85,15 @@ def _render_my_modules(db, shared_db, is_admin: bool) -> None:
         is_pub = bool(mod.get("is_published"))
 
         st.markdown(
-            module_card_html(mod["title"], f"Source: {source}", f"Created {created}", is_published=is_pub),
+            module_card_html(mod["title"], f"Source: {source}", f"Created {created}", is_published=is_pub, dark=dark),
             unsafe_allow_html=True,
         )
 
-        action_cols = st.columns([1, 1, 1, 1, 1])
-        with action_cols[0]:
+        col_learn, col_mastery, col_delete, col_publish = st.columns([1, 1, 1, 1])
+        with col_learn:
             if st.button("Learn", key=f"learn_{mod['module_id']}", type="primary", use_container_width=True):
                 _load_and_navigate(mod["module_id"], db)
-        with action_cols[1]:
+        with col_mastery:
             if st.button("Mastery", key=f"mastery_{mod['module_id']}", type="secondary", use_container_width=True):
                 _load_for_mastery_report(mod["module_id"], db)
         with action_cols[2]:
@@ -105,6 +112,12 @@ def _render_my_modules(db, shared_db, is_admin: bool) -> None:
                 st.rerun()
         if is_admin:
             with action_cols[4]:
+        with col_delete:
+            if st.button("Delete", key=f"del_{mod['module_id']}", type="secondary", use_container_width=True):
+                delete_module(mod["module_id"], db=db)
+                st.rerun()
+        with col_publish:
+            if is_admin:
                 if is_pub:
                     if st.button("Unpublish", key=f"unpub_{mod['module_id']}", use_container_width=True):
                         unpublish_module(mod["module_id"], db=db, shared_db=shared_db)
@@ -118,15 +131,20 @@ def _render_my_modules(db, shared_db, is_admin: bool) -> None:
 
 
 def _render_shared_library(shared_db) -> None:
+    dark = st.session_state.get("dark_mode", True)
     st.markdown("### Shared Library")
     st.caption("Modules published by admins — available to all users.")
 
     shared_modules = get_published_modules(shared_db)
     if not shared_modules:
+        if dark:
+            empty_bg, empty_border, sub_c = "#1A1D29", "#334155", "#64748B"
+        else:
+            empty_bg, empty_border, sub_c = "#F9FAFB", "#E5E7EB", "#9CA3AF"
         st.markdown(
-            """<div style="padding:1.5rem;text-align:center;background:#F9FAFB;border:2px dashed #E5E7EB;border-radius:14px;">
-  <div style="font-size:13px;color:#9CA3AF;">No published modules yet.</div>
-</div>""",
+            f'<div style="padding:1.5rem;text-align:center;background:{empty_bg};border:2px dashed {empty_border};border-radius:14px;">'
+            f'<div style="font-size:13px;color:{sub_c};">No published modules yet.</div>'
+            f'</div>',
             unsafe_allow_html=True,
         )
         return
@@ -144,6 +162,7 @@ def _render_shared_library(shared_db) -> None:
                 f"Source: {source}  ·  Published by {created_by}",
                 f"Published {published}",
                 is_published=True,
+                dark=dark,
             ),
             unsafe_allow_html=True,
         )
