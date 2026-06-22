@@ -217,7 +217,7 @@ def _bank_from_json(raw: str) -> QuestionBank:
             options=q["options"],
             correct_answers=q["correct_answers"],
             explanation=q["explanation"],
-            difficulty=q["difficulty"],
+            bloom_level=q["bloom_level"],
             topic_id=q["topic_id"],
         )
         for q in data["questions"]

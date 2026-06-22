@@ -93,7 +93,7 @@ def generate_question_bank(module: LearningModule, llm: LLMClient) -> QuestionBa
                 options=q["options"],
                 correct_answers=q["correct_answers"],
                 explanation=q["explanation"],
-                difficulty=q["difficulty"],
+                bloom_level=q["bloom_level"],
                 topic_id=topic_id_map.get(q["topic_title"], ""),
             )
         )

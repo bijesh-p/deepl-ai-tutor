@@ -6,11 +6,11 @@ from backend.quiz.models import Quiz, QuizQuestion
 
 def _make_quiz() -> Quiz:
     questions = [
-        QuizQuestion("q1", "What is 1+1?", "single_choice", ["1", "2", "3", "4"], [1], "2", "easy", "t1"),
-        QuizQuestion("q2", "Select even numbers.", "multiple_choice", ["1", "2", "3", "4"], [1, 3], "2 and 4", "medium", "t1"),
-        QuizQuestion("q3", "What is the capital of France?", "single_choice", ["Berlin", "Paris", "Rome", "Madrid"], [1], "Paris.", "easy", "t1"),
+        QuizQuestion("q1", "What is 1+1?", "single_choice", ["1", "2", "3", "4"], [1], "2", "remember", "t1"),
+        QuizQuestion("q2", "Select even numbers.", "multiple_choice", ["1", "2", "3", "4"], [1, 3], "2 and 4", "apply", "t1"),
+        QuizQuestion("q3", "What is the capital of France?", "single_choice", ["Berlin", "Paris", "Rome", "Madrid"], [1], "Paris.", "remember", "t1"),
     ]
-    return Quiz("quiz-1", "mod-1", "easy", questions, "2026-01-01T00:00:00Z")
+    return Quiz("quiz-1", "mod-1", questions, "2026-01-01T00:00:00Z")
 
 
 def test_perfect_score():
