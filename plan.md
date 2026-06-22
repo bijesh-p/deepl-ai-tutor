@@ -728,6 +728,20 @@ test infra exists for `tutor_room.py`).
 
 ---
 
+## Phase 65 — Fix "Top concepts" still one undifferentiated blue box in Module Viewer ✅ Complete
+
+**Goal:** Phase 64 fixed the Adaptive Tutor's per-slide "Key concepts" chips, but the user reported the same concepts still rendering "all blue" and pipe-separated when browsing a module directly.
+
+**Root cause:** Phase 64 only touched `frontend/tutor_room.py::_render_slide()`. The Module Viewer page has its own separate, never-fixed "Top concepts" rendering — `frontend/module_viewer.py`: `st.info(f"Top concepts: {' | '.join(f'**{c}**' for c in et.top_concepts)}")` — Streamlit's `st.info()` box renders with one uniform blue-tinted background regardless of the content inside it, which is exactly the "all blue, pipe-separated" symptom reported (with real concepts: "Self-Attention Mechanism", "Token Representation in Embedding Space", "Attention Weights").
+
+**Fix:** applied the same `topic_highlight_chips_html()` helper from Phase 64 here too — replaced the `st.info(...)` call with `st.markdown("**Top concepts:**")` + the chip row.
+
+**Verified:** synthetic Module Viewer harness using the exact 3 concept strings from the bug report — confirmed 3 distinct chip colors (blue/purple/teal) in both light and dark mode. Full pytest suite: 147 passed, 0 failures.
+
+**Files:** `frontend/module_viewer.py`.
+
+---
+
 ## Commit convention
 
 Format: `[Phase N] <short description>`
