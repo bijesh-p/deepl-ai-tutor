@@ -279,28 +279,32 @@ def _run_pre_segmented(
 # ---------------------------------------------------------------------------
 
 def _store_in_vector_db(enriched: EnrichedTopic, module_id: str) -> None:
-    """Upsert the enriched topic's content into ChromaDB via storage_server.
+    """Upsert the enriched topic's content into ChromaDB in a background thread.
 
-    Non-fatal: semantic search is a supporting feature, so any failure here
-    must not break slide publishing.
+    Fire-and-forget: the MCP server cold-start (chromadb + ONNX model import)
+    can take 30-60s and must not block slide publishing. Semantic search is a
+    supporting feature so any failure is non-fatal.
     """
-    try:
-        from backend.core.mcp_client import get_client
+    def _do_store():
+        try:
+            from backend.core.mcp_client import get_client
 
-        topic = enriched.topic
-        get_client("storage_server").call(
-            "upsert_to_vector_db",
-            documents=[enriched.content_md],
-            ids=[f"{module_id}:{topic.topic_id}"],
-            metadatas=[{
-                "module_id": module_id,
-                "topic_id": topic.topic_id,
-                "title": topic.title,
-                "order": topic.order,
-            }],
-        )
-    except Exception as exc:
-        print(f"[sliding_pipeline] _store_in_vector_db error ({type(exc).__name__}): {exc}")
+            topic = enriched.topic
+            get_client("storage_server").call(
+                "upsert_to_vector_db",
+                documents=[enriched.content_md],
+                ids=[f"{module_id}:{topic.topic_id}"],
+                metadatas=[{
+                    "module_id": module_id,
+                    "topic_id": topic.topic_id,
+                    "title": topic.title,
+                    "order": topic.order,
+                }],
+            )
+        except Exception as exc:
+            print(f"[sliding_pipeline] _store_in_vector_db error ({type(exc).__name__}): {exc}")
+
+    threading.Thread(target=_do_store, daemon=True).start()
 
 
 def _doc_words(doc: Document) -> list[tuple[str, str]]:

@@ -395,7 +395,7 @@ _PIPELINE_STEPS = ["Upload", "Parse", "Generate Slides", "Quiz", "Save"]
 _STATE_TO_STEP = {"parsing": 1, "enriching": 2, "quiz": 3, "saving": 4}
 
 
-@st.fragment(run_every=3)
+@st.fragment(run_every=1)
 def _pipeline_status_fragment() -> None:
     progress = st.session_state.get("pipeline_progress")
     if progress is None:
@@ -533,7 +533,7 @@ def _enriching_card_html(
 def _render_completed_state(progress: dict) -> None:
     """Show a completion summary with step bar and a button to proceed."""
     dark = st.session_state.get("dark_mode", True)
-    st.markdown(step_progress_html(_PIPELINE_STEPS, len(_PIPELINE_STEPS) - 1, dark=dark), unsafe_allow_html=True)
+    st.markdown(step_progress_html(_PIPELINE_STEPS, len(_PIPELINE_STEPS), dark=dark), unsafe_allow_html=True)
     done = progress.get("topics_enriched", 0)
     elapsed = int(time.monotonic() - progress["started_at"])
     title = progress.get("doc_title", "Module")
