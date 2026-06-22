@@ -1,8 +1,8 @@
 # plan.md — AI Tutor Implementation
 
 > **Goal:** Deliver a fully working AI Tutor with adaptive tutoring, observability, and admin-curated module sharing.
-> **Spec:** SPEC.md v0.16
-> **Last updated:** 2026-06-20
+> **Spec:** SPEC.md v0.24
+> **Last updated:** 2026-06-22
 
 ---
 
@@ -589,6 +589,100 @@ cases) and MCP round-trip.
 **Verified:** ran the exact documented command, polled `http://localhost:6006` until it returned `200` (first launch takes ~30s for Phoenix to run its internal Alembic DB migrations), confirmed the server log showed normal startup/migration output, then killed the process. Full pytest suite: 139 passed, 0 failures.
 
 **Files:** `pyproject.toml`, `uv.lock`.
+
+---
+
+## Bug Fixes — Navaneeth
+
+Compiled from standalone change plans scoped under `changes/` via the
+`/spec-plan` skill before implementation (see each `changes/<name>.plan.md`
+for full phase-by-phase detail, verification steps, and file lists).
+
+### Mermaid diagram rendering reliability
+
+**Phases:** A — vendor mermaid.js + `svg-pan-zoom` as static assets
+(`frontend/static/vendor/`). B — build `frontend/mermaid_render.py`, an
+`st.iframe()`-based custom renderer matching `streamlit-mermaid`'s
+pan/zoom/controls UI. C — thread `key_takeaways` through `present_concept`'s
+slide dict at both diagram-recovery paths. D — switch both call sites
+(`tutor_room.py`, `module_viewer.py`) to the new renderer; remove the
+`streamlit-mermaid` dependency.
+
+**Verified:** existing `present_concept`/diagnostic tests pass; manual
+walkthrough of valid and deliberately-broken diagrams in both the Adaptive
+Tutor and Module Viewer, light and dark mode.
+
+**Files:** see `SPEC.md` §3.
+
+**Commit:** `[mermaid-render-reliability Phase D] Switch call sites off streamlit-mermaid, fix iframe CSS scoping` (`6d9cc4f`)
+
+---
+
+### Mermaid render timeout (hung diagrams)
+
+**Phase 1:** race `mermaid.render()` against a 5s `setTimeout`; on timeout,
+fall back identically to an error/rejection; a later-resolving render still
+replaces the fallback with the real diagram.
+
+**Verified:** isolated Node.js harness running the extracted IIFE against 4
+controlled scenarios (success, error, hang-then-success, hang-then-fail).
+
+**Commit:** `[mermaid-render-timeout Phase 1] Add render timeout fallback for hung diagrams` (`ac354a3`)
+
+---
+
+### Mermaid diagrams broken for every topic except the first
+
+**Phase 1:** gate the renderer's first `mermaid.render()` call on an
+`IntersectionObserver` confirming visibility; folded in (per a "clean diff"
+request) removal of temporary debug logging and a revert of a
+diagnostic-only `pan=False, zoom=False` toggle at both call sites.
+
+**Verified:** isolated 4-tab Streamlit repro (tab 0 had the correct viewBox
+before the fix, tabs 1-3 were broken; all 4 correct after); full pytest
+suite green.
+
+**Commit:** `[mermaid-render-visibility Phase 1] Defer mermaid.render() until content is visible` (`e28544c`)
+
+---
+
+### MCP client reliability: storage_server hang with no timeout
+
+**Implemented directly** — no standalone change plan; root cause was dug
+into via `py-spy` stack-trace dumping before deciding the fix (a timeout
+alone, then a pre-warm added on top once the variable-cost import was
+understood).
+
+**What shipped:** 30s timeout on `MCPClient.call()`; `warm_up_storage_server()`
+background pre-warm wired into `app.py` at startup.
+
+**Verified:** dynamic tutor flow confirmed working live after a full process
+restart (`app.py` + all MCP server subprocesses killed and relaunched).
+
+**Commit:** `[mcp-client-reliability] Add call timeout and storage_server pre-warming` (`766a8fb`)
+
+---
+
+### Diagnostic quiz review screen
+
+**Phase A:** add a required `explanation` field to `_DIAGNOSTIC_SCHEMA`/
+`_DIAGNOSTIC_SYSTEM` in `graph.py`; update test fixtures.
+
+**Phase B:** new `diagnostic_review` UI phase in `tutor_room.py` — the
+submit handler now only evaluates the diagnostic and routes to the review
+screen; new `_render_diagnostic_review()` (score + per-question breakdown)
+with a "Continue to lesson →" button that runs the now-deferred
+`present_concept`/slide transition.
+
+**Phase C:** verification-only — `tutor_phase` is stored/restored as a plain
+string with no fixed enum, so session-resume needed no code change for the
+new phase.
+
+**Verified:** unit tests for Phase A (`tests/test_tutor/test_graph_nodes.py`,
+19 passed); manual walkthrough of the review screen for Phase B/C (no UI
+test infra exists for `tutor_room.py`).
+
+**Commits:** `[Phase A] Add explanation field to diagnostic questions` (`44505eb`), `[Phase B] Add diagnostic review screen before lesson slide` (`b93a686`)
 
 ---
 

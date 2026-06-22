@@ -14,6 +14,9 @@ try:
 except Exception:
     pass
 
+from backend.core.mcp_client import warm_up_storage_server
+warm_up_storage_server()
+
 st.set_page_config(
     page_title="AI Tutor",
     page_icon="📚",

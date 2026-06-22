@@ -6,13 +6,8 @@ from datetime import datetime, timezone
 import streamlit as st
 from backend.content.diagram_generator import _sanitize_mermaid
 from backend.content.models import LearningModule, Question
+from frontend.mermaid_render import render_mermaid
 from frontend.nav import render_back_button
-
-try:
-    from streamlit_mermaid import st_mermaid
-    _HAS_MERMAID = True
-except ImportError:
-    _HAS_MERMAID = False
 
 
 def render_module_viewer(module: LearningModule) -> None:
@@ -65,14 +60,13 @@ def render_module_viewer(module: LearningModule) -> None:
                 # Diagram first (anchor-first), then explanation below
                 mermaid_diagrams = [d for d in et.diagrams if d.diagram_type == "mermaid"]
                 if mermaid_diagrams:
+                    # key_takeaways is topic-level, not per-diagram — reused as the
+                    # render-failure fallback for every diagram in this topic.
                     for diagram in mermaid_diagrams:
                         st.caption(f"📊 {diagram.caption}")
                         clean = _sanitize_mermaid(diagram.content) if diagram.content else ""
-                        if _HAS_MERMAID and clean:
-                            try:
-                                st_mermaid(clean, height="280px")
-                            except Exception:
-                                st.info(et.topic.summary or diagram.caption)
+                        if clean:
+                            render_mermaid(clean, et.key_takeaways, height=280)
                         else:
                             st.info(et.topic.summary or diagram.caption)
                         if diagram.caption:
