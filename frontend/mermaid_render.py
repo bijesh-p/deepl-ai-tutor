@@ -52,7 +52,7 @@ _TEMPLATE = """
   @@CONTROLS_HTML@@
 </div>
 <script>@@MERMAID_JS@@</script>
-<script>@@PANZOOM_JS@@</script>
+@@PANZOOM_SCRIPT_TAG@@
 <script>
 (function () {
   var code = @@CODE_JSON@@;
@@ -87,23 +87,40 @@ _TEMPLATE = """
     }
   }
 
-  try {
-    mermaid.initialize({ startOnLoad: false });
-    // mermaid.js's layout engine can hang (never resolve or reject) on some
-    // valid-but-pathological diagrams (e.g. cyclic flowcharts), so render is
-    // raced against a 5s timeout rather than awaited indefinitely.
-    mermaid.render('mmd-graph', code).then(function (result) {
-      showDiagram(result.svg);
-    }).catch(function (err) {
-      if (!settled) { showFallback(err); }
-    });
+  function attemptRender() {
+    try {
+      mermaid.initialize({ startOnLoad: false });
+      // mermaid.js's layout engine can hang (never resolve or reject) on some
+      // valid-but-pathological diagrams (e.g. cyclic flowcharts), so render is
+      // raced against a 5s timeout rather than awaited indefinitely.
+      mermaid.render('mmd-graph', code).then(function (result) {
+        showDiagram(result.svg);
+      }).catch(function (err) {
+        if (!settled) { showFallback(err); }
+      });
 
-    setTimeout(function () {
-      if (!settled) { showFallback(); }
-    }, 5000);
-  } catch (err) {
-    showFallback(err);
+      setTimeout(function () {
+        if (!settled) { showFallback(); }
+      }, 5000);
+    } catch (err) {
+      showFallback(err);
+    }
   }
+
+  // mermaid measures text labels by rendering them and reading their real
+  // size; inside a hidden ancestor (e.g. an inactive st.tabs() panel)
+  // browsers report zero size, and mermaid bakes that wrong layout in
+  // permanently. Defer the actual render until this content is visible.
+  // IntersectionObserver fires once immediately with the current state on
+  // observe(), so already-visible content (the common case) renders with
+  // no perceptible delay.
+  var observer = new IntersectionObserver(function (entries) {
+    if (entries[0].isIntersecting) {
+      observer.disconnect();
+      attemptRender();
+    }
+  });
+  observer.observe(document.body);
 
   document.querySelectorAll('.mmd-controls [data-action]').forEach(function (btn) {
     btn.addEventListener('click', function () {
@@ -145,24 +162,6 @@ def render_mermaid(
     `code` should already be sanitized (e.g. via `_sanitize_mermaid`) before
     being passed in — this function does not sanitize, only renders/falls back.
     """
-    # TEMPORARY debug instrumentation (mermaid-render-timeout investigation):
-    # dump every render attempt so a failing case can be inspected verbatim.
-    # Remove before merging.
-    try:
-        import time as _time
-        with open(
-            Path(__file__).parent.parent / "debug_mermaid_calls.log",
-            "a",
-            encoding="utf-8",
-        ) as _f:
-            _f.write(
-                f"\n--- {_time.strftime('%H:%M:%S')} ---\n"
-                f"CODE:\n{code}\n"
-                f"BULLETS: {fallback_bullets!r}\n"
-            )
-    except Exception:
-        pass
-
     bullets = fallback_bullets or []
     if bullets:
         items = "".join(f"<li>{_escape(b)}</li>" for b in bullets)
@@ -172,11 +171,12 @@ def render_mermaid(
 
     pan_zoom_enabled = pan or zoom
     controls_html = _CONTROLS_HTML if (show_controls and pan_zoom_enabled) else ""
+    panzoom_script_tag = f"<script>{_PANZOOM_JS}</script>" if pan_zoom_enabled else ""
 
     page = (
         _TEMPLATE.replace("@@HEIGHT@@", str(height))
         .replace("@@MERMAID_JS@@", _MERMAID_JS)
-        .replace("@@PANZOOM_JS@@", _PANZOOM_JS)
+        .replace("@@PANZOOM_SCRIPT_TAG@@", panzoom_script_tag)
         .replace("@@CODE_JSON@@", _js_string(code))
         .replace("@@FALLBACK_HTML_JSON@@", _js_string(fallback_html))
         .replace("@@PAN_ZOOM_ENABLED@@", "true" if pan_zoom_enabled else "false")
