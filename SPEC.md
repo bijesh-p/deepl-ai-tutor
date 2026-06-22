@@ -1,6 +1,6 @@
 # SPEC.md — AI Tutor System Specification
 
-> **Version:** 0.24 | **Last updated:** 2026-06-22
+> **Version:** 0.25 | **Last updated:** 2026-06-22
 > Architecture, directory layout, and component design are in [ARCHITECTURE.md](ARCHITECTURE.md).
 > **GUI / frontend requirements are specified in [gui_spec.md](gui_spec.md)** — that document
 > is authoritative for all GUI features, normative UI decisions (dark-theme default, button
@@ -334,6 +334,12 @@ with a "Continue to lesson →" button to proceed.
 
 **Files:** `backend/interactive_tutor/graph.py`, `frontend/tutor_room.py`,
 `tests/test_tutor/test_graph_nodes.py`.
+
+---
+
+## 4. Bug Fixes — ported from `experiment/improve-ui`
+
+- [x] **"Download Results" button white-on-white in dark mode (Phase 62)** — **Resolved:** same coverage gap as the Phase 50 upload-button fix, on a different native element. `st.download_button()` (`frontend/results_page.py:142`) renders inside `[data-testid="stDownloadButton"]`, not `.stButton`, so the existing `.stButton button[kind="secondary"]` dark-mode rule never matched it — the button kept Streamlit's native white background while its text inherited the page-wide dark `color: #F1F5F9` from `.stApp`. Fixed by adding a dedicated `[data-testid="stDownloadButton"] button[kind="secondary"]` rule to `_theme_overrides_css()` in `frontend/styles.py`, using the same `card_bg`/`text_primary` tokens as the upload-button fix. Verified live via a synthetic results-page harness: dark mode now resolves to `rgb(26,29,41)` background / `rgb(241,245,249)` text (was white-on-white); light mode confirmed pixel-unchanged (`rgb(255,255,255)` / `rgb(17,24,39)`). Full pytest suite: 139 passed, 0 failures.
 
 ---
 

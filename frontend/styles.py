@@ -591,6 +591,16 @@ def _theme_overrides_css(dark: bool) -> str:
     color: {p['text_primary']} !important;
 }}
 
+/* Same gap as the uploader's "Browse files" button above: st.download_button()
+   renders inside [data-testid="stDownloadButton"], not .stButton, so it never
+   matched the .stButton button[kind="secondary"] rule and fell back to
+   white-on-white (native button background + inherited dark text color). */
+[data-testid="stDownloadButton"] button[kind="secondary"] {{
+    background: {p['card_bg']} !important;
+    border-color: #475569 !important;
+    color: {p['text_primary']} !important;
+}}
+
 /* Quiz option cards — base (unchecked) state. */
 [data-testid="stRadio"] [role="radiogroup"] > label,
 [data-testid="stCheckbox"] label {{

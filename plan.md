@@ -1,7 +1,7 @@
 # plan.md — AI Tutor Implementation
 
 > **Goal:** Deliver a fully working AI Tutor with adaptive tutoring, observability, and admin-curated module sharing.
-> **Spec:** SPEC.md v0.24
+> **Spec:** SPEC.md v0.25
 > **Last updated:** 2026-06-22
 
 ---
@@ -683,6 +683,22 @@ new phase.
 test infra exists for `tutor_room.py`).
 
 **Commits:** `[Phase A] Add explanation field to diagnostic questions` (`44505eb`), `[Phase B] Add diagnostic review screen before lesson slide` (`b93a686`)
+
+---
+
+## Bug Fixes — ported from `experiment/improve-ui`
+
+## Phase 62 — Fix invisible "Download Results" button text in dark mode ✅ Complete
+
+**Goal:** Fix `st.download_button("📥 Download Results", ...)` on the Quiz Results page rendering white text on a white background in dark mode.
+
+**Root cause:** Same coverage gap as the Phase 50 upload-button fix, on a different native Streamlit element. `st.download_button()` renders inside `[data-testid="stDownloadButton"]`, not `.stButton`, so the existing `.stButton button[kind="secondary"]` dark-mode rule (`frontend/styles.py`) never matched it. With no dedicated rule, the button kept Streamlit's native white background while its text inherited the page-wide dark-mode `color: #F1F5F9` from `.stApp`.
+
+**Fix:** added `[data-testid="stDownloadButton"] button[kind="secondary"]` to `_theme_overrides_css()` in `frontend/styles.py`, using the same `card_bg`/`text_primary` tokens as the Phase 50 file-uploader fix.
+
+**Verified:** synthetic results-page harness (fake `QuizResult`/`AnswerResult`, no real quiz needed) — dark mode now resolves to `rgb(26,29,41)` background / `rgb(241,245,249)` text (was white-on-white); light mode confirmed pixel-unchanged (`rgb(255,255,255)` / `rgb(17,24,39)`). Full pytest suite: 139 passed, 0 failures.
+
+**Files:** `frontend/styles.py`.
 
 ---
 
