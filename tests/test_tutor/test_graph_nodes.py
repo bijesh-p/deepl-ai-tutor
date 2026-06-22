@@ -29,9 +29,9 @@ class _MockLLM:
 
 def test_generate_diagnostic_populates_questions(monkeypatch):
     questions = [
-        {"question_text": "What is X?", "options": ["A", "B", "C", "D"], "correct_index": 0},
-        {"question_text": "What is Y?", "options": ["A", "B", "C", "D"], "correct_index": 1},
-        {"question_text": "What is Z?", "options": ["A", "B", "C", "D"], "correct_index": 2},
+        {"question_text": "What is X?", "options": ["A", "B", "C", "D"], "correct_index": 0, "explanation": "Because X is A."},
+        {"question_text": "What is Y?", "options": ["A", "B", "C", "D"], "correct_index": 1, "explanation": "Because Y is B."},
+        {"question_text": "What is Z?", "options": ["A", "B", "C", "D"], "correct_index": 2, "explanation": "Because Z is C."},
     ]
     monkeypatch.setattr(graph, "_get_llm", lambda: _MockLLM({"questions": questions}))
 

@@ -107,8 +107,9 @@ _DIAGNOSTIC_SCHEMA = {
                             "maxItems": 4,
                         },
                         "correct_index": {"type": "integer"},
+                        "explanation": {"type": "string"},
                     },
-                    "required": ["question_text", "options", "correct_index"],
+                    "required": ["question_text", "options", "correct_index", "explanation"],
                 },
             }
         },
@@ -122,7 +123,8 @@ _DIAGNOSTIC_SYSTEM = (
     "Each question must have exactly 4 options. "
     "Include a mix of easy and medium difficulty. "
     "Base questions only on what can be reasonably inferred from the topic title and summary — "
-    "do not assume the student has read anything yet."
+    "do not assume the student has read anything yet. "
+    "For each question, include a short 1-2 sentence explanation of why the correct answer is correct."
 )
 
 
