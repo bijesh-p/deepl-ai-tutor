@@ -255,7 +255,7 @@ def render_tutor_room() -> None:
             else:
                 wait_elapsed = int(time.monotonic() - st.session_state["waiting_since"])
                 topics_done = progress_info.get("topics_enriched", 0)
-                topics_total = progress_info.get("total_topics", 0)
+                topics_total = max(progress_info.get("total_topics", 0), topics_done)
 
                 st.info(f"Preparing **{next_concept}**... ({wait_elapsed}s)")
                 if topics_total > 0:
@@ -346,7 +346,7 @@ def _render_diagnostic(state: dict, graph) -> None:
     generating = progress.get("state") not in ("completed", "failed", "aborted", "")
     if generating:
         done = progress.get("topics_enriched", 0)
-        total = progress.get("total_topics", 0)
+        total = max(progress.get("total_topics", 0), done)
         st.caption(f"Content generating in background... ({done}/{total} topics ready)")
 
     st.subheader(f"Before we begin: {concept}")

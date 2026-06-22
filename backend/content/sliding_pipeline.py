@@ -215,6 +215,9 @@ def _run_pre_segmented(
     published: list[EnrichedTopic] = []
     module_id = progress.get("module_id", "")
 
+    non_empty = [s for s in doc.sections if s.body.strip()]
+    progress["total_topics"] = len(non_empty) or 1
+
     for idx, section in enumerate(doc.sections):
         if abort_event.is_set():
             break
@@ -240,10 +243,14 @@ def _run_pre_segmented(
         if enriched is not None:
             published.append(enriched)
             _store_in_vector_db(enriched, module_id)
+            now = time.monotonic()
             progress["enriched_topics"] = list(published)
             progress["topics_enriched"] = len(published)
             progress["current_topic"] = enriched.topic.title
             progress["detail"] = f"Slide {len(published)} ready: {enriched.topic.title}"
+            progress["last_topic_at"] = now
+            elapsed_so_far = now - progress.get("started_at", now)
+            progress["avg_seconds_per_topic"] = elapsed_so_far / len(published)
 
             if len(published) == 1:
                 progress["ready"] = True

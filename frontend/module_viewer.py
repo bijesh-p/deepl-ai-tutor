@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 import streamlit as st
 from backend.content.diagram_generator import _sanitize_mermaid
-from backend.content.models import LearningModule, Question
+from backend.content.models import LearningModule
 from frontend.nav import render_back_button
 
 try:
@@ -85,10 +85,6 @@ def render_module_viewer(module: LearningModule) -> None:
                     for kt in et.key_takeaways:
                         st.markdown(f"- {kt}")
 
-                if et.inline_questions:
-                    st.markdown("---")
-                    st.markdown("**Check your understanding**")
-                    _render_inline_questions(et.topic.topic_id, et.inline_questions)
 
     if generating and progress:
         _pending_topics_fragment()
@@ -158,48 +154,3 @@ def _pending_topics_fragment() -> None:
         st.info("⏳ Saving module...")
 
 
-def _render_inline_questions(topic_id: str, questions: list[Question]) -> None:
-    for i, q in enumerate(questions):
-        key = f"inline_{topic_id}_{i}"
-        answered_key = f"{key}_answered"
-
-        st.markdown(f"**Q{i + 1}: {q.question_text}**")
-
-        if q.question_type == "single_choice":
-            already_answered = st.session_state.get(answered_key, False)
-            # After answering, lock the radio and restore the chosen index
-            saved_idx = st.session_state.get(f"{answered_key}_idx")
-            choice = st.radio(
-                label="",
-                options=q.options,
-                index=saved_idx,
-                key=key,
-                label_visibility="collapsed",
-                disabled=already_answered,
-            )
-            if choice is not None and not already_answered:
-                selected_idx = q.options.index(choice)
-                is_correct = selected_idx in q.correct_answers
-                st.session_state[answered_key] = True
-                st.session_state[f"{answered_key}_idx"] = selected_idx
-                st.session_state[f"{answered_key}_correct"] = is_correct
-                st.rerun()
-
-            if already_answered:
-                is_correct = st.session_state.get(f"{answered_key}_correct", False)
-                if is_correct:
-                    st.success(f"Correct! {q.explanation}")
-                else:
-                    correct_text = q.options[q.correct_answers[0]]
-                    st.error(f"Not quite. The correct answer is: **{correct_text}**. {q.explanation}")
-        else:
-            selected = []
-            for j, opt in enumerate(q.options):
-                if st.checkbox(opt, key=f"{key}_opt_{j}"):
-                    selected.append(j)
-            if st.button("Check", key=f"{key}_check"):
-                if sorted(selected) == sorted(q.correct_answers):
-                    st.success(f"Correct! {q.explanation}")
-                else:
-                    correct_opts = [q.options[idx] for idx in q.correct_answers]
-                    st.error(f"Not quite. Correct: **{', '.join(correct_opts)}**. {q.explanation}")

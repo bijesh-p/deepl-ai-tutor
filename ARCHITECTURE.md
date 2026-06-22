@@ -60,7 +60,7 @@ Streamlit Frontend (entry point: app.py)
 | LLM quality evals | DeepEval (LLM-as-judge, async, per session) | 2 |
 | Observability | Arize Phoenix + OTEL (`opentelemetry-sdk`), dedicated dashboard page | 2 / 3 (Phase 37) |
 | Package manager | `uv` | 1 |
-| Python | 3.14+ | 1 |
+| Python | 3.13+ | 1 |
 
 ---
 

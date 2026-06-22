@@ -69,6 +69,17 @@ def list_modules(db: sqlite3.Connection | None = None) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def rename_module(module_id: str, new_title: str, db: sqlite3.Connection | None = None) -> None:
+    conn = db or get_db()
+    conn.execute("UPDATE modules SET title = ? WHERE module_id = ?", (new_title, module_id))
+    row = conn.execute("SELECT module_json FROM modules WHERE module_id = ?", (module_id,)).fetchone()
+    if row and row["module_json"]:
+        data = json.loads(row["module_json"])
+        data["title"] = new_title
+        conn.execute("UPDATE modules SET module_json = ? WHERE module_id = ?", (json.dumps(data), module_id))
+    conn.commit()
+
+
 def delete_module(module_id: str, db: sqlite3.Connection | None = None) -> None:
     """Delete a module and all its quiz attempts."""
     conn = db or get_db()

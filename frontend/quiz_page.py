@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import time as _time
+from datetime import timedelta
+
 import streamlit as st
 from backend.quiz.assembler import assemble_quiz
 from backend.quiz.evaluator import evaluate
@@ -10,9 +13,11 @@ from frontend.styles import question_card_html, page_header_html
 
 _DIFFICULTY_META = {
     "easy":   ("🟢", "Easy",   "Foundational concepts and definitions",     "#F0FDF4", "#10B981", "#065F46"),
-    "medium": ("🟡", "Medium", "Applied understanding and key relationships", "#FFFBEB", "#F59E0B", "#92400E"),
+    "medium": ("🟡", "Intermediate", "Applied understanding and key relationships", "#FFFBEB", "#F59E0B", "#92400E"),
     "hard":   ("🔴", "Hard",   "Deep analysis and edge cases",               "#FEF2F2", "#EF4444", "#991B1B"),
 }
+
+_TIMER_SECONDS = {"easy": 300, "medium": 600, "hard": 900}
 
 
 # ── Answer persistence helpers ───────────────────────────────────────────────
@@ -101,7 +106,7 @@ def render_quiz_page(bank: QuestionBank) -> None:
         "← Back to Library",
         "module_library",
         key="_back_quiz",
-        clear_keys=["module", "bank", "quiz", "quiz_answers", "quiz_result", "quiz_difficulty"],
+        clear_keys=["module", "bank", "quiz", "quiz_answers", "quiz_result", "quiz_difficulty", "quiz_deadline", "quiz_timed_out"],
     )
     if "quiz" not in st.session_state:
         _render_difficulty_selector(bank)
@@ -163,13 +168,46 @@ def _render_difficulty_selector(bank: QuestionBank) -> None:
 
     st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
 
+    timer_secs = _TIMER_SECONDS[difficulty]
+    timer_min = timer_secs // 60
+    st.caption(f"⏱️ Time limit: **{timer_min} minutes**")
+
     if st.button("Start Quiz", type="primary"):
         st.session_state["quiz"] = assemble_quiz(bank, difficulty, num_questions=10)
         st.session_state["quiz_difficulty"] = difficulty
         st.session_state["quiz_current_idx"] = 0
         st.session_state["quiz_answers"] = {}
+        st.session_state["quiz_deadline"] = _time.time() + timer_secs
         st.session_state.pop("_quiz_difficulty_pick", None)
         st.rerun()
+
+
+@st.fragment(run_every=timedelta(seconds=1))
+def _render_countdown_timer() -> None:
+    deadline = st.session_state.get("quiz_deadline")
+    if not deadline:
+        return
+    remaining = max(0, deadline - _time.time())
+    if remaining <= 0:
+        st.session_state.pop("quiz_deadline", None)
+        st.session_state["quiz_timed_out"] = True
+        st.rerun(scope="app")
+        return
+    mins = int(remaining) // 60
+    secs = int(remaining) % 60
+    if remaining <= 60:
+        color = "#EF4444"
+    elif remaining <= 120:
+        color = "#F59E0B"
+    else:
+        color = "#1E1B4B"
+    st.markdown(
+        f"<div style='text-align:center;padding:6px 0;font-family:Inter,sans-serif;'>"
+        f"<span style='font-size:13px;color:#6B7280;'>⏱️ Time remaining: </span>"
+        f"<span style='font-size:15px;font-weight:700;color:{color};'>{mins}:{secs:02d}</span>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
 
 
 def _render_quiz_question() -> None:
@@ -178,6 +216,14 @@ def _render_quiz_question() -> None:
     questions = quiz.questions
     total_q = len(questions)
     ss = st.session_state
+
+    # ── Timer expiry check ────────────────────────────────────────────────────
+    deadline = ss.get("quiz_deadline")
+    if deadline and _time.time() >= deadline:
+        ss.pop("quiz_deadline", None)
+        ss["quiz_timed_out"] = True
+        _submit_quiz(quiz)
+        return
 
     if "quiz_current_idx" not in ss:
         ss["quiz_current_idx"] = 0
@@ -193,6 +239,10 @@ def _render_quiz_question() -> None:
 
     diff_icon, diff_label, _, diff_bg, diff_border, diff_fg = _DIFFICULTY_META[difficulty]
     unanswered = total_q - answered_count
+
+    # ── Countdown timer ───────────────────────────────────────────────────────
+    if deadline:
+        _render_countdown_timer()
 
     # ── Compact header: title + badge + progress stats in one HTML block ──────
     st.markdown(
@@ -300,4 +350,5 @@ def _submit_quiz(quiz) -> None:
     del st.session_state["quiz"]
     st.session_state.pop("quiz_current_idx", None)
     st.session_state.pop("quiz_answers", None)
+    st.session_state.pop("quiz_deadline", None)
     st.rerun()
