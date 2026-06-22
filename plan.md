@@ -702,6 +702,20 @@ test infra exists for `tutor_room.py`).
 
 ---
 
+## Phase 63 — Save and display original uploaded filename, not the temp path ✅ Complete
+
+**Goal:** Fix the Module Library showing uploaded documents as `tmpXXXXXX.pdf` instead of the original filename the user uploaded.
+
+**Root cause:** `Document.source_filename` (set by every parser in `backend/ingestion/*_parser.py` as `path.name`) is derived from the `tempfile.NamedTemporaryFile` path the upload form writes the bytes to before parsing — the parsers never see the user's actual filename. `frontend/upload_page.py::_run_pipeline_bg` then persisted `doc.source_filename` (the temp name) into the `modules` table via `save_module()`, which `module_library_page.py` displays verbatim.
+
+**Fix:** threaded the real filename (`uploaded.name`, already cached in `st.session_state["_cached_upload_name"]` for the "re-use last file" retry path) through `_start_pipeline` → `_run_pipeline_bg` as an explicit `original_filename` argument — needed because the pipeline runs on a background thread that can't reliably read `st.session_state` — and used it instead of `doc.source_filename` at the `save_module()` call site. `Document.source_filename` is otherwise unused, so no parser/model changes were needed.
+
+**Verified:** drove `_run_pipeline_bg` directly against `tests/fixtures/sample.pdf` with `original_filename="Intro_to_ML_Lecture.pdf"` and confirmed the saved DB row's `source_filename` is the original name, not the temp path (`/var/folders/.../tmpo7h20rhl.pdf`). Full pytest suite: 139 passed, 0 failures. Note: 3 pre-existing modules in this user's local DB never captured their original filename and will keep showing `tmpXXXXXX.pdf` — only new uploads are fixed.
+
+**Files:** `frontend/upload_page.py`.
+
+---
+
 ## Commit convention
 
 Format: `[Phase N] <short description>`

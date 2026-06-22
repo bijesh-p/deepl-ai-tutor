@@ -109,12 +109,14 @@ def render_upload_page() -> None:
             st.error("Please upload a PDF, PPTX, DOCX, or VTT file.")
             return
         uploaded_bytes = cached
-        file_ext = Path(st.session_state.get("_cached_upload_name", ".pdf")).suffix.lower()
+        original_filename = st.session_state.get("_cached_upload_name", "document.pdf")
+        file_ext = Path(original_filename).suffix.lower()
     else:
         uploaded_bytes = uploaded.read()
-        file_ext = Path(uploaded.name).suffix.lower()
+        original_filename = uploaded.name
+        file_ext = Path(original_filename).suffix.lower()
         st.session_state["_cached_upload_bytes"] = uploaded_bytes
-        st.session_state["_cached_upload_name"] = uploaded.name
+        st.session_state["_cached_upload_name"] = original_filename
 
     if file_ext not in _TOOL_FOR_EXT:
         st.error(f"Unsupported file type: {file_ext!r}. Please upload a PDF, PPTX, DOCX, or VTT.")
@@ -124,11 +126,13 @@ def render_upload_page() -> None:
         tmp.write(uploaded_bytes)
         tmp_path = tmp.name
 
-    _start_pipeline(tmp_path, file_ext, user_id, username, db_path)
+    _start_pipeline(tmp_path, file_ext, user_id, username, db_path, original_filename)
     st.rerun()
 
 
-def _start_pipeline(tmp_path: str, file_ext: str, user_id: str, username: str, db_path: str) -> None:
+def _start_pipeline(
+    tmp_path: str, file_ext: str, user_id: str, username: str, db_path: str, original_filename: str
+) -> None:
     provider = st.session_state.get("llm_provider", "anthropic")
     model = st.session_state.get("llm_model", "claude-sonnet-4-6")
     tracing_enabled = st.session_state.get("tracing_enabled", True)
@@ -168,7 +172,10 @@ def _start_pipeline(tmp_path: str, file_ext: str, user_id: str, username: str, d
 
     thread = threading.Thread(
         target=_run_pipeline_bg,
-        args=(tmp_path, file_ext, user_id, username, provider, model, db_path, progress, abort_event),
+        args=(
+            tmp_path, file_ext, user_id, username, provider, model, db_path,
+            progress, abort_event, original_filename,
+        ),
         daemon=True,
         name="pipeline-worker",
     )
@@ -192,6 +199,7 @@ def _run_pipeline_bg(
     db_path: str,
     progress: dict,
     abort_event: threading.Event,
+    original_filename: str,
 ) -> None:
     def _log(msg: str) -> None:
         elapsed = int(time.monotonic() - progress["started_at"])
@@ -335,7 +343,7 @@ def _run_pipeline_bg(
                 save_module(
                     module_id=module.module_id,
                     title=module.title,
-                    source_filename=doc.source_filename,
+                    source_filename=original_filename,
                     module_json=module.to_json(),
                     question_bank_json=json.dumps(_bank_to_dict(bank)),
                     created_by=user_id,
