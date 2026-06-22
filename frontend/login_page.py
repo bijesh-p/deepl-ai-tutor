@@ -21,9 +21,16 @@ section[data-testid="stSidebar"],
     pointer-events: none !important;
 }
 
-/* Hide Streamlit dev-mode decoration on the login page (keep app menu) */
-[data-testid="stDecoration"],
-[data-testid="stStatusWidget"] { display: none !important; }
+/* Hide Streamlit chrome completely on the login page */
+#MainMenu                         { display: none !important; }
+[data-testid="stToolbar"]         { display: none !important; }
+[data-testid="stDecoration"]      { display: none !important; }
+[data-testid="stStatusWidget"]    { display: none !important; }
+.stAppToolbar                     { display: none !important; }
+[data-testid="stAppToolbar"]      { display: none !important; }
+header[data-testid="stHeader"],
+[data-testid="stHeader"],
+.stHeader                         { display: none !important; }
 
 /* Stretch the app to full viewport and center everything */
 .stApp {

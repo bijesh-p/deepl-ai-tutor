@@ -417,9 +417,13 @@ p  { font-weight: 400 !important; line-height: 1.6 !important; }
     font-weight: 600 !important;
 }
 
-/* ── Hide Streamlit dev-mode chrome (keep the top-right app menu visible) ── */
+/* ── Hide Streamlit chrome completely ───────────────────────────────────── */
+#MainMenu                         { visibility: hidden !important; }
+[data-testid="stToolbar"]         { display: none !important; }
 [data-testid="stDecoration"]      { display: none !important; }
 [data-testid="stStatusWidget"]    { display: none !important; }
+.stAppToolbar                     { display: none !important; }
+[data-testid="stAppToolbar"]      { display: none !important; }
 
 /* ── Keyframe animations ─────────────────────────────────────────────────── */
 @keyframes ai-pulse {

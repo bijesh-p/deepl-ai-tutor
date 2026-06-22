@@ -148,40 +148,26 @@ def _render_sidebar() -> None:
         st.session_state["llm_provider"] = provider
         st.session_state["llm_model"] = model
 
-        # ── Settings (audio + observability toggles) ──────────────────────────
+        # ── Settings (toggle buttons — same size as nav buttons) ─────────────
         if logged_in:
             st.markdown("<div class='sb-label'>Settings</div>", unsafe_allow_html=True)
 
-            audio_on = st.toggle(
-                "Audio",
-                value=st.session_state.get("audio_enabled", True),
-                help="Enable TTS narration for slides and diagnostics",
-                key="_audio_toggle",
-            )
-            tracing_on = st.toggle(
-                "Tracing",
-                value=st.session_state.get("tracing_enabled", True),
-                help="Send OTEL spans to Arize Phoenix at localhost:6006",
-                key="_tracing_toggle",
-            )
-            evals_on = st.toggle(
-                "Evals",
-                value=st.session_state.get("evals_enabled", False),
-                help="Run DeepEval quality metrics using the active LLM as judge",
-                key="_evals_toggle",
-            )
-            theme_choice = st.selectbox(
-                "Theme",
-                ["Dark", "Light"],
-                index=0 if st.session_state.get("dark_mode", True) else 1,
-                key="_theme_select",
-                label_visibility="visible",
-            )
-            st.session_state["audio_enabled"] = audio_on
-            st.session_state["tracing_enabled"] = tracing_on
-            st.session_state["evals_enabled"] = evals_on
-            new_dark = theme_choice == "Dark"
-            if new_dark != st.session_state.get("dark_mode", True):
+            audio_on = st.session_state.get("audio_enabled", True)
+            tracing_on = st.session_state.get("tracing_enabled", True)
+            evals_on = st.session_state.get("evals_enabled", False)
+            dark_on = st.session_state.get("dark_mode", True)
+
+            if st.button(f"🔊 Audio {'· on' if audio_on else '· off'}", use_container_width=True, key="_audio_btn", help="Toggle TTS narration"):
+                st.session_state["audio_enabled"] = not audio_on
+                st.rerun()
+            if st.button(f"📡 Tracing {'· on' if tracing_on else '· off'}", use_container_width=True, key="_tracing_btn", help="Toggle OTEL tracing"):
+                st.session_state["tracing_enabled"] = not tracing_on
+                st.rerun()
+            if st.button(f"🧪 Evals {'· on' if evals_on else '· off'}", use_container_width=True, key="_evals_btn", help="Toggle DeepEval metrics"):
+                st.session_state["evals_enabled"] = not evals_on
+                st.rerun()
+            if st.button(f"🌙 Dark mode {'· on' if dark_on else '· off'}", use_container_width=True, key="_dark_btn", help="Toggle dark theme"):
+                new_dark = not dark_on
                 st.session_state["dark_mode"] = new_dark
                 try:
                     from backend.analytics.db import get_db
