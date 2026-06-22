@@ -1,7 +1,10 @@
 # SPEC.md — AI Tutor System Specification
 
-> **Version:** 0.23 | **Last updated:** 2026-06-20
+> **Version:** 0.24 | **Last updated:** 2026-06-22
 > Architecture, directory layout, and component design are in [ARCHITECTURE.md](ARCHITECTURE.md).
+> **GUI / frontend requirements are specified in [gui_spec.md](gui_spec.md)** — that document
+> is authoritative for all GUI features, normative UI decisions (dark-theme default, button
+> consistency), and suggested frontend improvements.
 
 ---
 
@@ -217,6 +220,7 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
   3. **Black-on-black question text:** `frontend/results_page.py` hardcoded `color:#111827` on the question-text div with no background of its own — it sits directly on the expander's background, which is dark in dark mode. Fixed by computing a theme-aware `question_text_color` (mirrors the `header_text_color` pattern already used in `app.py`) instead of hardcoding it.
   All three verified live via a synthetic results-page harness (`AnswerResult`/`QuizResult` fixtures, no real quiz needed) — dark mode: header `rgb(241,245,249)` text on `rgb(26,29,41)` background, question text `rgb(241,245,249)` on transparent (inherits the same dark background); light mode confirmed pixel-unchanged. Full pytest suite: 139 passed, 0 failures (CSS/audio-only changes, no logic under test).
 - [x] **`PYTHONPATH=. uv run phoenix serve` fails with "Failed to spawn: `phoenix`" (Phase 55)** — **Resolved:** Phase 51's restoration of dependencies dropped by `main`'s pre-merge lineage explicitly left `arize-phoenix` out, reasoning that it has zero direct Python imports in the codebase (Phoenix runs as an external process, reached only via the already-present `opentelemetry-exporter-otlp-proto-http` exporter). That reasoning missed that the README (and `observability_page.py`'s own caption) documents starting that external process via `PYTHONPATH=. uv run phoenix serve` — a CLI entry point provided by the `arize-phoenix` package itself, not by any OTEL exporter package. Without it installed in the `uv` venv, `uv run phoenix` has no `phoenix` console script to spawn. Fixed via `uv add arize-phoenix`, verified by running the exact documented command and confirming the server starts and serves the UI at `http://localhost:6006`.
+- [x] **GUI overhaul: dark-theme default + button consistency (Phase 56–57)** — **Resolved.** (1) Dark theme is the single application default — `inject_global_css()` applies dark overrides on every page (including login); `dark_mode` seeded to `True` at startup in `app.py`; login page `_LOGIN_CSS` rewritten for dark palette. No light-theme flash on first load. (2) Dark-mode sidebar toggle and `save_dark_mode` call removed; Streamlit native top-right app menu restored. (3) All multi-button rows use equal-width `st.columns` with `use_container_width=True`; shared `min-height: 2.25rem` token in `.stButton button`; Module Library action row normalised to 4 equal columns (Publish column always rendered, empty for non-admins). Full pytest suite: 140 passed.
 
 ---
 

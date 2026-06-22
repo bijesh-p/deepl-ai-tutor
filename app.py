@@ -23,6 +23,7 @@ st.set_page_config(
 
 from frontend.styles import inject_global_css
 inject_global_css()
+st.session_state.setdefault("dark_mode", True)
 
 # ---------------------------------------------------------------------------
 # Provider → available models (from env or sensible defaults)
@@ -83,7 +84,7 @@ def _render_sidebar() -> None:
     import os
 
     logged_in = bool(st.session_state.get("username"))
-    header_text_color = "#F1F5F9" if st.session_state.get("dark_mode") else "#1E1B4B"
+    header_text_color = "#F1F5F9" if st.session_state.get("dark_mode", True) else "#1E1B4B"
 
     with st.sidebar:
         # ── App name ──────────────────────────────────────────────────────────
@@ -147,49 +148,37 @@ def _render_sidebar() -> None:
         st.session_state["llm_provider"] = provider
         st.session_state["llm_model"] = model
 
-        # ── Settings (audio + observability toggles) ──────────────────────────
+        # ── Settings (toggle buttons — same size as nav buttons) ─────────────
         if logged_in:
             st.markdown("<div class='sb-label'>Settings</div>", unsafe_allow_html=True)
 
-            audio_on = st.toggle(
-                "Audio",
-                value=st.session_state.get("audio_enabled", True),
-                help="Enable TTS narration for slides and diagnostics",
-                key="_audio_toggle",
-            )
-            tracing_on = st.toggle(
-                "Tracing",
-                value=st.session_state.get("tracing_enabled", True),
-                help="Send OTEL spans to Arize Phoenix at localhost:6006",
-                key="_tracing_toggle",
-            )
-            evals_on = st.toggle(
-                "Evals",
-                value=st.session_state.get("evals_enabled", False),
-                help="Run DeepEval quality metrics using the active LLM as judge",
-                key="_evals_toggle",
-            )
-            dark_mode_on = st.toggle(
-                "Dark mode",
-                value=st.session_state.get("dark_mode", False),
-                help="Switch the app to a dark color theme",
-                key="_dark_mode_toggle",
-            )
-            st.session_state["audio_enabled"] = audio_on
-            st.session_state["tracing_enabled"] = tracing_on
-            st.session_state["evals_enabled"] = evals_on
-            if dark_mode_on != st.session_state.get("dark_mode", False):
-                st.session_state["dark_mode"] = dark_mode_on
+            audio_on = st.session_state.get("audio_enabled", True)
+            tracing_on = st.session_state.get("tracing_enabled", True)
+            evals_on = st.session_state.get("evals_enabled", False)
+            dark_on = st.session_state.get("dark_mode", True)
+
+            if st.button(f"🔊 Audio {'· on' if audio_on else '· off'}", use_container_width=True, key="_audio_btn", help="Toggle TTS narration"):
+                st.session_state["audio_enabled"] = not audio_on
+                st.rerun()
+            if st.button(f"📡 Tracing {'· on' if tracing_on else '· off'}", use_container_width=True, key="_tracing_btn", help="Toggle OTEL tracing"):
+                st.session_state["tracing_enabled"] = not tracing_on
+                st.rerun()
+            if st.button(f"🧪 Evals {'· on' if evals_on else '· off'}", use_container_width=True, key="_evals_btn", help="Toggle DeepEval metrics"):
+                st.session_state["evals_enabled"] = not evals_on
+                st.rerun()
+            if st.button(f"🌙 Dark mode {'· on' if dark_on else '· off'}", use_container_width=True, key="_dark_btn", help="Toggle dark theme"):
+                new_dark = not dark_on
+                st.session_state["dark_mode"] = new_dark
                 try:
                     from backend.analytics.db import get_db
                     from backend.analytics.persistence import save_dark_mode
                     save_dark_mode(
                         st.session_state["user_id"],
-                        dark_mode_on,
+                        new_dark,
                         db=get_db(st.session_state.get("db_path")),
                     )
                 except Exception:
-                    pass  # don't let a DB hiccup break the toggle
+                    pass
                 st.rerun()
 
             # ── Navigation ────────────────────────────────────────────────────
@@ -207,9 +196,6 @@ def _render_sidebar() -> None:
                 st.session_state["page"] = "observability"
                 st.rerun()
 
-    # Active provider/model shown as a small caption in the main area
-    if logged_in:
-        st.caption(f"`{provider}` / `{model}`")
 
 
 def main() -> None:

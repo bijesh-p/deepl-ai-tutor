@@ -82,6 +82,7 @@ def render_tutor_room() -> None:
             mastered=state.get("mastered_concepts", []),
             current=state.get("current_concept", "") if phase != "done" else "",
             remaining=state.get("remaining_concepts", []),
+            dark=st.session_state.get("dark_mode", True),
         ),
         unsafe_allow_html=True,
     )
@@ -152,26 +153,26 @@ def render_tutor_room() -> None:
                             st.rerun()
             remaining = state.get("remaining_concepts", [])
             st.caption("The tutor will ask you a question to check your understanding of this topic.")
-            col_ask, col_skip, col_lib = st.columns([2, 2, 2])
+            col_ask, col_skip, col_lib = st.columns(3)
             with col_ask:
-                if st.button("Ask me a question", type="primary"):
+                if st.button("Ask me a question", type="primary", use_container_width=True):
                     with st.spinner("Generating a question for you..."):
                         _run_node(graph, state, "ask_question")
                     st.session_state["tutor_phase"] = "answer"
                     st.rerun()
             with col_skip:
                 if remaining:
-                    if st.button("Next topic →", type="secondary"):
+                    if st.button("Next topic →", type="secondary", use_container_width=True):
                         content_map = st.session_state.get("tutor_content_map", {})
                         _advance_to_next(state, graph, content_map)
                         st.rerun()
                 else:
-                    if st.button("Finish session ✓", type="secondary"):
+                    if st.button("Finish session ✓", type="secondary", use_container_width=True):
                         _run_node(graph, state, "session_complete")
                         st.session_state["tutor_phase"] = "done"
                         st.rerun()
             with col_lib:
-                if st.button("Back to Module Library"):
+                if st.button("Back to Library", type="secondary", use_container_width=True):
                     st.session_state["page"] = "module_library"
                     st.rerun()
 
