@@ -956,29 +956,31 @@ def _end_session(state: dict | None = None) -> None:
 
 
 def _trigger_evals(state: dict) -> None:
-    """Start DeepEval quality checks in a background thread — only if enabled in sidebar."""
-    if not st.session_state.get("evals_enabled", False):
-        return
+    """Stash completed session data so the user can trigger evals explicitly from the
+    Observability page.  Evals are no longer fired automatically at session end to avoid
+    unintended LLM judge API cost."""
     try:
-        from backend.observability.eval_runner import run_session_evals_async
-
-        # Capture provider/model now (session_state not safe to read from daemon thread)
-        provider = st.session_state.get("llm_provider")
-        model = st.session_state.get("llm_model")
-
-        # Collect source text from pipeline progress for faithfulness checks
         progress = st.session_state.get("pipeline_progress", {})
         enriched_list = progress.get("enriched_topics", [])
+
+        # Build concept → content map for scoped faithfulness context
+        concept_context: dict[str, str] = {
+            et.topic.title: et.content_md
+            for et in enriched_list
+            if et.content_md
+        }
+        # Keep a full-blob fallback for any concept not individually mapped
         source_text = "\n\n".join(et.content_md for et in enriched_list)
 
-        run_session_evals_async(
-            chat_history=state.get("chat_history", []),
-            source_text=source_text,
-            user_id=state.get("user_id", ""),
-            module_id=state.get("module_id", ""),
-            provider=provider,
-            model=model,
-            db_path=st.session_state.get("db_path"),
-        )
+        st.session_state["pending_eval"] = {
+            "chat_history": list(state.get("chat_history", [])),
+            "source_text": source_text,
+            "concept_context": concept_context,
+            "user_id": state.get("user_id", ""),
+            "module_id": state.get("module_id", ""),
+            "provider": st.session_state.get("llm_provider"),
+            "model": st.session_state.get("llm_model"),
+            "db_path": st.session_state.get("db_path"),
+        }
     except Exception:
-        pass  # evals are best-effort — never crash the UI
+        pass  # best-effort — never crash the UI
