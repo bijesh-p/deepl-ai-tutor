@@ -170,11 +170,17 @@ def get_eval_results(
 ) -> list[dict]:
     """Return recent DeepEval session results for a user, most recent first.
 
-    Each entry: {"module_id", "title", "evaluated_at", "scores": [{"metric", "score", "threshold", "passed", "reason"}]}
+    Each entry:
+      {
+        "module_id", "title", "evaluated_at",
+        "raw_scores": [{"metric", "score", "threshold", "passed", "reason"}, ...],
+        "aggregated": {"MetricName": {"mean": float, "pass_rate": float, "count": int}, ...},
+      }
+
+    aggregated is computed at read time — mean score and pass-rate per metric
+    across all test cases in the session.
     """
     conn = db or get_db()
-    # eval_results is created lazily by eval_runner — ensure it exists so we
-    # can query it safely before any evals have been run.
     conn.execute("""
         CREATE TABLE IF NOT EXISTS eval_results (
             result_id    TEXT PRIMARY KEY,
@@ -196,12 +202,38 @@ def get_eval_results(
         """,
         (user_id, limit),
     ).fetchall()
-    return [
-        {
+
+    results = []
+    for r in rows:
+        raw_scores: list[dict] = json.loads(r["scores_json"])
+        # Aggregate per metric: collect scores and pass flags
+        agg: dict[str, dict] = {}
+        for s in raw_scores:
+            metric = s.get("metric", "unknown")
+            score = s.get("score")
+            passed = s.get("passed")
+            if metric not in agg:
+                agg[metric] = {"scores": [], "passed": []}
+            if score is not None:
+                agg[metric]["scores"].append(score)
+            if passed is not None:
+                agg[metric]["passed"].append(bool(passed))
+
+        aggregated: dict[str, dict] = {}
+        for metric, data in agg.items():
+            scores_list = data["scores"]
+            passed_list = data["passed"]
+            aggregated[metric] = {
+                "mean": round(sum(scores_list) / len(scores_list), 3) if scores_list else None,
+                "pass_rate": round(sum(passed_list) / len(passed_list), 3) if passed_list else None,
+                "count": len(scores_list),
+            }
+
+        results.append({
             "module_id": r["module_id"],
             "title": r["title"],
             "evaluated_at": r["evaluated_at"],
-            "scores": json.loads(r["scores_json"]),
-        }
-        for r in rows
-    ]
+            "raw_scores": raw_scores,
+            "aggregated": aggregated,
+        })
+    return results
