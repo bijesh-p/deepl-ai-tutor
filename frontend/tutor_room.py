@@ -122,6 +122,9 @@ def render_tutor_room() -> None:
         if phase == "diagnostic":
             _render_diagnostic(state, graph)
 
+        elif phase == "diagnostic_review":
+            _render_diagnostic_review(state, graph)
+
         elif phase == "slide":
             _render_slide(state, graph)
 
@@ -387,8 +390,42 @@ def _render_diagnostic(state: dict, graph) -> None:
 
     if st.button("Submit & Start Learning", type="primary"):
         state["diagnostic_answers"] = answers
-        with st.spinner("Analysing your answers and preparing your personalised session..."):
+        with st.spinner("Analysing your answers..."):
             _run_node(graph, state, "evaluate_diagnostic")
+        st.session_state["tutor_phase"] = "diagnostic_review"
+        st.rerun()
+
+
+def _render_diagnostic_review(state: dict, graph) -> None:
+    questions = state.get("diagnostic_questions", [])
+    answers = state.get("diagnostic_answers", [])
+    score = state.get("diagnostic_score", 0.0)
+    concept = state["current_concept"]
+
+    st.subheader(f"Diagnostic results: {concept}")
+    correct_count = sum(
+        1 for q, a in zip(questions, answers) if a == q.get("correct_index")
+    )
+    st.metric("Score", f"{correct_count}/{len(questions)}", f"{score:.0%}")
+
+    for i, q in enumerate(questions):
+        chosen_idx = answers[i] if i < len(answers) else None
+        correct_idx = q.get("correct_index")
+        is_correct = chosen_idx == correct_idx
+        icon = "✅" if is_correct else "❌"
+        st.markdown(f"**{icon} Q{i+1}: {q['question_text']}**")
+        options = q.get("options", [])
+        if chosen_idx is not None and 0 <= chosen_idx < len(options):
+            st.markdown(f"Your answer: {options[chosen_idx]}")
+        if not is_correct and 0 <= correct_idx < len(options):
+            st.markdown(f"Correct answer: {options[correct_idx]}")
+        explanation = q.get("explanation", "")
+        if explanation:
+            st.caption(explanation)
+        st.markdown("")
+
+    if st.button("Continue to lesson →", type="primary"):
+        with st.spinner("Preparing your personalised session..."):
             _inject_enriched_topic()
             _run_node(graph, state, "present_concept")
         st.session_state["tutor_phase"] = "slide"
