@@ -6,12 +6,14 @@ from datetime import datetime, timezone
 import streamlit as st
 from backend.content.diagram_generator import _sanitize_mermaid
 from backend.content.models import LearningModule, Question
+from frontend.audio_autostop import render_audio_autostop
 from frontend.mermaid_render import render_mermaid
 from frontend.nav import render_back_button
 from frontend.styles import topic_highlight_chips_html
 
 
 def render_module_viewer(module: LearningModule) -> None:
+    render_audio_autostop()
     render_back_button("← Back to Module Library", "module_library", key="_back_module_viewer")
 
     progress = st.session_state.get("pipeline_progress")

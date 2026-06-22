@@ -742,6 +742,22 @@ test infra exists for `tutor_room.py`).
 
 ---
 
+## Phase 66 — Stop lingering audio when switching tabs in Module Viewer ✅ Complete
+
+**Goal:** Fix the Module Viewer so switching topic tabs stops the previous tab's audio instead of letting it keep playing (and potentially overlap with the new tab's audio).
+
+**Root cause:** Streamlit's `st.tabs()` keeps every tab panel — and its `st.audio()` element — mounted in the DOM at all times (only hiding inactive panels via CSS), the same mechanic already documented as the root cause of an earlier Mermaid-in-tabs bug. Nothing paused the previous tab's audio on tab switch. The existing reusable fix for this exact class of bug, `frontend/audio_autostop.py::render_audio_autostop()` (Phase 54, pauses every `<audio>` element on any `<button>` click), was wired into `tutor_room.py` but never into `module_viewer.py`.
+
+**Investigated before fixing:** confirmed live via Playwright that Streamlit's tab headers render as real `<button role="tab" data-testid="stTab">` elements, so the existing click selector already covers tab switches — no change needed to `audio_autostop.py` itself, just the missing call site.
+
+**Fix:** added `render_audio_autostop()` to the top of `render_module_viewer()`.
+
+**Verified:** live test with two real audio files across two tabs — playing tab 1's audio then clicking tab 2 paused tab 1's audio (checked the element's `paused` property directly); starting tab 2's audio afterward showed no overlap; switching back to tab 1 paused tab 2's audio symmetrically. Full pytest suite: 147 passed, 0 failures.
+
+**Files:** `frontend/module_viewer.py`.
+
+---
+
 ## Commit convention
 
 Format: `[Phase N] <short description>`
