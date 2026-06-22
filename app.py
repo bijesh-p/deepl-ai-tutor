@@ -170,9 +170,30 @@ def _render_sidebar() -> None:
                 help="Run DeepEval quality metrics using the active LLM as judge",
                 key="_evals_toggle",
             )
+            theme_choice = st.selectbox(
+                "Theme",
+                ["Dark", "Light"],
+                index=0 if st.session_state.get("dark_mode", True) else 1,
+                key="_theme_select",
+                label_visibility="visible",
+            )
             st.session_state["audio_enabled"] = audio_on
             st.session_state["tracing_enabled"] = tracing_on
             st.session_state["evals_enabled"] = evals_on
+            new_dark = theme_choice == "Dark"
+            if new_dark != st.session_state.get("dark_mode", True):
+                st.session_state["dark_mode"] = new_dark
+                try:
+                    from backend.analytics.db import get_db
+                    from backend.analytics.persistence import save_dark_mode
+                    save_dark_mode(
+                        st.session_state["user_id"],
+                        new_dark,
+                        db=get_db(st.session_state.get("db_path")),
+                    )
+                except Exception:
+                    pass
+                st.rerun()
 
             # ── Navigation ────────────────────────────────────────────────────
             st.markdown("<div class='sb-label'>Navigate</div>", unsafe_allow_html=True)

@@ -51,13 +51,15 @@ p  { font-weight: 400 !important; line-height: 1.6 !important; }
 
 /* ── Buttons ───────────────────────────────────────────────────────────── */
 /* Sizing tokens — shared by primary and secondary so every button row is the
-   same height regardless of type. Only color differs between kinds. */
+   same height regardless of type. Matches the sidebar nav button height (32px)
+   so action rows align visually with "+ New Module" and other nav buttons.
+   Only color differs between kinds. */
 .stButton button {
     border-radius: 8px !important;
     font-weight: 500 !important;
     transition: all 0.15s ease !important;
-    padding: 0.4rem 1rem !important;
-    min-height: 2.25rem !important;
+    padding: 5px 12px !important;
+    min-height: 32px !important;
     overflow: hidden !important;
     text-overflow: ellipsis !important;
     white-space: nowrap !important;
