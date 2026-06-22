@@ -424,6 +424,9 @@ p  { font-weight: 400 !important; line-height: 1.6 !important; }
 [data-testid="stStatusWidget"]    { display: none !important; }
 .stAppToolbar                     { display: none !important; }
 [data-testid="stAppToolbar"]      { display: none !important; }
+/* Header strip — zero out height and hide so no white band appears at top */
+[data-testid="stHeader"]          { display: none !important; height: 0 !important; min-height: 0 !important; }
+header.stAppHeader                { display: none !important; height: 0 !important; min-height: 0 !important; }
 
 /* ── Keyframe animations ─────────────────────────────────────────────────── */
 @keyframes ai-pulse {

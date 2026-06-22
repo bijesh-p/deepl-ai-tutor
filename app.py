@@ -196,9 +196,6 @@ def _render_sidebar() -> None:
                 st.session_state["page"] = "observability"
                 st.rerun()
 
-    # Active provider/model shown as a small caption in the main area
-    if logged_in:
-        st.caption(f"`{provider}` / `{model}`")
 
 
 def main() -> None:
