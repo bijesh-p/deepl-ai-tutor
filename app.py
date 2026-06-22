@@ -114,6 +114,7 @@ def _render_sidebar() -> None:
             if st.button("Sign out", key="_signout", use_container_width=True, help="Sign out of AI Tutor"):
                 for k in list(st.session_state.keys()):
                     del st.session_state[k]
+                st.query_params.clear()
                 st.session_state["page"] = "login"
                 st.rerun()
 
@@ -206,6 +207,15 @@ def main() -> None:
 
     if "page" not in st.session_state:
         st.session_state["page"] = "login"
+
+    # ── Auto-restore session from query params after browser refresh ──────────
+    if not st.session_state.get("username"):
+        saved_user = st.query_params.get("user", "")
+        if saved_user:
+            from frontend.login_page import _do_login
+            is_admin = st.query_params.get("admin", "0") == "1"
+            _do_login(saved_user, is_admin)
+            return
 
     # ── Redirect unauthenticated users straight to login ─────────────────────
     if not st.session_state.get("username") and st.session_state["page"] != "login":

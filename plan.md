@@ -758,6 +758,20 @@ test infra exists for `tutor_room.py`).
 
 ---
 
+## Phase 55 — Configurable Max Topics Limit ✅ Complete
+
+**Goal:** Add a configurable "Slide count" slider on the upload page that caps how many topics/slides the pipeline generates. When set to N > 0, only the N most important topics are produced. When 0, all topics are generated (default). Useful for quick demos and targeted study.
+
+**Changes:**
+- `backend/content/sliding_pipeline.py` — `max_topics` param enforces cap in both sliding-window and VTT paths
+- `frontend/upload_page.py` — slider UI, full pipeline progress view (no early redirect), completion summary, VTT parser dispatch fix, login redirect fix
+- `app.py` — session persistence via query params, sign-out clears query params
+- `frontend/login_page.py` — store username in query params on login
+- `frontend/module_viewer.py` — remove sidebar "Contents" list
+- `.env.copy`, `README.md`, `SPEC.md`, `plan.md` — docs
+
+---
+
 ## Commit convention
 
 Format: `[Phase N] <short description>`
