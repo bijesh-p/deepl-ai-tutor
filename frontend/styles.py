@@ -651,24 +651,37 @@ _STEP_COLORS = {
 }
 
 
-def step_progress_html(steps: list[str], current_idx: int) -> str:
+def step_progress_html(steps: list[str], current_idx: int, dark: bool = False) -> str:
     """Horizontal step-progress bar. Active step pulses with glow animation."""
+    if dark:
+        wrap_bg, wrap_border = "#1A1D29", "#2D2F3D"
+        pending_dot = "background:#334155;color:#64748B;"
+        pending_lbl = "color:#64748B;"
+        pending_bar = "#334155"
+    else:
+        wrap_bg, wrap_border = "#F8FAFC", "#E2E8F0"
+        pending_dot = "background:#E5E7EB;color:#9CA3AF;"
+        pending_lbl = "color:#9CA3AF;"
+        pending_bar = "#E5E7EB"
+
     n = len(steps)
     parts: list[str] = []
 
     for i, label in enumerate(steps):
         if i < current_idx or current_idx == -1:
-            key = "done"
+            dot_s = "background:#10B981;color:white;"
+            lbl_s = "color:#047857;font-weight:600;"
             icon = "✓"
         elif i == current_idx:
-            key = "active"
+            dot_s = "background:#2563EB;color:white;box-shadow:0 0 0 4px rgba(37,99,235,0.2);"
+            lbl_s = "color:#1E40AF;font-weight:700;" if not dark else "color:#60A5FA;font-weight:700;"
             icon = "●"
         else:
-            key = "pending"
+            dot_s = pending_dot
+            lbl_s = pending_lbl
             icon = str(i + 1)
 
-        dot_s, lbl_s, _ = _STEP_COLORS[key]
-        anim = "animation:ai-pulse 1.6s ease-in-out infinite,ai-glow 1.6s ease-in-out infinite;" if key == "active" else ""
+        anim = "animation:ai-pulse 1.6s ease-in-out infinite,ai-glow 1.6s ease-in-out infinite;" if i == current_idx else ""
 
         step_html = (
             f'<div style="display:flex;flex-direction:column;align-items:center;flex:1;min-width:55px;">'
@@ -682,12 +695,11 @@ def step_progress_html(steps: list[str], current_idx: int) -> str:
 
         if i < n - 1:
             is_done_bar = i + 1 <= current_idx or current_idx == -1
-            bar_bg = "#10B981" if is_done_bar else "#E5E7EB"
-            # Animate the bar that feeds into the active step
+            bar_bg = "#10B981" if is_done_bar else pending_bar
             bar_anim = ""
             if i + 1 == current_idx:
                 bar_anim = (
-                    "background:linear-gradient(90deg,#10B981 0%,#2563EB 50%,#E5E7EB 100%);"
+                    f"background:linear-gradient(90deg,#10B981 0%,#2563EB 50%,{pending_bar} 100%);"
                     "background-size:200% 100%;animation:ai-shimmer 2s linear infinite;"
                 )
             bar_style = bar_anim if bar_anim else f"background:{bar_bg};"
@@ -698,85 +710,117 @@ def step_progress_html(steps: list[str], current_idx: int) -> str:
     inner = "".join(parts)
     return (
         f'<div style="display:flex;align-items:flex-start;padding:0.9rem 1.25rem 1rem;'
-        f'background:#F8FAFC;border-radius:12px;border:1px solid #E2E8F0;margin-bottom:1rem;">'
+        f'background:{wrap_bg};border-radius:12px;border:1px solid {wrap_border};margin-bottom:1rem;">'
         f'{inner}</div>'
     )
 
 
-def module_card_html(title: str, source: str, date_label: str, is_published: bool = False) -> str:
+def module_card_html(title: str, source: str, date_label: str, is_published: bool = False, dark: bool = False) -> str:
     """Info section of a module card (title + meta). Actions are Streamlit buttons rendered below."""
-    pub = ('<span style="display:inline-block;background:#D1FAE5;color:#065F46;font-size:10px;'
+    if dark:
+        pub_bg, pub_text = "#064E3B", "#6EE7B7"
+        card_bg, card_border = "#1A1D29", "#2D2F3D"
+        title_color, src_color, date_color = "#F1F5F9", "#94A3B8", "#64748B"
+    else:
+        pub_bg, pub_text = "#D1FAE5", "#065F46"
+        card_bg, card_border = "white", "#E5E7EB"
+        title_color, src_color, date_color = "#111827", "#6B7280", "#9CA3AF"
+    pub = (f'<span style="display:inline-block;background:{pub_bg};color:{pub_text};font-size:10px;'
            'padding:2px 8px;border-radius:999px;font-weight:600;margin-left:8px;">Published</span>'
            if is_published else "")
-    # Published (shared-library) modules get the teal accent instead of the
-    # primary blue, so the "My Modules" and "Shared Library" lists are
-    # distinguishable from each other at a glance.
     accent = ACCENT_TEAL if is_published else "#2563EB"
-    return f"""<div style="padding:14px 18px;background:white;border:1px solid #E5E7EB;border-left:4px solid {accent};border-radius:10px;margin-bottom:6px;">
-  <div style="font-weight:600;font-size:15px;color:#111827;margin-bottom:5px;">{title}{pub}</div>
-  <div style="font-size:12px;color:#6B7280;">{source}</div>
-  <div style="font-size:11px;color:#9CA3AF;margin-top:3px;">{date_label}</div>
-</div>"""
+    return (f'<div style="padding:14px 18px;background:{card_bg};border:1px solid {card_border};'
+            f'border-left:4px solid {accent};border-radius:10px;margin-bottom:6px;">'
+            f'<div style="font-weight:600;font-size:15px;color:{title_color};margin-bottom:5px;">{title}{pub}</div>'
+            f'<div style="font-size:12px;color:{src_color};">{source}</div>'
+            f'<div style="font-size:11px;color:{date_color};margin-top:3px;">{date_label}</div>'
+            f'</div>')
 
 
-def score_banner_html(score: int, total: int, pct: float) -> str:
+def score_banner_html(score: int, total: int, pct: float, dark: bool = False) -> str:
     """Large score display for the quiz results page."""
+    sub_color = "#94A3B8" if dark else "#6B7280"
+    ring_inner = "#1A1D29" if dark else "white"
     if pct >= 95:
-        # Teal tier for a (near-)perfect score — a distinct celebratory accent
-        # rather than just a brighter green, used sparingly per the Phase 41/44
-        # color refresh.
-        fg, bg, border, grade = "#0F766E", "#F0FDFA", "#99F6E4", "Perfect!"
+        fg = "#2DD4BF" if dark else "#0F766E"
+        bg = "#042F2E" if dark else "#F0FDFA"
+        border = "#0D9488" if dark else "#99F6E4"
+        grade = "Perfect!"
         ring = ACCENT_TEAL
     elif pct >= 70:
-        fg, bg, border, grade = "#065F46", "#F0FDF4", "#A7F3D0", "Excellent!" if pct >= 90 else "Well done!"
+        fg = "#6EE7B7" if dark else "#065F46"
+        bg = "#052E16" if dark else "#F0FDF4"
+        border = "#059669" if dark else "#A7F3D0"
+        grade = "Excellent!" if pct >= 90 else "Well done!"
         ring = "#10B981"
     elif pct >= 50:
-        fg, bg, border, grade = "#92400E", "#FFFBEB", "#FDE68A", "Keep practicing!"
+        fg = "#FCD34D" if dark else "#92400E"
+        bg = "#1C1000" if dark else "#FFFBEB"
+        border = "#D97706" if dark else "#FDE68A"
+        grade = "Keep practicing!"
         ring = "#F59E0B"
     else:
-        fg, bg, border, grade = "#991B1B", "#FEF2F2", "#FECACA", "Needs more study"
+        fg = "#FCA5A5" if dark else "#991B1B"
+        bg = "#1C0505" if dark else "#FEF2F2"
+        border = "#DC2626" if dark else "#FECACA"
+        grade = "Needs more study"
         ring = "#EF4444"
 
-    return f"""<div style="text-align:center;padding:2.5rem 2rem;background:{bg};border:2px solid {border};border-radius:20px;margin:0.75rem 0 1.5rem;">
-  <div style="display:inline-flex;align-items:center;justify-content:center;width:110px;height:110px;border-radius:50%;border:6px solid {ring};background:white;margin-bottom:1rem;">
-    <div style="font-size:2.25rem;font-weight:800;color:{fg};line-height:1;">{pct:.0f}<span style="font-size:1.1rem;">%</span></div>
-  </div>
-  <div style="font-size:1.3rem;font-weight:700;color:{fg};margin-bottom:4px;">{grade}</div>
-  <div style="font-size:0.95rem;color:#6B7280;">{score} of {total} questions correct</div>
-</div>"""
+    return (f'<div style="text-align:center;padding:2.5rem 2rem;background:{bg};border:2px solid {border};border-radius:20px;margin:0.75rem 0 1.5rem;">'
+            f'<div style="display:inline-flex;align-items:center;justify-content:center;width:110px;height:110px;border-radius:50%;border:6px solid {ring};background:{ring_inner};margin-bottom:1rem;">'
+            f'<div style="font-size:2.25rem;font-weight:800;color:{fg};line-height:1;">{pct:.0f}<span style="font-size:1.1rem;">%</span></div>'
+            f'</div>'
+            f'<div style="font-size:1.3rem;font-weight:700;color:{fg};margin-bottom:4px;">{grade}</div>'
+            f'<div style="font-size:0.95rem;color:{sub_color};">{score} of {total} questions correct</div>'
+            f'</div>')
 
 
-def question_card_html(number: int, text: str, q_type: str) -> str:
+def question_card_html(number: int, text: str, q_type: str, dark: bool = False) -> str:
     """Decorative card header for a quiz question."""
-    badge_color = "#DBEAFE" if q_type == "single_choice" else "#EDE9FE"
-    badge_text_color = "#1E40AF" if q_type == "single_choice" else "#5B21B6"
+    if dark:
+        card_bg, card_border = "#1A1D29", "#2D2F3D"
+        text_color = "#F1F5F9"
+        badge_color = "#1E3A5F" if q_type == "single_choice" else "#2E1065"
+        badge_text_color = "#93C5FD" if q_type == "single_choice" else "#C4B5FD"
+    else:
+        card_bg, card_border = "white", "#E5E7EB"
+        text_color = "#111827"
+        badge_color = "#DBEAFE" if q_type == "single_choice" else "#EDE9FE"
+        badge_text_color = "#1E40AF" if q_type == "single_choice" else "#5B21B6"
     badge_label = "Single choice" if q_type == "single_choice" else "Multi choice"
-    return f"""<div style="padding:14px 18px 10px;background:white;border:1px solid #E5E7EB;border-radius:10px;margin-bottom:-8px;border-bottom:none;border-bottom-left-radius:0;border-bottom-right-radius:0;">
-  <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
-    <div style="min-width:26px;height:26px;border-radius:50%;background:#2563EB;color:white;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;">{number}</div>
-    <div style="font-weight:600;font-size:14px;color:#111827;flex:1;">{text}</div>
-    <span style="background:{badge_color};color:{badge_text_color};font-size:10px;padding:2px 8px;border-radius:999px;font-weight:600;white-space:nowrap;">{badge_label}</span>
-  </div>
-</div>"""
+    return (f'<div style="padding:14px 18px 10px;background:{card_bg};border:1px solid {card_border};'
+            'border-radius:10px;margin-bottom:-8px;border-bottom:none;border-bottom-left-radius:0;border-bottom-right-radius:0;">'
+            '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">'
+            f'<div style="min-width:26px;height:26px;border-radius:50%;background:#2563EB;color:white;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;">{number}</div>'
+            f'<div style="font-weight:600;font-size:14px;color:{text_color};flex:1;">{text}</div>'
+            f'<span style="background:{badge_color};color:{badge_text_color};font-size:10px;padding:2px 8px;border-radius:999px;font-weight:600;white-space:nowrap;">{badge_label}</span>'
+            '</div></div>')
 
 
-def page_header_html(title: str, subtitle: str = "", icon: str = "") -> str:
+def page_header_html(title: str, subtitle: str = "", icon: str = "", dark: bool = False) -> str:
     """Branded page header banner."""
+    if dark:
+        outer_border = "#2D2F3D"
+        inner_bg = "linear-gradient(135deg,#0F1F3D 0%,#1E1035 100%)"
+        title_color = "#F1F5F9"
+        sub_color = "#94A3B8"
+    else:
+        outer_border = "#DBEAFE"
+        inner_bg = "linear-gradient(135deg,#EFF6FF 0%,#F5F3FF 100%)"
+        title_color = "#1E1B4B"
+        sub_color = "#6B7280"
     icon_html = f'<div style="font-size:2rem;margin-bottom:0.4rem;">{icon}</div>' if icon else ""
-    sub_html = f'<div style="font-size:0.95rem;color:#6B7280;margin-top:4px;">{subtitle}</div>' if subtitle else ""
-    # Slim three-color accent bar on top of the banner — ties the primary blue,
-    # the new teal accent, and the existing purple accent together on the
-    # page's most visible card, without changing its light palette.
+    sub_html = f'<div style="font-size:0.95rem;color:{sub_color};margin-top:4px;">{subtitle}</div>' if subtitle else ""
     accent_bar = (
         f'<div style="height:3px;border-radius:14px 14px 0 0;'
         f'background:linear-gradient(90deg,#2563EB 0%,{ACCENT_TEAL} 50%,#7C3AED 100%);"></div>'
     )
     return (
-        f'<div style="border-radius:14px;border:1px solid #DBEAFE;margin-bottom:1.5rem;overflow:hidden;">'
+        f'<div style="border-radius:14px;border:1px solid {outer_border};margin-bottom:1.5rem;overflow:hidden;">'
         f'{accent_bar}'
-        f'<div style="padding:1.5rem 2rem;background:linear-gradient(135deg,#EFF6FF 0%,#F5F3FF 100%);">'
+        f'<div style="padding:1.5rem 2rem;background:{inner_bg};">'
         f'{icon_html}'
-        f'<h1 style="margin:0;font-size:1.6rem;font-weight:800;color:#1E1B4B;">{title}</h1>'
+        f'<h1 style="margin:0;font-size:1.6rem;font-weight:800;color:{title_color};">{title}</h1>'
         f'{sub_html}</div></div>'
     )
 
@@ -794,29 +838,32 @@ def bouncing_dots_html() -> str:
     return f'<span style="display:inline-flex;gap:4px;align-items:center;vertical-align:middle;">{dots}</span>'
 
 
-def parsing_status_html(detail: str, elapsed: int) -> str:
+def parsing_status_html(detail: str, elapsed: int, dark: bool = False) -> str:
     """Animated document-scan card for the parsing stage."""
     elapsed_str = f"{elapsed}s" if elapsed > 0 else "starting…"
+    if dark:
+        card_bg, card_border = "#0F1F3D", "#1D4ED8"
+        title_color, sub_color, bar_color = "#93C5FD", "#60A5FA", "#3B82F6"
+    else:
+        card_bg, card_border = "#EFF6FF", "#BFDBFE"
+        title_color, sub_color, bar_color = "#1E40AF", "#3B82F6", "#93C5FD"
     return (
-        '<div style="padding:18px 20px;background:#EFF6FF;border:1px solid #BFDBFE;'
+        f'<div style="padding:18px 20px;background:{card_bg};border:1px solid {card_border};'
         'border-radius:12px;display:flex;align-items:center;gap:16px;">'
 
-        # Spinning doc icon
         '<div style="flex-shrink:0;width:42px;height:42px;border-radius:50%;'
         'background:#2563EB;display:flex;align-items:center;justify-content:center;">'
         '<div style="font-size:20px;animation:ai-spin 2s linear infinite;">🔍</div>'
         '</div>'
 
-        # Text
         '<div style="flex:1;">'
-        f'<div style="font-weight:600;color:#1E40AF;font-size:14px;margin-bottom:3px;">{detail}</div>'
-        f'<div style="font-size:12px;color:#3B82F6;">Elapsed: {elapsed_str}</div>'
+        f'<div style="font-weight:600;color:{title_color};font-size:14px;margin-bottom:3px;">{detail}</div>'
+        f'<div style="font-size:12px;color:{sub_color};">Elapsed: {elapsed_str}</div>'
         '</div>'
 
-        # Animated scan bars
         '<div style="display:flex;gap:3px;align-items:flex-end;height:28px;flex-shrink:0;">'
         + "".join(
-            f'<div style="width:4px;border-radius:2px;background:#93C5FD;'
+            f'<div style="width:4px;border-radius:2px;background:{bar_color};'
             f'animation:ai-wave-bar 1s ease-in-out {0.1*i:.1f}s infinite;"></div>'
             for i in range(6)
         )
@@ -824,34 +871,39 @@ def parsing_status_html(detail: str, elapsed: int) -> str:
     )
 
 
-def slide_chips_html(enriched_topics: list, current_topic: str, total_topics: int) -> str:
+def slide_chips_html(enriched_topics: list, current_topic: str, total_topics: int, dark: bool = False) -> str:
     """Row of slide chips: green for done, pulsing blue for current, grey for pending."""
     if not enriched_topics and not current_topic:
         return ""
 
+    if dark:
+        done_bg, done_border, done_text = "#064E3B", "#059669", "#6EE7B7"
+        cur_bg, cur_border, cur_text, cur_dot = "#0F1F3D", "#3B82F6", "#93C5FD", "#60A5FA"
+    else:
+        done_bg, done_border, done_text = "#D1FAE5", "#6EE7B7", "#065F46"
+        cur_bg, cur_border, cur_text, cur_dot = "#DBEAFE", "#93C5FD", "#1E40AF", "#2563EB"
+
     chips: list[str] = []
 
-    # Completed slides
     for et in enriched_topics:
         title = getattr(getattr(et, "topic", None), "title", str(et))
         short = (title[:22] + "…") if len(title) > 22 else title
         chips.append(
             f'<div style="display:inline-flex;align-items:center;gap:5px;'
-            f'padding:4px 10px;background:#D1FAE5;border:1px solid #6EE7B7;'
-            f'border-radius:999px;font-size:11px;color:#065F46;font-weight:500;'
+            f'padding:4px 10px;background:{done_bg};border:1px solid {done_border};'
+            f'border-radius:999px;font-size:11px;color:{done_text};font-weight:500;'
             f'animation:ai-slide-in 0.35s ease-out;">'
             f'<span style="font-size:10px;">✓</span>{short}</div>'
         )
 
-    # Currently generating
     if current_topic:
         short = (current_topic[:22] + "…") if len(current_topic) > 22 else current_topic
         chips.append(
             f'<div style="display:inline-flex;align-items:center;gap:6px;'
-            f'padding:4px 12px;background:#DBEAFE;border:1px solid #93C5FD;'
-            f'border-radius:999px;font-size:11px;color:#1E40AF;font-weight:600;'
+            f'padding:4px 12px;background:{cur_bg};border:1px solid {cur_border};'
+            f'border-radius:999px;font-size:11px;color:{cur_text};font-weight:600;'
             f'animation:ai-pulse 1.4s ease-in-out infinite;">'
-            f'<span style="width:7px;height:7px;border-radius:50%;background:#2563EB;'
+            f'<span style="width:7px;height:7px;border-radius:50%;background:{cur_dot};'
             f'animation:ai-pulse 0.9s ease-in-out infinite;display:inline-block;"></span>'
             f'{short}…</div>'
         )
@@ -863,7 +915,7 @@ def slide_chips_html(enriched_topics: list, current_topic: str, total_topics: in
     )
 
 
-def concept_rail_html(mastered: list[str], current: str, remaining: list[str]) -> str:
+def concept_rail_html(mastered: list[str], current: str, remaining: list[str], dark: bool = False) -> str:
     """Row of concept chips for the adaptive tutor: green for mastered, pulsing
     blue for the current concept, grey for ones not yet reached — gives a clear
     "where am I" indicator across the whole module, in canonical topic order.
@@ -871,14 +923,23 @@ def concept_rail_html(mastered: list[str], current: str, remaining: list[str]) -
     if not mastered and not current and not remaining:
         return ""
 
+    if dark:
+        done_bg, done_border, done_text = "#064E3B", "#059669", "#6EE7B7"
+        cur_bg, cur_border, cur_text, cur_dot = "#0F1F3D", "#3B82F6", "#93C5FD", "#60A5FA"
+        rem_bg, rem_border, rem_text = "#1E293B", "#334155", "#64748B"
+    else:
+        done_bg, done_border, done_text = "#D1FAE5", "#6EE7B7", "#065F46"
+        cur_bg, cur_border, cur_text, cur_dot = "#DBEAFE", "#93C5FD", "#1E40AF", "#2563EB"
+        rem_bg, rem_border, rem_text = "#F3F4F6", "#E5E7EB", "#9CA3AF"
+
     chips: list[str] = []
 
     for title in mastered:
         short = (title[:22] + "…") if len(title) > 22 else title
         chips.append(
             f'<div style="display:inline-flex;align-items:center;gap:5px;'
-            f'padding:4px 10px;background:#D1FAE5;border:1px solid #6EE7B7;'
-            f'border-radius:999px;font-size:11px;color:#065F46;font-weight:500;">'
+            f'padding:4px 10px;background:{done_bg};border:1px solid {done_border};'
+            f'border-radius:999px;font-size:11px;color:{done_text};font-weight:500;">'
             f'<span style="font-size:10px;">✓</span>{short}</div>'
         )
 
@@ -886,10 +947,10 @@ def concept_rail_html(mastered: list[str], current: str, remaining: list[str]) -
         short = (current[:22] + "…") if len(current) > 22 else current
         chips.append(
             f'<div style="display:inline-flex;align-items:center;gap:6px;'
-            f'padding:4px 12px;background:#DBEAFE;border:1px solid #93C5FD;'
-            f'border-radius:999px;font-size:11px;color:#1E40AF;font-weight:600;'
+            f'padding:4px 12px;background:{cur_bg};border:1px solid {cur_border};'
+            f'border-radius:999px;font-size:11px;color:{cur_text};font-weight:600;'
             f'animation:ai-pulse 1.4s ease-in-out infinite;">'
-            f'<span style="width:7px;height:7px;border-radius:50%;background:#2563EB;'
+            f'<span style="width:7px;height:7px;border-radius:50%;background:{cur_dot};'
             f'animation:ai-pulse 0.9s ease-in-out infinite;display:inline-block;"></span>'
             f'{short}</div>'
         )
@@ -898,8 +959,8 @@ def concept_rail_html(mastered: list[str], current: str, remaining: list[str]) -
         short = (title[:22] + "…") if len(title) > 22 else title
         chips.append(
             f'<div style="display:inline-flex;align-items:center;gap:5px;'
-            f'padding:4px 10px;background:#F3F4F6;border:1px solid #E5E7EB;'
-            f'border-radius:999px;font-size:11px;color:#9CA3AF;font-weight:500;">'
+            f'padding:4px 10px;background:{rem_bg};border:1px solid {rem_border};'
+            f'border-radius:999px;font-size:11px;color:{rem_text};font-weight:500;">'
             f'{short}</div>'
         )
 
@@ -910,45 +971,56 @@ def concept_rail_html(mastered: list[str], current: str, remaining: list[str]) -
     )
 
 
-def skeleton_slide_html(label: str = "Generating slide content…") -> str:
+def skeleton_slide_html(label: str = "Generating slide content…", dark: bool = False) -> str:
     """Shimmering skeleton card indicating an LLM call is in flight."""
+    if dark:
+        card_bg, card_border = "#1A1D29", "#2D2F3D"
+        shimmer_from, shimmer_mid = "#1E293B", "#2D3748"
+        label_color = "#64748B"
+    else:
+        card_bg, card_border = "#FAFAFA", "#E5E7EB"
+        shimmer_from, shimmer_mid = "#F3F4F6", "#E5E7EB"
+        label_color = "#6B7280"
     shimmer = (
-        "background:linear-gradient(90deg,#F3F4F6 25%,#E5E7EB 50%,#F3F4F6 75%);"
+        f"background:linear-gradient(90deg,{shimmer_from} 25%,{shimmer_mid} 50%,{shimmer_from} 75%);"
         "background-size:600px 100%;animation:ai-shimmer 1.6s linear infinite;"
     )
     return (
-        f'<div style="padding:16px 18px;border:1px solid #E5E7EB;border-radius:10px;'
-        f'background:#FAFAFA;margin-bottom:4px;">'
+        f'<div style="padding:16px 18px;border:1px solid {card_border};border-radius:10px;'
+        f'background:{card_bg};margin-bottom:4px;">'
 
-        # Title line shimmer
         f'<div style="height:13px;border-radius:6px;width:55%;{shimmer}margin-bottom:10px;"></div>'
-        # Body lines
         f'<div style="height:10px;border-radius:4px;width:90%;{shimmer}margin-bottom:6px;"></div>'
         f'<div style="height:10px;border-radius:4px;width:75%;{shimmer}margin-bottom:6px;"></div>'
         f'<div style="height:10px;border-radius:4px;width:82%;{shimmer}"></div>'
 
-        # Status tag
         f'<div style="margin-top:12px;display:inline-flex;align-items:center;gap:6px;">'
         f'<span style="width:8px;height:8px;border-radius:50%;background:#2563EB;'
         f'animation:ai-pulse 1s ease-in-out infinite;display:inline-block;"></span>'
-        f'<span style="font-size:11px;color:#6B7280;">{label}</span>'
+        f'<span style="font-size:11px;color:{label_color};">{label}</span>'
         f'</div>'
 
         f'</div>'
     )
 
 
-def quiz_generating_html(elapsed: int) -> str:
+def quiz_generating_html(elapsed: int, dark: bool = False) -> str:
     """Animated card shown while quiz questions are being generated."""
     elapsed_str = f"{elapsed}s" if elapsed > 0 else "starting…"
+    if dark:
+        card_bg, card_border = "#1E1035", "#5B21B6"
+        title_color, sub_color, bar_color = "#C4B5FD", "#A78BFA", "#7C3AED"
+    else:
+        card_bg, card_border = "#F5F3FF", "#DDD6FE"
+        title_color, sub_color, bar_color = "#4C1D95", "#6D28D9", "#8B5CF6"
     bars = "".join(
-        f'<div style="width:4px;border-radius:2px;background:#8B5CF6;'
+        f'<div style="width:4px;border-radius:2px;background:{bar_color};'
         f'animation:ai-wave-bar 0.9s ease-in-out {0.12*i:.2f}s infinite;"></div>'
         for i in range(8)
     )
     dots = bouncing_dots_html()
     return (
-        '<div style="padding:18px 20px;background:#F5F3FF;border:1px solid #DDD6FE;'
+        f'<div style="padding:18px 20px;background:{card_bg};border:1px solid {card_border};'
         'border-radius:12px;display:flex;align-items:center;gap:16px;">'
 
         '<div style="flex-shrink:0;width:42px;height:42px;border-radius:50%;'
@@ -957,9 +1029,9 @@ def quiz_generating_html(elapsed: int) -> str:
         '</div>'
 
         '<div style="flex:1;">'
-        '<div style="font-weight:600;color:#4C1D95;font-size:14px;margin-bottom:4px;">'
+        f'<div style="font-weight:600;color:{title_color};font-size:14px;margin-bottom:4px;">'
         f'Generating quiz questions {dots}</div>'
-        f'<div style="font-size:12px;color:#6D28D9;">This takes about 20–40 seconds · {elapsed_str}</div>'
+        f'<div style="font-size:12px;color:{sub_color};">This takes about 20–40 seconds · {elapsed_str}</div>'
         '</div>'
 
         f'<div style="display:flex;gap:3px;align-items:flex-end;height:28px;flex-shrink:0;">{bars}</div>'
@@ -967,20 +1039,26 @@ def quiz_generating_html(elapsed: int) -> str:
     )
 
 
-def saving_status_html(elapsed: int) -> str:
+def saving_status_html(elapsed: int, dark: bool = False) -> str:
     """Animated card for the database-save step."""
     elapsed_str = f"{elapsed}s" if elapsed > 0 else "starting…"
+    if dark:
+        card_bg, card_border = "#052E16", "#059669"
+        title_color, sub_color = "#6EE7B7", "#34D399"
+    else:
+        card_bg, card_border = "#ECFDF5", "#A7F3D0"
+        title_color, sub_color = "#065F46", "#10B981"
     return (
-        '<div style="padding:16px 20px;background:#ECFDF5;border:1px solid #A7F3D0;'
+        f'<div style="padding:16px 20px;background:{card_bg};border:1px solid {card_border};'
         'border-radius:12px;display:flex;align-items:center;gap:14px;">'
 
         '<div style="flex-shrink:0;font-size:28px;animation:ai-spin 3s linear infinite;">'
         '💾</div>'
 
         '<div>'
-        '<div style="font-weight:600;color:#065F46;font-size:14px;margin-bottom:2px;">'
+        f'<div style="font-weight:600;color:{title_color};font-size:14px;margin-bottom:2px;">'
         'Saving module to library…</div>'
-        f'<div style="font-size:12px;color:#10B981;">Almost done · {elapsed_str}</div>'
+        f'<div style="font-size:12px;color:{sub_color};">Almost done · {elapsed_str}</div>'
         '</div>'
         '</div>'
     )

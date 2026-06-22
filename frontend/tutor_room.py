@@ -82,6 +82,7 @@ def render_tutor_room() -> None:
             mastered=state.get("mastered_concepts", []),
             current=state.get("current_concept", "") if phase != "done" else "",
             remaining=state.get("remaining_concepts", []),
+            dark=st.session_state.get("dark_mode", True),
         ),
         unsafe_allow_html=True,
     )

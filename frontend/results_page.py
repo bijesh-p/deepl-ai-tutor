@@ -25,7 +25,7 @@ def render_results_page(result: QuizResult) -> None:
 
     # ── Big score banner ──────────────────────────────────────────────────────
     st.markdown(
-        score_banner_html(result.score, result.total, result.percentage),
+        score_banner_html(result.score, result.total, result.percentage, dark=st.session_state.get("dark_mode", True)),
         unsafe_allow_html=True,
     )
 

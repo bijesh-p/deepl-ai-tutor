@@ -75,6 +75,7 @@ def render_upload_page() -> None:
             "New Learning Module",
             "Upload a document and AI Tutor will generate slides, diagrams, audio, and a quiz for you.",
             "📄",
+            dark=st.session_state.get("dark_mode", True),
         ),
         unsafe_allow_html=True,
     )
@@ -381,12 +382,14 @@ def _pipeline_status_fragment() -> None:
 
     # ── Step progress bar (always shown) ─────────────────────────────────────
     step_idx = _STATE_TO_STEP.get(state, 1)
-    st.markdown(step_progress_html(_PIPELINE_STEPS, step_idx), unsafe_allow_html=True)
+    st.markdown(step_progress_html(_PIPELINE_STEPS, step_idx, dark=st.session_state.get("dark_mode", True)), unsafe_allow_html=True)
 
     # ── Per-state animated status cards ──────────────────────────────────────
+    dark = st.session_state.get("dark_mode", True)
+
     if state == "parsing":
         detail = progress.get("detail") or "Reading document…"
-        st.markdown(parsing_status_html(detail, elapsed), unsafe_allow_html=True)
+        st.markdown(parsing_status_html(detail, elapsed, dark=dark), unsafe_allow_html=True)
 
     elif state == "enriching":
         if progress.get("ready"):
@@ -399,13 +402,13 @@ def _pipeline_status_fragment() -> None:
         current = progress.get("current_topic", "")
 
         # Slide chips — completed (green) + current (pulsing blue)
-        st.markdown(slide_chips_html(enriched, current, total), unsafe_allow_html=True)
+        st.markdown(slide_chips_html(enriched, current, total, dark=dark), unsafe_allow_html=True)
 
         # Skeleton shimmer for the in-flight slide
         if current:
-            st.markdown(skeleton_slide_html(f"Writing «{current}»…"), unsafe_allow_html=True)
+            st.markdown(skeleton_slide_html(f"Writing «{current}»…", dark=dark), unsafe_allow_html=True)
         elif done == 0:
-            st.markdown(skeleton_slide_html("Connecting to AI…"), unsafe_allow_html=True)
+            st.markdown(skeleton_slide_html("Connecting to AI…", dark=dark), unsafe_allow_html=True)
 
         # Progress bar
         if total > 0:
@@ -433,11 +436,11 @@ def _pipeline_status_fragment() -> None:
             _abort_button()
 
     elif state == "quiz":
-        st.markdown(quiz_generating_html(elapsed), unsafe_allow_html=True)
+        st.markdown(quiz_generating_html(elapsed, dark=dark), unsafe_allow_html=True)
         _abort_button()
 
     elif state == "saving":
-        st.markdown(saving_status_html(elapsed), unsafe_allow_html=True)
+        st.markdown(saving_status_html(elapsed, dark=dark), unsafe_allow_html=True)
 
 
 
