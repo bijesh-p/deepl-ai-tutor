@@ -850,6 +850,20 @@ test infra exists for `tutor_room.py`).
 
 ---
 
+## Phase 74 — Topic-relevance wiring at the tutor-room student-input call site ✅ Complete
+
+**Goal:** Wire the topic-relevance check (built but unreachable in Phase 73) into the one call site that actually carries raw, unsanitized student free-text into an LLM prompt.
+
+**Decision:** of the four tutor-room call sites considered (`ask_question`, `evaluate_response`, `provide_hint`, `simplify_foundations`), only `evaluate_response()` embeds raw student text (`f"Student's answer: {answer}"`). The other three build prompts entirely from tutor/LLM-authored state — wiring topic-relevance there would be a tautological check with no security value, so they were deliberately left unwired (documented in `SPEC.md` §5).
+
+**Fix:** `backend/interactive_tutor/graph.py::evaluate_response()` now passes `topic_context=f"{concept}: {state.get('concept_summary', '')}"` to its `llm.generate(...)` call, binding `concept = state.get("current_concept", "")` alongside the function's existing locals.
+
+**Regression caught by the e2e suite (not slow-marker filtered, so worth always running before commit):** `tests/test_e2e/test_provider_e2e.py::test_pipeline_to_quiz_to_tutor[anthropic|portkey|ollama]` constructs raw adapters directly and monkeypatches `graph._get_llm`, bypassing `LLMFactory.create()` — passing `topic_context` to a raw `AnthropicAdapter.generate()` raised `TypeError`, since the kwarg only existed on `GuardrailedLLMClient`. Fixed by adding `topic_context: str | None = None` to `BaseLLMClient.generate()`'s abstract signature and all three concrete adapters (accepted, ignored — only the wrapper consumes it), restoring the "any `BaseLLMClient` is interchangeable" contract.
+
+**Files:** `backend/interactive_tutor/graph.py`, `backend/core/llm_client/base.py`, `backend/core/llm_client/adapters/{anthropic,portkey,ollama}_adapter.py`, `tests/test_tutor/test_graph_nodes.py`. Full pytest suite: 193 passed, 1 pre-existing unrelated failure, 1 deselected (slow); `tests/test_e2e/test_provider_e2e.py` (slow-marked) separately confirmed passing (3/3).
+
+---
+
 ## Branch sync note
 
 While Phases 67-72 were in progress, `origin/main` advanced 8 commits ahead (max-topics-limit upload UX, audio/diagram fixes, session-restore-via-query-params). Per this project's commit convention, all 6 phases were committed individually before merging `origin/main` in, so the work was never at risk of being lost to a conflict. The merge (`e889f98`) resolved with zero textual conflicts; a pre-existing, unrelated test failure (`test_present_concept_fallback_populates_key_takeaways_even_with_diagram`) was confirmed via an isolated `git worktree` check to already fail on `origin/main` alone, not introduced by this branch.

@@ -44,8 +44,15 @@ class BaseLLMClient(ABC):
         system: str | None = None,
         tool_schema: dict | None = None,
         cached_blocks: list[dict] | None = None,
+        topic_context: str | None = None,
     ) -> str | dict:
-        """Send a prompt and return plain text or parsed tool-use dict."""
+        """Send a prompt and return plain text or parsed tool-use dict.
+
+        `topic_context` is only consumed by GuardrailedLLMClient (opts a
+        call into the topic-relevance check) — raw adapters accept and
+        ignore it, so any BaseLLMClient is interchangeable regardless of
+        whether it's guardrail-wrapped.
+        """
         ...
 
     def make_cached_document_blocks(self, text: str) -> list[dict]:
