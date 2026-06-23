@@ -528,7 +528,7 @@ def _handle_completed(progress: dict) -> None:
     # Clear stale module data so the new module loads fresh
     for key in (
         "module", "bank", "quiz", "quiz_answers", "quiz_result",
-        "quiz_difficulty", "tutor_state", "tutor_phase", "tutor_graph",
+        "tutor_state", "tutor_phase", "tutor_graph",
         "tutor_content_map", "tutor_visited_concepts", "chat_history",
         "all_modules", "pipeline_progress",
     ):

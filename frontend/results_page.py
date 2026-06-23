@@ -9,7 +9,7 @@ from backend.quiz.models import QuizResult
 from frontend.nav import render_back_button
 from frontend.styles import score_banner_html
 
-_LIBRARY_CLEAR_KEYS = ["module", "bank", "quiz", "quiz_answers", "quiz_result", "quiz_difficulty"]
+_LIBRARY_CLEAR_KEYS = ["module", "bank", "quiz", "quiz_answers", "quiz_result"]
 
 
 def render_results_page(result: QuizResult) -> None:
@@ -117,7 +117,6 @@ def render_results_page(result: QuizResult) -> None:
     lines = []
     lines.append(f"Quiz Results — {result.module_id}")
     lines.append(f"Score: {result.score} / {result.total} ({result.percentage}%)")
-    lines.append(f"Difficulty: {st.session_state.get('quiz_difficulty', '').capitalize()}")
     lines.append("")
     lines.append("--- Question Breakdown ---")
     for i, ar in enumerate(result.answers):
@@ -151,7 +150,7 @@ def render_results_page(result: QuizResult) -> None:
     st.markdown("---")
     if st.button("🔄 Retake Quiz", type="secondary", use_container_width=True):
         st.session_state["page"] = "quiz"
-        for key in ["quiz", "quiz_answers", "quiz_result", "quiz_difficulty"]:
+        for key in ["quiz", "quiz_answers", "quiz_result"]:
             st.session_state.pop(key, None)
         st.rerun()
 
