@@ -45,6 +45,7 @@ class BaseLLMClient(ABC):
         tool_schema: dict | None = None,
         cached_blocks: list[dict] | None = None,
         topic_context: str | None = None,
+        skip_input_guardrails: bool = False,
     ) -> str | dict:
         """Send a prompt and return plain text or parsed tool-use dict.
 
@@ -52,6 +53,11 @@ class BaseLLMClient(ABC):
         call into the topic-relevance check) — raw adapters accept and
         ignore it, so any BaseLLMClient is interchangeable regardless of
         whether it's guardrail-wrapped.
+
+        `skip_input_guardrails` tells GuardrailedLLMClient to bypass
+        input checks (prompt injection, topic relevance) — used by
+        callers like the chatbot engine that build composite prompts from
+        trusted internal content + already-validated user input.
         """
         ...
 

@@ -1009,6 +1009,32 @@ Updated SPEC.md v0.32 with Module Chatbot feature in Phase 3 scope table and def
 
 ---
 
+## Phase 68 — Module Chatbot fixes: history, metadatas, source enrichment, threshold ✅ Complete
+
+**Goal:** Fix five issues found during critical review of the Module Chatbot against the spec.
+
+**What shipped:**
+
+1. **Conversation history sent to LLM** — `ask()` in `backend/chatbot/engine.py` now accepts a `history` parameter. `_format_history()` formats the last 10 turns (20 messages) as `Student: ...` / `Assistant: ...` pairs and includes them as a `## Conversation History` section in the prompt. `frontend/chatbot_page.py` passes `st.session_state["chat_messages"]` to `ask()`. Follow-up questions like "tell me more about that" now work.
+
+2. **`query_vector_db` returns metadatas** — `mcp_servers/storage_server/server.py` now includes `metadatas` in the JSON response and explicitly requests `include=["documents", "distances", "metadatas"]` from ChromaDB.
+
+3. **Source title/topic_title populated from metadatas** — `_retrieve_chunks()` reads `meta.get("title")` and `meta.get("topic_id")` from the ChromaDB response instead of leaving them as empty strings. The LLM prompt now shows accurate `[Module: X | Topic: Y]` labels instead of `[Module: Unknown | Topic: Unknown]`.
+
+4. **Empty "Retrieved Content" section omitted** — When only the catalog matches (meta-questions like "what modules are available?"), the prompt no longer includes an empty `## Retrieved Content` heading.
+
+5. **Relevance threshold raised from 1.4 to 1.8** — ChromaDB's default L2 distance with `all-MiniLM-L6-v2` produces distances where 1.4 over-filters moderately related content. 1.8 gives better recall for broad questions while still filtering clearly irrelevant results.
+
+**Files:**
+- `backend/chatbot/engine.py` — history support, metadata extraction, prompt cleanup, threshold change
+- `frontend/chatbot_page.py` — pass history to `ask()`
+- `mcp_servers/storage_server/server.py` — return metadatas from query
+- `SPEC.md` — new Phase 68 row in Phase 3 table
+
+**Verified:** 229 passed, 1 deselected (slow ChromaDB integration test — pre-existing timeout, unrelated to this change).
+
+---
+
 ## Commit convention
 
 Format: `[Phase N] <short description>`

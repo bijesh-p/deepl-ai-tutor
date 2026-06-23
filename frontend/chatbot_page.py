@@ -81,6 +81,7 @@ def render_chatbot_page() -> None:
                         module_ids=module_ids,
                         llm=llm,
                         module_catalog=module_catalog,
+                        history=st.session_state.get("chat_messages", []),
                     )
 
                 st.write(response.answer)

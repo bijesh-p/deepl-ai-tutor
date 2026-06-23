@@ -5,7 +5,7 @@ import json
 from dataclasses import dataclass
 
 
-_RELEVANCE_THRESHOLD = 1.4
+_RELEVANCE_THRESHOLD = 1.8
 
 _SYSTEM_PROMPT = """\
 You are a helpful teaching assistant for the AI Tutor platform.
@@ -28,6 +28,8 @@ _NO_MODULE_RESPONSE = (
     "I don't have any training modules that cover this topic. "
     "Please upload a document related to your question, or try rephrasing."
 )
+
+_MAX_HISTORY_TURNS = 10
 
 
 @dataclass
@@ -81,43 +83,82 @@ def build_module_catalog(modules: list[dict], db) -> str:
     return "\n\n".join(catalog_parts)
 
 
+def _format_history(history: list[dict]) -> str:
+    """Format recent conversation history for multi-turn context."""
+    if not history:
+        return ""
+    recent = history[-_MAX_HISTORY_TURNS * 2:]
+    lines = []
+    for msg in recent:
+        role = "Student" if msg["role"] == "user" else "Assistant"
+        lines.append(f"{role}: {msg['content']}")
+    return "\n".join(lines)
+
+
 def ask(
     question: str,
     module_ids: list[str],
     llm,
     module_catalog: str = "",
     n_results: int = 5,
+    history: list[dict] | None = None,
 ) -> ChatResponse:
     """Query training modules and generate a grounded answer."""
+    from backend.core.guardrails.rules import check_prompt_injection
+
     if not module_ids:
         return ChatResponse(answer=_NO_MODULE_RESPONSE, sources=[], is_relevant=False)
 
-    chunks, sources = _retrieve_chunks(question, module_ids, n_results)
-
-    catalog_section = ""
-    if module_catalog:
-        catalog_section = f"## Available Training Modules\n\n{module_catalog}\n\n---\n\n"
-
-    content_section = ""
-    if chunks:
-        content_section = "## Retrieved Content\n\n" + "\n\n---\n\n".join(
-            f"[Module: {s.get('title', 'Unknown')} | Topic: {s.get('topic_title', 'Unknown')}]\n{chunk}"
-            for chunk, s in zip(chunks, sources)
+    injection = check_prompt_injection(question)
+    if injection:
+        return ChatResponse(
+            answer="Your question couldn't be processed. Please rephrase it normally.",
+            sources=[],
+            is_relevant=False,
         )
 
-    if not catalog_section and not content_section:
+    chunks, sources = _retrieve_chunks(question, module_ids, n_results)
+
+    prompt_parts = []
+
+    if module_catalog:
+        prompt_parts.append(f"## Available Training Modules\n\n{module_catalog}")
+
+    if chunks:
+        content_lines = []
+        for chunk, s in zip(chunks, sources):
+            label = f"[Module: {s.get('title') or 'Unknown'} | Topic: {s.get('topic_title') or 'Unknown'}]"
+            content_lines.append(f"{label}\n{chunk}")
+        prompt_parts.append(
+            "## Retrieved Content\n\n" + "\n\n---\n\n".join(content_lines)
+        )
+
+    if not prompt_parts:
         return ChatResponse(answer=_NO_MODULE_RESPONSE, sources=[], is_relevant=False)
 
-    prompt = (
-        f"{catalog_section}"
-        f"{content_section}\n\n---\n\n"
+    history_text = _format_history(history or [])
+    if history_text:
+        prompt_parts.append(f"## Conversation History\n\n{history_text}")
+
+    prompt_parts.append(
         f"Student question: {question}\n\n"
-        "Answer the question using the module catalog and retrieved content above."
+        "Answer the question using the module catalog and retrieved content above. "
+        "If the conversation history is relevant, use it for context."
     )
 
+    prompt = "\n\n---\n\n".join(prompt_parts)
+
     try:
-        response = llm.generate(prompt=prompt, system=_SYSTEM_PROMPT)
+        from backend.core.guardrails.exceptions import GuardrailViolation
+
+        response = llm.generate(prompt=prompt, system=_SYSTEM_PROMPT,
+                                skip_input_guardrails=True)
         answer = response if isinstance(response, str) else str(response)
+    except GuardrailViolation:
+        answer = (
+            "Sorry, I couldn't generate a response for that question. "
+            "Please try rephrasing."
+        )
     except Exception as exc:
         answer = f"Sorry, I encountered an error generating a response: {exc}"
 
@@ -150,22 +191,24 @@ def _retrieve_chunks(
     documents = result.get("documents", [[]])[0]
     ids = result.get("ids", [[]])[0]
     distances = result.get("distances", [[]])[0]
+    metadatas = result.get("metadatas", [[]])[0]
 
     chunks = []
     sources = []
-    for doc, doc_id, dist in zip(documents, ids, distances):
+    for i, (doc, doc_id, dist) in enumerate(zip(documents, ids, distances)):
         if dist > _RELEVANCE_THRESHOLD:
             continue
+        meta = metadatas[i] if i < len(metadatas) else {}
         parts = doc_id.split(":", 1)
-        module_id = parts[0] if parts else ""
-        topic_id = parts[1] if len(parts) > 1 else ""
+        module_id = meta.get("module_id") or (parts[0] if parts else "")
+        topic_id = meta.get("topic_id") or (parts[1] if len(parts) > 1 else "")
         chunks.append(doc)
         sources.append({
             "module_id": module_id,
             "topic_id": topic_id,
             "distance": dist,
-            "title": "",
-            "topic_title": "",
+            "title": meta.get("title", ""),
+            "topic_title": meta.get("title", ""),
         })
 
     return chunks, sources

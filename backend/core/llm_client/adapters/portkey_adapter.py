@@ -40,6 +40,7 @@ class PortkeyAdapter(BaseLLMClient):
         tool_schema: dict | None = None,
         cached_blocks: list[dict] | None = None,
         topic_context: str | None = None,
+        skip_input_guardrails: bool = False,
     ) -> str | dict:
         user_content: list[dict] | str
         if cached_blocks:

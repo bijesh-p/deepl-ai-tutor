@@ -92,11 +92,12 @@ def query_vector_db(
     kwargs = {"query_texts": [query_text], "n_results": n_results}
     if where_filter:
         kwargs["where"] = where_filter
-    results = collection.query(**kwargs)
+    results = collection.query(**kwargs, include=["documents", "distances", "metadatas"])
     return json.dumps({
         "documents": results.get("documents", []),
         "ids": results.get("ids", []),
         "distances": results.get("distances", []),
+        "metadatas": results.get("metadatas", []),
     })
 
 
