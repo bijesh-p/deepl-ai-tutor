@@ -153,7 +153,6 @@ def _render_inline_questions(topic_id: str, questions: list[Question]) -> None:
 
         if q.question_type == "single_choice":
             already_answered = st.session_state.get(answered_key, False)
-            # After answering, lock the radio and restore the chosen index
             saved_idx = st.session_state.get(f"{answered_key}_idx")
             choice = st.radio(
                 label="",
@@ -189,3 +188,4 @@ def _render_inline_questions(topic_id: str, questions: list[Question]) -> None:
                 else:
                     correct_opts = [q.options[idx] for idx in q.correct_answers]
                     st.error(f"Not quite. Correct: **{', '.join(correct_opts)}**. {q.explanation}")
+

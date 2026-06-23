@@ -12,6 +12,7 @@ from backend.analytics.persistence import (
     load_module,
     load_published_module,
     publish_module,
+    rename_module,
     unpublish_module,
 )
 from backend.content.models import LearningModule
@@ -88,10 +89,18 @@ def _render_my_modules(db, shared_db, is_admin: bool) -> None:
             unsafe_allow_html=True,
         )
 
-        col_learn, col_mastery, col_delete, col_publish = st.columns([1, 1, 1, 1])
+        col_learn, col_rename, col_mastery, col_delete, col_publish = st.columns([1, 1, 1, 1, 1])
         with col_learn:
             if st.button("Learn", key=f"learn_{mod['module_id']}", type="primary", use_container_width=True):
                 _load_and_navigate(mod["module_id"], db)
+        with col_rename:
+            with st.popover("Rename", use_container_width=True):
+                new_title = st.text_input("New title", value=mod["title"], key=f"rename_input_{mod['module_id']}")
+                if st.button("Save", key=f"rename_save_{mod['module_id']}"):
+                    stripped = new_title.strip()
+                    if stripped and stripped != mod["title"]:
+                        rename_module(mod["module_id"], stripped, db=db)
+                        st.rerun()
         with col_mastery:
             if st.button("Mastery", key=f"mastery_{mod['module_id']}", type="secondary", use_container_width=True):
                 _load_for_mastery_report(mod["module_id"], db)

@@ -18,6 +18,9 @@ def render_results_page(result: QuizResult) -> None:
     )
     st.markdown("## Quiz Results")
 
+    if st.session_state.pop("quiz_result_timed_out", False):
+        st.warning("Time's up! The quiz was automatically submitted.")
+
     # This div has no background of its own — it sits directly on the
     # expander's background, which is dark in dark mode, so the text color
     # must follow the theme instead of being hardcoded to dark text.
