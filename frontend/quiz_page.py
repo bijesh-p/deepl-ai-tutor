@@ -3,26 +3,32 @@ from __future__ import annotations
 import streamlit as st
 from backend.quiz.assembler import assemble_quiz
 from backend.quiz.evaluator import evaluate
-from backend.quiz.models import QuestionBank, QuizQuestion
+from backend.quiz.models import BLOOM_LEVELS, QuestionBank, QuizQuestion
 from frontend.nav import render_back_button
 from frontend.styles import question_card_html, page_header_html
 
 
-_DIFFICULTY_META_LIGHT = {
-    "easy":   ("🟢", "Easy",   "Foundational concepts and definitions",      "#F0FDF4", "#10B981", "#065F46"),
-    "medium": ("🟡", "Medium", "Applied understanding and key relationships", "#FFFBEB", "#F59E0B", "#92400E"),
-    "hard":   ("🔴", "Hard",   "Deep analysis and edge cases",                "#FEF2F2", "#EF4444", "#991B1B"),
+_BLOOM_META_LIGHT = {
+    "remember":   ("🧠", "Remember",   "Recall facts and definitions",              "#F0FDF4", "#10B981", "#065F46"),
+    "understand": ("💡", "Understand", "Explain ideas in your own words",           "#ECFEFF", "#06B6D4", "#155E75"),
+    "apply":      ("🔧", "Apply",      "Use a concept in a new situation",          "#FFFBEB", "#F59E0B", "#92400E"),
+    "analyze":    ("🔍", "Analyze",    "Break ideas into parts and relationships",  "#FFF7ED", "#FB923C", "#9A3412"),
+    "evaluate":   ("⚖️", "Evaluate",   "Judge using criteria and standards",        "#FEF2F2", "#EF4444", "#991B1B"),
+    "create":     ("🎨", "Create",     "Design or propose something new",           "#FAF5FF", "#A855F7", "#6B21A8"),
 }
-_DIFFICULTY_META_DARK = {
-    "easy":   ("🟢", "Easy",   "Foundational concepts and definitions",      "#052E16", "#10B981", "#6EE7B7"),
-    "medium": ("🟡", "Medium", "Applied understanding and key relationships", "#1C1000", "#D97706", "#FCD34D"),
-    "hard":   ("🔴", "Hard",   "Deep analysis and edge cases",                "#1C0505", "#DC2626", "#FCA5A5"),
+_BLOOM_META_DARK = {
+    "remember":   ("🧠", "Remember",   "Recall facts and definitions",              "#052E16", "#10B981", "#6EE7B7"),
+    "understand": ("💡", "Understand", "Explain ideas in your own words",           "#042F2E", "#06B6D4", "#67E8F9"),
+    "apply":      ("🔧", "Apply",      "Use a concept in a new situation",          "#1C1000", "#D97706", "#FCD34D"),
+    "analyze":    ("🔍", "Analyze",    "Break ideas into parts and relationships",  "#1F1300", "#FB923C", "#FDBA74"),
+    "evaluate":   ("⚖️", "Evaluate",   "Judge using criteria and standards",        "#1C0505", "#DC2626", "#FCA5A5"),
+    "create":     ("🎨", "Create",     "Design or propose something new",           "#1E0A2E", "#A855F7", "#D8B4FE"),
 }
 
-def _difficulty_meta() -> dict:
+def _bloom_meta() -> dict:
     if st.session_state.get("dark_mode", True):
-        return _DIFFICULTY_META_DARK
-    return _DIFFICULTY_META_LIGHT
+        return _BLOOM_META_DARK
+    return _BLOOM_META_LIGHT
 
 
 # ── Answer persistence helpers ───────────────────────────────────────────────
@@ -114,82 +120,62 @@ def render_quiz_page(bank: QuestionBank) -> None:
         "← Back to Library",
         "module_library",
         key="_back_quiz",
-        clear_keys=["module", "bank", "quiz", "quiz_answers", "quiz_result", "quiz_difficulty"],
+        clear_keys=["module", "bank", "quiz", "quiz_answers", "quiz_result"],
     )
     if "quiz" not in st.session_state:
-        _render_difficulty_selector(bank)
+        _render_quiz_intro(bank)
         return
     _render_quiz_question()
 
 
-def _render_difficulty_selector(bank: QuestionBank) -> None:
+def _render_quiz_intro(bank: QuestionBank) -> None:
     st.markdown(
         page_header_html(
             "Module Quiz",
-            "Test your understanding across all topics. Click a difficulty card to begin.",
+            "Test your understanding across all topics. This quiz mixes questions "
+            "from all six levels of Bloom's taxonomy, from recall to creation.",
             "🎯",
             dark=st.session_state.get("dark_mode", True),
         ),
         unsafe_allow_html=True,
     )
 
-    st.markdown("#### Select Difficulty")
-    selected = st.session_state.get("_quiz_difficulty_pick", "medium")
-
-    cols = st.columns(3)
-    diff_meta = _difficulty_meta()
+    st.markdown("#### What this quiz covers")
+    bloom_meta = _bloom_meta()
     desc_color = "#94A3B8" if st.session_state.get("dark_mode", True) else "#6B7280"
-    for col, (key, (icon, label, desc, bg, border, text)) in zip(cols, diff_meta.items()):
-        is_selected = selected == key
-        outline = f"box-shadow:0 0 0 3px {border};" if is_selected else ""
-        opacity = "1" if is_selected else "0.72"
-        scale = "transform:scale(1.03);" if is_selected else ""
-        check = (
-            f'<div style="font-size:11px;font-weight:700;color:{text};margin-top:8px;">✓ Selected</div>'
-            if is_selected else ""
-        )
+    counts = {
+        level: sum(1 for q in (bank.questions if bank else []) if q.bloom_level == level)
+        for level in BLOOM_LEVELS
+    }
+    total = len(bank.questions) if bank and bank.questions else 0
+
+    cols = st.columns(6)
+    for col, level in zip(cols, BLOOM_LEVELS):
+        icon, label, desc, bg, border, text = bloom_meta[level]
         with col:
             st.markdown(
-                f'<div style="padding:22px 16px;background:{bg};border:2px solid {border};'
-                f'border-radius:16px;text-align:center;min-height:130px;opacity:{opacity};'
-                f'{outline}{scale}transition:all 0.2s ease;margin-bottom:6px;">'
-                f'<div style="font-size:2.2rem;margin-bottom:8px;">{icon}</div>'
-                f'<div style="font-weight:700;font-size:16px;color:{text};font-family:\'Inter\',sans-serif;">{label}</div>'
-                f'<div style="font-size:11.5px;color:{desc_color};margin-top:6px;line-height:1.4;">{desc}</div>'
-                f'{check}</div>',
+                f'<div style="padding:14px 8px;background:{bg};border:2px solid {border};'
+                f'border-radius:14px;text-align:center;min-height:110px;">'
+                f'<div style="font-size:1.7rem;margin-bottom:6px;">{icon}</div>'
+                f'<div style="font-weight:700;font-size:12.5px;color:{text};font-family:\'Inter\',sans-serif;">{label}</div>'
+                f'<div style="font-size:10px;color:{desc_color};margin-top:4px;">{counts[level]} questions</div>'
+                f'</div>',
                 unsafe_allow_html=True,
             )
-            if st.button(
-                f"{'✓ ' if is_selected else ''}{label}",
-                key=f"_diff_{key}",
-                type="primary" if is_selected else "secondary",
-                use_container_width=True,
-            ):
-                st.session_state["_quiz_difficulty_pick"] = key
-                st.rerun()
 
-    difficulty = st.session_state.get("_quiz_difficulty_pick", "medium")
-
-    if bank and bank.questions:
-        count = sum(1 for q in bank.questions if q.difficulty == difficulty)
-        total = len(bank.questions)
-        icon_d, label_d = diff_meta[difficulty][0], diff_meta[difficulty][1]
-        st.caption(f"{icon_d} **{label_d}** selected · {count} of {total} questions · quiz draws up to 10.")
+    st.caption(f"{total} questions in the bank · quiz draws up to 12, spread across all six levels.")
 
     st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
 
     if st.button("Start Quiz", type="primary"):
-        st.session_state["quiz"] = assemble_quiz(bank, difficulty, num_questions=10)
-        st.session_state["quiz_difficulty"] = difficulty
+        st.session_state["quiz"] = assemble_quiz(bank, num_questions=12)
         st.session_state["quiz_current_idx"] = 0
         st.session_state["quiz_answers"] = {}
-        st.session_state.pop("_quiz_difficulty_pick", None)
         st.rerun()
 
 
 def _render_quiz_question() -> None:
     quiz = st.session_state["quiz"]
-    difficulty = st.session_state.get("quiz_difficulty", "medium")
     questions = quiz.questions
     total_q = len(questions)
     ss = st.session_state
@@ -206,7 +192,7 @@ def _render_quiz_question() -> None:
     is_last = idx == total_q - 1
     all_answered = answered_count == total_q
 
-    diff_icon, diff_label, _, diff_bg, diff_border, diff_fg = _difficulty_meta()[difficulty]
+    bloom_icon, bloom_label, _, bloom_bg, bloom_border, bloom_fg = _bloom_meta()[q.bloom_level]
     unanswered = total_q - answered_count
     dark = st.session_state.get("dark_mode", True)
     h2_color = "#F1F5F9" if dark else "#1E1B4B"
@@ -221,9 +207,9 @@ def _render_quiz_question() -> None:
         f"<div style='display:flex;align-items:center;gap:10px;flex-wrap:wrap;'>"
         f"<span style='font-size:12px;color:#10B981;font-weight:600;'>✓ {answered_count}</span>"
         f"<span style='font-size:12px;color:{left_color};'>{unanswered} left</span>"
-        f"<span style='background:{diff_bg};color:{diff_fg};border:1px solid {diff_border};"
+        f"<span style='background:{bloom_bg};color:{bloom_fg};border:1px solid {bloom_border};"
         f"padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;'>"
-        f"{diff_icon} {diff_label}</span>"
+        f"{bloom_icon} {bloom_label}</span>"
         f"</div></div>"
         f"<div style='font-size:11px;color:{left_color};margin-bottom:4px;'>"
         f"Question <b style='color:{q_num_color};'>{idx + 1}</b> / {total_q}</div>",
@@ -311,7 +297,7 @@ def _submit_quiz(quiz) -> None:
     from backend.analytics.db import get_db
     from backend.analytics.persistence import save_attempt
     db = get_db(st.session_state.get("db_path"))
-    save_attempt(result, st.session_state["quiz_difficulty"], db=db)
+    save_attempt(result, "mixed", db=db)
 
     st.session_state["quiz_result"] = result
     st.session_state["quiz_questions_map"] = {q.question_id: q for q in quiz.questions}

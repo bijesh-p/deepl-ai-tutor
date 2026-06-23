@@ -1,6 +1,6 @@
 # SPEC.md — AI Tutor System Specification
 
-> **Version:** 0.29 | **Last updated:** 2026-06-22
+> **Version:** 0.30 | **Last updated:** 2026-06-23
 > Architecture, directory layout, and component design are in [ARCHITECTURE.md](ARCHITECTURE.md).
 > **GUI / frontend requirements are specified in [gui_spec.md](gui_spec.md)** — that document
 > is authoritative for all GUI features, normative UI decisions (dark-theme default, button
@@ -337,6 +337,65 @@ with a "Continue to lesson →" button to proceed.
 
 **Files:** `backend/interactive_tutor/graph.py`, `frontend/tutor_room.py`,
 `tests/test_tutor/test_graph_nodes.py`.
+
+### Bloom's-taxonomy-based question generation levels
+
+**Goal** (feature, not a bug — included here per compilation request, scoped
+via `/spec-plan` as `changes/bloom-taxonomy-question-generation.{spec,plan}.md`):
+question generation across the app used an informal easy/medium/hard
+difficulty scale with no grounding in a cognitive-skill model. Replace it
+with proper Bloom's-taxonomy levels (remember, understand, apply, analyze,
+evaluate, create), informed by Scaria et al., "Automated Educational
+Question Generation at Different Bloom's Skill Levels using Large Language
+Models" (AIED 2024) — specifically its PS2 prompting strategy (persona +
+chain-of-thought + inline skill-level definitions), which the paper found
+gave the best balance of quality and skill-adherence; adding hardcoded
+few-shot examples on top (PS5) measurably hurt both, so none were added.
+
+**Decisions:** all four question-generation flows (main quiz bank, inline
+per-topic questions, diagnostic pre-assessment, tutor-room single question)
+were updated. Bloom's level *replaces* difficulty everywhere — not tracked
+alongside it. The end-of-module quiz mixes questions across all six levels
+in every attempt (no per-attempt level picker); inline per-topic questions
+are restricted to the first three levels (remember / understand / apply),
+since those fit a quick comprehension check better than the higher-order
+levels. The orphaned `BLOOMS_LEVELS`/`DIFFICULTY_MAP` in
+`mcp_servers/assessment_server/server.py` was left untouched — not wired
+into any real path, out of scope for this change.
+
+**Fix:** `backend/quiz/models.py` gained `BLOOM_LEVELS` and renamed
+`QuizQuestion.difficulty` → `bloom_level`; `Quiz.difficulty` was removed
+entirely (quizzes are mixed-level, no single label). `backend/quiz/question_bank.py`'s
+generation prompt and tool schema now ask for 18-24 questions covering all
+six levels (≥3 per level) with the levels' definitions inline.
+`backend/quiz/assembler.py` rewrote `assemble_quiz()` to bucket and sample
+roughly evenly across all six levels with cross-level backfill, instead of
+a single-difficulty filter. `frontend/quiz_page.py` replaced the
+Easy/Medium/Hard card selector with a quiz-intro screen showing a per-level
+question-count breakdown, and switched the per-question badge from one
+quiz-wide difficulty tag to each question's own Bloom-level icon/label.
+`backend/content/models.py::Question` gained `bloom_level` (defaulted for
+backward-compat with modules persisted before this change), and
+`backend/content/inline_question_gen.py` now tags each inline question with
+one of the first three levels. `backend/interactive_tutor/graph.py`'s
+diagnostic prompt now asks for a mix of Remember/Understand-level questions
+only (pre-lesson, so higher levels aren't appropriate yet), and
+`ask_question()`'s prompt maps `presentation_depth` (beginner/intermediate/advanced)
+to a target Bloom's level pair instead of a vague "match the student's
+level" instruction. `frontend/module_library_page.py` gained a legacy
+difficulty→Bloom-level mapping so modules persisted before this change still
+load instead of raising a `KeyError`.
+
+**Files:** `backend/quiz/models.py`, `backend/quiz/question_bank.py`,
+`backend/quiz/assembler.py`, `frontend/quiz_page.py`,
+`frontend/module_library_page.py`, `frontend/results_page.py`,
+`frontend/upload_page.py`, `app.py`, `backend/content/models.py`,
+`backend/content/inline_question_gen.py`,
+`backend/interactive_tutor/graph.py`,
+`tests/test_quiz/test_assembler.py`, `tests/test_quiz/test_evaluator.py`,
+`tests/test_content/test_inline_question_gen.py` (new),
+`tests/test_content/test_pipeline.py`, `tests/test_e2e/test_provider_e2e.py`.
+See [gui_spec.md](gui_spec.md) §3.6 for the updated Quiz UI checklist.
 
 ---
 

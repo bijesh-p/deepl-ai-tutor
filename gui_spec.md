@@ -163,12 +163,12 @@ flowchart TD
 ### 3.6 Quiz — [`frontend/quiz_page.py`](frontend/quiz_page.py)
 
 - [x] Dark-aware `page_header_html` banner
-- [x] Difficulty selector: three dark-aware cards (Easy / Medium / Hard) with selected-state styling
-- [x] Selected difficulty persisted in session state; button label shows `✓` when selected
+- [x] Quiz intro screen: six dark-aware Bloom's-taxonomy-level cards (Remember / Understand / Apply / Analyze / Evaluate / Create) showing each level's question count in the bank — no selection needed, every attempt mixes questions across all six levels
+- [x] Per-question Bloom's-level badge (icon + label) reflecting that specific question's level, not one quiz-wide tag
 - [x] Question progress bar and dark-aware dot navigator (answered / current / unanswered)
 - [x] Dark-aware `question_card_html` per question with type badge (Single / Multi choice)
 - [x] Full-width option cards with A/B/C/D letter badges for radio and checkbox inputs
-- [x] Dark-aware quiz header (title, difficulty badge, answered/remaining counts, question number)
+- [x] Dark-aware quiz header (title, per-question Bloom's-level badge, answered/remaining counts, question number)
 - [x] Answer state persisted across navigation
 - [x] `Previous` / `Next` / `Submit` buttons in equal-width columns
 - [ ] Clickable dot navigator for direct question jumps

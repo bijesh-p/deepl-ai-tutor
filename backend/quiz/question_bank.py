@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from backend.core.llm_client import BaseLLMClient as LLMClient, coerce_tool_array, coerce_tool_item
 from backend.content.models import LearningModule
-from backend.quiz.models import QuestionBank, QuizQuestion
+from backend.quiz.models import BLOOM_LEVELS, QuestionBank, QuizQuestion
 
 _TOOL_SCHEMA = {
     "name": "return_question_bank",
@@ -13,7 +13,7 @@ _TOOL_SCHEMA = {
         "properties": {
             "questions": {
                 "type": "array",
-                "minItems": 5,
+                "minItems": 18,
                 "items": {
                     "type": "object",
                     "properties": {
@@ -33,9 +33,9 @@ _TOOL_SCHEMA = {
                             "items": {"type": "integer"},
                         },
                         "explanation": {"type": "string"},
-                        "difficulty": {
+                        "bloom_level": {
                             "type": "string",
-                            "enum": ["easy", "medium", "hard"],
+                            "enum": BLOOM_LEVELS,
                         },
                         "topic_title": {"type": "string"},
                     },
@@ -45,7 +45,7 @@ _TOOL_SCHEMA = {
                         "options",
                         "correct_answers",
                         "explanation",
-                        "difficulty",
+                        "bloom_level",
                         "topic_title",
                     ],
                 },
@@ -56,10 +56,20 @@ _TOOL_SCHEMA = {
 }
 
 _SYSTEM = (
-    "You are an expert educator writing a comprehensive quiz. "
-    "Generate 10-20 questions covering all topics in the learning module. "
-    "Include a mix of easy, medium, and hard questions. "
-    "Cover recall, understanding, and application cognitive levels. "
+    "You are an expert graduate-level course instructor writing a comprehensive quiz. "
+    "Think step by step about which Bloom's taxonomy cognitive level each question should "
+    "target before writing it. Generate 18-24 questions covering all topics in the learning "
+    "module, aiming for at least 3 questions per Bloom's taxonomy level below.\n\n"
+    "Bloom's taxonomy levels:\n"
+    "- remember: retrieve relevant knowledge from long-term memory.\n"
+    "- understand: construct meaning from instructional content.\n"
+    "- apply: carry out or use a procedure in a given situation.\n"
+    "- analyze: break material into parts and determine how the parts relate to one another "
+    "and the overall structure.\n"
+    "- evaluate: make judgments based on criteria and standards.\n"
+    "- create: put elements together to form a coherent whole; reorganize elements into a "
+    "new pattern or structure. For create-level questions, ask the student to design, "
+    "propose, or construct something new — not just analyze existing material.\n\n"
     "Each question must have exactly 4 options."
 )
 
@@ -93,7 +103,7 @@ def generate_question_bank(module: LearningModule, llm: LLMClient) -> QuestionBa
                 options=q["options"],
                 correct_answers=q["correct_answers"],
                 explanation=q["explanation"],
-                difficulty=q["difficulty"],
+                bloom_level=q["bloom_level"],
                 topic_id=topic_id_map.get(q["topic_title"], ""),
             )
         )

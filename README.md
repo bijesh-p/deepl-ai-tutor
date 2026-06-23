@@ -22,7 +22,7 @@ See [SPEC.md](SPEC.md) for the full phase breakdown and definitions of done.
 - **MCP Tool Servers** — Document parsing, assessment validation, and storage exposed as standalone MCP servers, dispatched via `backend/core/mcp_client.py`. The content pipeline routes PDF parsing (`extract_text_from_pdf`), vector-store upserts (`upsert_to_vector_db`), and module persistence (`save_module_to_db`) through `mcp_client` rather than calling backend functions directly. Calls are bounded by a 30s timeout (`storage_server`'s first call pays a variable one-time `chromadb`/`numpy` import cost), and that import is pre-warmed in a background thread at app startup so a real user's first tutor session never pays it synchronously.
 - **ChromaDB Vector Store** — Each enriched topic is upserted into ChromaDB (`all-MiniLM-L6-v2` embeddings) during generation via `storage_server.upsert_to_vector_db`, enabling semantic search over document chunks in `data/chroma/`. The LangGraph tutor queries this store via `storage_server.query_vector_db`: `provide_hint` grounds hints in retrieved chunks, and `present_concept` falls back to retrieved content when pipeline-enriched content isn't yet available in session state — both non-fatal on error.
 - **Inline Questions** — Reinforcement questions embedded within each sub-topic for active learning.
-- **Quizzes** — End-of-module quizzes with selectable difficulty, randomised questions, and explanations.
+- **Quizzes** — End-of-module quizzes mixing questions across all six Bloom's-taxonomy cognitive levels (remember / understand / apply / analyze / evaluate / create), each question tagged with its own level badge, randomised questions, and explanations.
 - **Performance Analytics** — Score tracking with cohort comparison (min/max/avg) across all participants.
 - **LLM Observability** — OTEL traces sent to local Arize Phoenix; DeepEval quality metrics (AnswerRelevancy, Faithfulness, ExplanationClarity) run after each tutor session using the active LLM as judge. Toggle both on/off in the sidebar. A dedicated **Observability Dashboard** page (reachable from the sidebar or the "📊 Observability" button on the Module Library) shows a Phoenix UI link and a per-session DeepEval results table with average score bar chart.
 - **Admin Mode & Shared Library** — The login page has separate "User Login" and "Admin Login" tabs. User Login has no password (regular login, even for admin-listed usernames). Admin Login requires a username from `AI_TUTOR_ADMIN_USERNAMES` plus `AI_TUTOR_ADMIN_PASSWORD` (sidebar shows "(Admin)" on success). Admins can publish/unpublish their own modules to a shared library (`data/shared/ai_tutor.db`), visible to every user in the Module Library's "Shared Library" section.
@@ -215,7 +215,7 @@ course_project/
 │   ├── upload_page.py              # Upload + content generation, per-step error recovery
 │   ├── module_library_page.py      # My Modules + Shared Library, admin publish controls
 │   ├── module_viewer.py            # Topic viewer + inline questions
-│   ├── quiz_page.py                # Quiz with difficulty selector
+│   ├── quiz_page.py                # Quiz mixing all six Bloom's-taxonomy levels, per-question level badge
 │   ├── results_page.py             # Score + cohort analytics
 │   ├── tutor_room.py               # Adaptive tutor UI (LangGraph-driven), session resume
 │   ├── mastery_report_page.py      # Per-topic + cohort mastery report

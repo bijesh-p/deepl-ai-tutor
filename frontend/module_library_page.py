@@ -207,6 +207,12 @@ def _load_published_and_navigate(module_id: str, shared_db) -> None:
     st.rerun()
 
 
+# Pre-Bloom's-taxonomy modules persisted questions tagged with this old
+# easy/medium/hard difficulty scale instead of bloom_level. Map it to a
+# representative Bloom level so old modules still load instead of KeyError-ing.
+_LEGACY_DIFFICULTY_TO_BLOOM = {"easy": "remember", "medium": "apply", "hard": "evaluate"}
+
+
 def _bank_from_json(raw: str) -> QuestionBank:
     data = json.loads(raw)
     questions = [
@@ -217,7 +223,8 @@ def _bank_from_json(raw: str) -> QuestionBank:
             options=q["options"],
             correct_answers=q["correct_answers"],
             explanation=q["explanation"],
-            difficulty=q["difficulty"],
+            bloom_level=q.get("bloom_level")
+            or _LEGACY_DIFFICULTY_TO_BLOOM.get(q.get("difficulty", ""), "understand"),
             topic_id=q["topic_id"],
         )
         for q in data["questions"]

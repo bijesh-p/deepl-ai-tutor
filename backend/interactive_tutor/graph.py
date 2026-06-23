@@ -121,7 +121,9 @@ _DIAGNOSTIC_SYSTEM = (
     "You are an educator assessing a student's prior knowledge before teaching. "
     "Generate 3-5 multiple-choice diagnostic questions on the given topic. "
     "Each question must have exactly 4 options. "
-    "Include a mix of easy and medium difficulty. "
+    "Include a mix of Remember-level questions (recall a fact or definition) and "
+    "Understand-level questions (explain or interpret an idea) — this is a pre-lesson "
+    "diagnostic, so it should not probe Apply, Analyze, Evaluate, or Create-level skills yet. "
     "Base questions only on what can be reasonably inferred from the topic title and summary — "
     "do not assume the student has read anything yet. "
     "For each question, include a short 1-2 sentence explanation of why the correct answer is correct."
@@ -225,6 +227,12 @@ _DEPTH_GUIDANCE = {
         "The student is ADVANCED — already understands the basics. "
         "Focus on nuance, edge cases, and deeper connections."
     ),
+}
+
+_DEPTH_TO_BLOOM = {
+    "beginner": "remember or understand",
+    "intermediate": "apply or analyze",
+    "advanced": "evaluate or create",
 }
 
 
@@ -473,6 +481,7 @@ def ask_question(state: GraphState) -> dict:
     attempts = state.get("attempts", 0)
 
     depth_note = _DEPTH_GUIDANCE[depth]
+    bloom_note = _DEPTH_TO_BLOOM[depth]
     context = ""
     if attempts > 0 and state.get("feedback"):
         context = f"\nThe student previously struggled with: {state['feedback']}\nAsk a question that approaches the concept differently."
@@ -495,7 +504,7 @@ def ask_question(state: GraphState) -> dict:
         f"Generate a single comprehension question about: {concept}\n\n"
         f"Explanation given to student:\n{content}\n"
         f"{depth_note}\n{context}\n\n"
-        "The question difficulty should match the student's level. "
+        f"Target a Bloom's taxonomy level of {bloom_note} for this student's level. "
         "Return via the tool."
     )
 
