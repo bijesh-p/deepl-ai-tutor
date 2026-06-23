@@ -69,7 +69,7 @@ _TOOL_RESPONSES: dict[str, dict] = {
                 "options": ["Light", "Heat", "Sound", "Gravity"],
                 "correct_answers": [0],
                 "explanation": "Light provides the energy for photosynthesis.",
-                "difficulty": "easy",
+                "bloom_level": "remember",
                 "topic_title": "Photosynthesis",
             }
         ]
