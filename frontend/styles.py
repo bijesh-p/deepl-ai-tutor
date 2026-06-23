@@ -616,6 +616,22 @@ def _theme_overrides_css(dark: bool) -> str:
     color: {p['text_primary']} !important;
 }}
 
+/* Tutor room chat bubbles (st.chat_message). The bubble itself has no
+   background, so the dark page background shows through; the markdown text
+   inside it keeps Streamlit's own near-black default color, which is a
+   direct rule on the descendant and so wins over .stApp's inherited color
+   override. Result was black text on a black background. */
+[data-testid="stChatMessage"] {{
+    background: {p['card_bg']} !important;
+    border: 1px solid {p['card_border']} !important;
+}}
+[data-testid="stChatMessage"] p,
+[data-testid="stChatMessage"] div,
+[data-testid="stChatMessage"] span,
+[data-testid="stChatMessage"] li {{
+    color: {p['text_primary']} !important;
+}}
+
 /* Quiz option cards — hover/checked. _GLOBAL_CSS's hover (#F0F8FF) and
    checked (#EFF6FF) backgrounds are unconditional, near-white "light card"
    colors meant for the light theme — combined with the near-white base text
