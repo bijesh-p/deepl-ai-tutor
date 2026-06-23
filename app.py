@@ -196,6 +196,9 @@ def _render_sidebar() -> None:
             if st.button("🩺 System Check", use_container_width=True):
                 st.session_state["page"] = "system_check"
                 st.rerun()
+            if st.button("💬 Chatbot", use_container_width=True):
+                st.session_state["page"] = "chatbot"
+                st.rerun()
             if st.button("📊 Observability", use_container_width=True):
                 st.session_state["page"] = "observability"
                 st.rerun()
@@ -305,6 +308,10 @@ def main() -> None:
     elif page == "observability":
         from frontend.observability_page import render_observability_page
         render_observability_page()
+
+    elif page == "chatbot":
+        from frontend.chatbot_page import render_chatbot_page
+        render_chatbot_page()
 
     else:
         st.session_state["page"] = "login"

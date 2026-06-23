@@ -646,6 +646,56 @@ def _theme_overrides_css(dark: bool) -> str:
    (#111827), invisible against the dark page until selected. */
 .stTabs [data-baseweb="tab"] {{ color: {p['text_secondary']} !important; }}
 .stTabs [aria-selected="true"] {{ color: #60A5FA !important; }}
+
+/* ── Chat components (chatbot page) ─────────────────────────────────────── */
+[data-testid="stChatMessage"] {{
+    background: {p['card_bg']} !important;
+    border: 1px solid {p['card_border']} !important;
+    border-radius: 12px !important;
+}}
+[data-testid="stChatMessage"] p,
+[data-testid="stChatMessage"] span,
+[data-testid="stChatMessage"] li,
+[data-testid="stChatMessage"] td,
+[data-testid="stChatMessage"] th,
+[data-testid="stChatMessage"] label,
+[data-testid="stChatMessage"] div {{
+    color: {p['text_primary']} !important;
+}}
+[data-testid="stChatMessage"] strong,
+[data-testid="stChatMessage"] b {{
+    color: {p['text_primary']} !important;
+}}
+[data-testid="stChatMessage"] h1,
+[data-testid="stChatMessage"] h2,
+[data-testid="stChatMessage"] h3 {{
+    color: {p['text_primary']} !important;
+}}
+[data-testid="stChatMessage"] a {{
+    color: #60A5FA !important;
+}}
+[data-testid="stChatMessage"] code {{
+    background: {p['app_bg']} !important;
+    color: {p['text_primary']} !important;
+}}
+/* Spinner text inside chat */
+[data-testid="stChatMessage"] [data-testid="stSpinner"] {{
+    color: #93C5FD !important;
+}}
+/* Chat input */
+[data-testid="stChatInput"] textarea {{
+    background: {p['card_bg']} !important;
+    border-color: {p['card_border']} !important;
+    color: {p['text_primary']} !important;
+    caret-color: {p['text_primary']} !important;
+}}
+[data-testid="stChatInput"] textarea::placeholder {{
+    color: {p['text_secondary']} !important;
+}}
+/* Bottom container holding the chat input */
+[data-testid="stBottomBlockContainer"] {{
+    background: {p['app_bg']} !important;
+}}
 </style>
 """
 
