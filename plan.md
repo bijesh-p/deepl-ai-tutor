@@ -864,6 +864,98 @@ test infra exists for `tutor_room.py`).
 
 ---
 
+## Knowledge graph backfill note
+
+Phases 75-81 below were implemented and merged via PR #25 (`experiments/llm-graph` branch, merge commit `e0d5f4a`) using that branch's own local `[Phase 1]`-`[Phase 7]` commit-message numbering, the same pattern already used for the Bloom's-taxonomy phases before they were absorbed into this file's continuous sequence. They're backfilled here now so `plan.md` has the same implementation-phase detail every other shipped feature gets.
+
+## Phase 75 — Add networkx dependency and knowledge_graph ontology ✅ Complete
+
+**Goal:** Lay the groundwork for a per-module knowledge graph: pick a graph library and define the node/relation vocabulary before building the store itself.
+
+**Fix:** `uv add networkx` (`networkx>=3.6.1`). New package `backend/content/knowledge_graph/` with `ontology.py` — `NodeType` enum (`MODULE`, `CONCEPT`, `TERM`) and `RelationType` enum (`PART_OF`, `FOLLOWS`, `PREREQUISITE_OF`, `RELATED_TO`, `ELABORATES`, `MENTIONS`, `DEFINES`), plus a `slug()` helper for stable TERM node ids.
+
+**Files:** `pyproject.toml`, `uv.lock`, `backend/content/knowledge_graph/{__init__,ontology}.py` (new). Commit: `4631c67`.
+
+---
+
+## Phase 76 — Add KnowledgeGraphStore with GraphML persistence and traversals ✅ Complete
+
+**Goal:** The store itself — a per-module graph that can be built up incrementally, persisted, and queried for the traversals the tutor will need.
+
+**Fix:** `backend/content/knowledge_graph/store.py::KnowledgeGraphStore` wraps a `networkx.MultiDiGraph`. `add_concept`/`add_term`/`add_edge` are all idempotent (skip if the same node/edge already exists). Persisted via `nx.write_graphml`/`read_graphml` to `data/graph/{module_id}.graphml` (override directory via `AI_TUTOR_GRAPH_DIR`). Traversals: `prerequisites(depth)`, `related(k)`, `neighborhood(depth)`, `teaching_order()` (topological sort on `PREREQUISITE_OF`, falling back to `FOLLOWS` order). `break_prerequisite_cycles()` removes the lowest-weight edge in each detected cycle so `teaching_order()` never raises on a cyclic graph.
+
+**Files:** `backend/content/knowledge_graph/store.py` (new), `tests/test_content/test_kg_store.py` (new, 13 tests). Commit: `62ad29d`.
+
+---
+
+## Phase 77 — Add LLM relation extractor and build_module_graph orchestrator ✅ Complete
+
+**Goal:** Populate the graph's semantic edges (prerequisite/related/elaborates/mentions) — the structural edges (PART_OF/FOLLOWS) are cheap to derive directly from the topic list, but relationships like "concept A is a prerequisite of concept B" need the LLM to actually read the content.
+
+**Fix:** `backend/content/knowledge_graph/extractor.py::extract_edges()` builds a compact text catalogue of the module's concepts (title/summary/order/terms) and asks the LLM to emit edges via a tool schema (`emit_knowledge_graph`). Drops edges referencing unknown concept ids, invalid relation types, or self-loops; `coerce_edges()` handles Claude's occasional JSON-string-encoded array. Fails non-fatally — any LLM error returns `[]`, leaving the structural-only graph intact. `build_module_graph()` orchestrates: extract edges → register any new TERM nodes → add edges (confidence as weight) → break cycles → save.
+
+**Files:** `backend/content/knowledge_graph/extractor.py` (new), `tests/test_content/test_kg_extractor.py` (new, 8 tests). Commit: `c0718e7`.
+
+---
+
+## Phase 78 — Thread KnowledgeGraphStore through sliding pipeline ✅ Complete
+
+**Goal:** Wire graph-building into the existing content pipeline so a graph actually gets built (and saved) for every module, without changing the pipeline's existing delivery behavior.
+
+**Fix:** `backend/content/sliding_pipeline.py` creates a `KnowledgeGraphStore` at the start of a run; `_register_concept_node()` adds a CONCEPT node plus PART_OF/FOLLOWS/MENTIONS edges as each topic is enriched (both the standard sliding-window path and the pre-segmented VTT fast path); `_finalize_knowledge_graph()` calls `build_module_graph()` once all topics are published. Both helpers are non-fatal — a failure here never affects the existing JIT delivery or quiz generation.
+
+**Files:** `backend/content/sliding_pipeline.py`. Commit: `f0081f7`.
+
+---
+
+## Phase 79 — Add graph-guided hybrid retrieval and fix GraphML edge iteration ✅ Complete
+
+**Goal:** Make the graph actually useful at query time — combine its structural traversals with ChromaDB's existing text search, rather than building a graph nobody reads from.
+
+**Fix:** `backend/content/knowledge_graph/retrieval.py::graph_guided_context(module_id, topic_id, query_text, mode)` loads the module's graph, picks candidate concepts based on `mode` (`present`: related + prerequisites; `hint`: prerequisites-first; `simplify`: depth-2 prerequisites in teaching order), fetches each candidate's definition text from ChromaDB, and tops up with plain vector search if the graph yields too few. Falls back to pure vector search whenever the graph is absent, `topic_id` is unknown, or any step raises.
+
+**Gotcha caught by tests:** after a GraphML save/load round-trip, NetworkX `MultiDiGraph` edge keys come back as strings instead of ints — fixed iteration in `store.py` to handle both.
+
+**Files:** `backend/content/knowledge_graph/retrieval.py` (new), `backend/content/knowledge_graph/store.py`, `tests/test_tutor/test_graph_guided_retrieval.py` (new, 6 tests; 29 knowledge-graph tests total now passing). Commit: `bebf524`.
+
+---
+
+## Phase 80 — Rewire LangGraph nodes to use graph-guided retrieval ✅ Complete
+
+**Goal:** Actually plug `graph_guided_context()` into the tutor's nodes — Phase 79 built the retrieval function, this wires it into the live session.
+
+**Fix:** `backend/interactive_tutor/graph.py` — added `current_topic_id: str` to `GraphState`, populated by `present_concept` (which now falls back to `graph_guided_context(mode="present")` instead of pure ChromaDB). `provide_hint` switched to `mode="hint"`; `simplify_foundations` now pulls prerequisite definitions via `mode="simplify"`. `_advance_concept` reorders `remaining_concepts` by `teaching_order()` when a graph exists, and resets `current_topic_id` so the next `present_concept` call repopulates it. All changes are graceful (`.get()` with defaults) and add no new nodes to the graph's `node_map`.
+
+**Files:** `backend/interactive_tutor/graph.py`. Commit: `4c7e6f8`.
+
+---
+
+## Phase 81 — Update SPEC, ARCHITECTURE, README for knowledge graph ✅ Complete
+
+**Goal:** First-pass documentation for the now-complete knowledge-graph feature.
+
+**Fix:** Added an `Exp | LLM Knowledge Graph` row to SPEC.md's release-phase table (pointing at a `llmgraph_spec.md` that was never actually created — flagged in Phase 82 below, not fixed there either, since writing a full spec retroactively is out of scope for a docs-sync pass). Added NetworkX to ARCHITECTURE.md's tech stack and the `knowledge_graph/` package to its directory structure. Documented `AI_TUTOR_GRAPH_DIR` in README.md's environment-variables table. This was a first pass only — it didn't touch ARCHITECTURE.md's LangGraph Tutor section (so the new `present_concept`/`provide_hint`/`simplify_foundations`/`advance_concept` behavior went undocumented there until Phase 82), and didn't touch README's feature list or CLAUDE.md at all.
+
+**Files:** `ARCHITECTURE.md`, `README.md`, `SPEC.md`. Commit: `43bd751`.
+
+---
+
+## Phase 82 — Sync ARCHITECTURE/CLAUDE/README/plan with guardrails + knowledge graph ✅ Complete
+
+**Goal:** This branch (`feature/update_md_files`) has Phase 73/74 (guardrails) and the knowledge-graph feature (Phase 75-81 above) merged into its code and into SPEC.md, but `ARCHITECTURE.md`/`CLAUDE.md`/`README.md` still only had Phase 81's partial knowledge-graph pass and none of the guardrails/dark-mode/Bloom's/VTT fixes from the equivalent work done previously on `feature/add-guardrails` (Phase 75-76 there, never merged anywhere else). Bring all four docs current in one pass, and backfill `plan.md` itself (Phase 75-81 above) so it actually matches what shipped.
+
+**Fix — ARCHITECTURE.md:** added the `backend/core/guardrails/` directory tree entry, fixed the LLM Factory class diagram (was still `LLMFactory --> BaseLLMClient`, missing the `GuardrailedLLMClient` wrapper entirely) and added a "Guardrails" subsection (§5a); fixed two factual errors — the Quiz data-model note ("Unchanged from Phase 1") and the Quiz page table entry ("Difficulty selector"), both stale since the Bloom's-taxonomy rename; added `vtt_parser.py`, the frontend utility modules (`nav.py`, `styles.py`, `sidebar_toggle.py`, `audio_autostop.py`, `mermaid_render.py`), and `test_e2e`/`test_observability` to the directory tree; removed the no-longer-real `quiz/difficulty.py` entry. For the knowledge graph specifically: added `current_topic_id` to the documented `GraphState`, rewrote the Nodes table's `present_concept`/`provide_hint`/`simplify_foundations`/`advance_concept` rows to describe the actual graph-guided behavior instead of the pre-Phase-80 ChromaDB-only description, added a new "§7a Knowledge-Graph-Guided Retrieval" subsection (the `graph_guided_context` mode table + fallback behavior), a `KnowledgeGraphStore` data-model contract under §10, and a GraphML storage node to the System Components diagram.
+
+**Fix — CLAUDE.md:** rewrote the Project Overview (same stale "GPT-2 Post-Training Project" title and MVP-only pitch as before) to name the current actual scope, and replaced the empty "Project Structure (target layout from SPEC.md)" stub with a pointer to `ARCHITECTURE.md §1`.
+
+**Fix — README.md:** fixed the dark-mode "no runtime toggle" claim, added a guardrails feature bullet + its 3 env vars, added a knowledge-graph feature bullet (Phase 81 had only documented the env var, not the feature itself), added `guardrails/` to the project-structure tree.
+
+**Fix — plan.md:** backfilled Phase 75-81 (this section) and this entry.
+
+**Files:** `ARCHITECTURE.md`, `CLAUDE.md`, `README.md`, `plan.md`.
+
+---
+
 ## Branch sync note
 
 While Phases 67-72 were in progress, `origin/main` advanced 8 commits ahead (max-topics-limit upload UX, audio/diagram fixes, session-restore-via-query-params). Per this project's commit convention, all 6 phases were committed individually before merging `origin/main` in, so the work was never at risk of being lost to a conflict. The merge (`e889f98`) resolved with zero textual conflicts; a pre-existing, unrelated test failure (`test_present_concept_fallback_populates_key_takeaways_even_with_diagram`) was confirmed via an isolated `git worktree` check to already fail on `origin/main` alone, not introduced by this branch.

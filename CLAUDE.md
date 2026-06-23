@@ -1,4 +1,4 @@
-# CLAUDE.md — GPT-2 Post-Training Project
+# CLAUDE.md — AI Tutor Project
 
 ## Project Overview
 
@@ -8,17 +8,8 @@ Static documents like PowerPoint and PDFs lead to passive learning and poor know
 
 Proposed Solution:
 
-AI Tutor is an intelligent web application that transforms static documentation (from PPTs, Word, PDFs) into dynamic, interactive learning modules. For the MVP 
-let us assume the fiels are provided as drop down by the user.
+AI Tutor is an intelligent web application that transforms static documentation (PDFs, PowerPoint, Word, and WebVTT transcripts) into dynamic, interactive learning modules. Uploaded content is decomposed into sub-topics with diagrams, audio narration, and inline questions, then served either as a self-paced module with a Bloom's-taxonomy-leveled quiz, or through a LangGraph-driven adaptive tutor that diagnoses the learner, adapts depth in real time, and tracks mastery across sessions. The platform also includes an admin-curated shared module library, a dark-mode UI, observability (tracing + LLM-judge evals), centralized input/output guardrails on every LLM call, and an experimental per-module knowledge graph that guides hints and concept ordering beyond plain vector search.
 
-The platform deconstructs content into concise sub-topics with diagrams and embeds single and multiple-choice questions to reinforce learning. 
-
-A comprehensive quiz at the end of each module assesses user knowledge, featuring:
-    
-Selectable difficulty levels.
-Randomized questions for each attempt.
-Performance analytics showing the user's score against the minimum, maximum, and average of all participants.
- 
 All authoritative requirements live in **SPEC.md**.
 
 ---
@@ -123,8 +114,9 @@ After committing a phase:
 
 ---
 
-## Project Structure (target layout from SPEC.md)
+## Project Structure
 
+See [ARCHITECTURE.md §1](ARCHITECTURE.md#1-directory-structure) for the current directory layout.
 
 ---
 
@@ -163,4 +155,3 @@ flowchart LR
 ````
 
 ---
-
