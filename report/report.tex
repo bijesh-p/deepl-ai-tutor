@@ -44,9 +44,7 @@ failing silently. Second, a knowledge graph is built for each module. It records
 which concepts are prerequisites of others. The tutor can then ground a hint in
 the right earlier concept rather than in text that only sounds similar. Third,
 every generated question is tagged with one of six Bloom's taxonomy levels in
-place of an informal difficulty label. We also report three reliability lessons.
-Each recurred at a boundary between systems, and none came from the language
-model's output itself.
+place of an informal difficulty label.
 \end{abstract}
 
 \end{frontmatter}
@@ -65,67 +63,54 @@ the right depth, asks a follow up question, and then advances or remediates
 based on the answer. The tutor also stores its hints and explanations in a
 retrieval store built from the same content~\cite{lewis2020retrieval}.
 
-The rest of this report is organized by section. Section 2 describes the
-architecture. It covers the content pipeline, the adaptive tutor, and the tool
-servers and vector store they both use. It also covers how the system reaches
-different language model providers and how it evaluates its own output. Sections
-3 to 5 describe three additions built on that architecture. Section 3 covers a
-guardrail layer that checks every language model call for safety. Section 4
-covers a knowledge graph that lets the tutor ground a hint in a prerequisite
-concept rather than in similar sounding text. Section 5 covers the switch from
-an informal difficulty label to Bloom's taxonomy levels. Section 6 reports three
-reliability lessons that recurred at the boundaries of these systems. The
-appendices give the supporting detail, and each one names the section it
-supports.
+Section 2 describes the architecture: the content pipeline, the adaptive tutor,
+and the tool servers and vector store they share. Sections 3 to 5 describe three
+additions built on it: a guardrail layer on every language model call, a
+knowledge graph that grounds a hint in a prerequisite concept, and a switch from
+informal difficulty labels to Bloom's taxonomy levels. Section 6 reports
+evaluation results and Section 7 outlines future work. The appendices give
+supporting detail, including three reliability lessons that recurred at the
+boundaries between these systems.
 
 \section{System architecture}
 
 \subsection{Ingestion pipeline}
 
-Before the content pipeline in Section 2.2 runs, a parser specific to the
-file type turns it into one shared model of titled sections, so the rest of
-the system never has to know which format a file started as. A PDF is read
-through PyMuPDF, with each table of contents entry becoming one section, or
-one section per page when no table of contents exists. A slide deck becomes
-one section per slide. A Word file splits at each heading, folding the
-paragraphs that follow into that section, or becomes one section when it has
-no headings. A WebVTT transcript is split by its own classifier, covered in
-Appendix A. Each parser also bounds how much of a file it reads, so a very
-long document cannot push unbounded text downstream.
+A parser specific to the file type turns each upload into one shared model of
+titled sections, so the rest of the system never sees the original format. A PDF
+is read through PyMuPDF (one section per table of contents entry, else per page);
+a slide deck becomes one section per slide; a Word file splits at each heading;
+and a WebVTT transcript is split by its own classifier (Appendix A). Each parser
+bounds how much it reads, so a long document cannot push unbounded text
+downstream.
 
 \subsection{Content pipeline}
 
-A background thread splits an uploaded document into topics using a sliding
-window over the text. After each chunk of accumulated text, a language model
-call decides whether enough material has built up to form one coherent topic.
-If no window closes cleanly before a length limit, the pipeline forces a
-publish so the document still finishes processing. For each topic, a further
-language model call writes an explanation. A separate call attempts a
-diagram. The system checks that the diagram is well formed and has at least
-one edge. If it is not, a second call writes a bullet point summary instead,
-so every topic always ends up with a diagram or a summary. A further call
-writes comprehension questions for the topic. Each topic is shown to the
-learner as soon as its own chain finishes, rather than after the whole document
-is done. The learner can start before later topics finish. Once every topic has
-been processed, a final call writes the end of module quiz. The module is then
-saved to the database and to the vector store described in Section 2.5.
+A background thread splits an uploaded document into topics with a sliding
+window: after each chunk, a language model call decides whether enough material
+has built up to form one coherent topic, and a length limit forces a publish if
+no window closes cleanly. For each topic, further calls write an explanation, a
+diagram, and comprehension questions. If the diagram is not well formed with at
+least one edge, a fallback call writes a bullet summary instead, so every topic
+ends up with a diagram or a summary. Each topic's explanation is also narrated to
+an mp3 with edge-tts, a local text to speech engine that needs no language model
+call. Each topic is shown as soon as its own chain
+finishes, so the learner can start before later topics complete. A final call
+then writes the end of module quiz, and the module is saved to the database and
+the vector store (Section 2.5).
 
 \subsection{Adaptive tutor}
 
-The adaptive tutor is a LangGraph state machine, shown in Figure 1. A
-diagnostic call generates multiple choice questions on the learner's prior
-knowledge of the upcoming topic. Scoring those questions is the only
-deterministic step in the graph. It sets a presentation depth of beginner,
-intermediate, or advanced. That depth then shapes the instructions for every
-later call. Presenting a concept is itself a short chain of its own. If
-the pipeline already enriched this topic, the tutor reuses that content and
-adapts it to the learner's depth. If the topic was not enriched yet, the tutor
-retrieves the closest matching content for that concept instead (Section 4).
-This happens, for example, after resuming an unfinished session. The tutor then
-asks a follow up question and grades the learner's free text answer with two
-further calls. A correct answer moves on to the next concept. An incorrect
-answer goes to a remediation step that either gives a grounded hint or
-simplifies the explanation, then loops back to ask the question again.
+The adaptive tutor is a LangGraph state machine (Figure 1). A diagnostic call
+generates multiple choice questions on the learner's prior knowledge; scoring
+them is the only deterministic step and sets a presentation depth of beginner,
+intermediate, or advanced that shapes every later call. To present a concept the
+tutor reuses the pipeline's enriched content adapted to that depth, or retrieves
+the closest matching content when the topic was not enriched yet (Section 4), as
+happens after resuming a session. It then asks a follow up question and grades
+the free text answer. A correct answer advances; an incorrect one goes to a
+remediation step that gives a grounded hint or simplifies the explanation, then
+loops back to ask again.
 
 \begin{figure}[t]
 \centering
@@ -166,201 +151,160 @@ present concept, hint, and simplify steps use graph-guided retrieval
 
 \subsection{Tool servers}
 
-All effects outside the language model are isolated behind three tool
-servers that follow the Model Context Protocol~\cite{anthropic2024mcp}, reached
-through a single client. A document server parses an uploaded PDF, slide deck,
-Word file, or transcript and extracts any embedded images. An assessment server
-checks that a piece of generated output matches the shape the calling code
-expects. A storage server saves a finished module to the database and reads
-and writes the vector store in Section 2.5. Because every server is reached
-through the same client, the pipeline and the tutor never import a parsing
-library, a database driver, or the vector store's client directly. Appendix
-A gives the full content pipeline diagram and the list of tools each server
-exposes. It also covers the VTT transcript ingestion path. That path skips the
-pipeline's own segmentation call, because a transcript already arrives split
-into sections.
+All effects outside the language model are isolated behind three tool servers
+that follow the Model Context Protocol~\cite{anthropic2024mcp}, reached through a
+single client. A document server parses uploads and extracts embedded images; an
+assessment server checks that generated output matches the expected shape; and a
+storage server saves modules and reads and writes the vector store (Section 2.5).
+Because every server is reached through the same client, the pipeline and tutor
+never import a parsing library, database driver, or vector store client directly.
+Appendix A gives the full pipeline diagram, the tools each server exposes, and
+the VTT transcript path.
 
 \subsection{Vector retrieval}
 
-Right after a topic is enriched, its full explanation is embedded and saved
-into a per module collection in a vector database, through the storage server.
-A small embedding model runs locally for this~\cite{reimers2019sentence},
-rather than through a separate provider call. This vector store is the system of
-record for the actual text of each concept. The knowledge graph in Section 4 decides which concept's text is
-worth fetching, but the text itself always comes from this store, never from
-the graph. The tutor's hint and concept presentation calls query this store
-only when the pipeline's own content for the current topic is missing. Every
-query is filtered to the current module's identifier, for the reason given as
-the third reliability lesson in Section 6.
+Right after a topic is enriched, its explanation is embedded by a small local
+model~\cite{reimers2019sentence} and saved into a per module collection through
+the storage server. This store is the system of record for each concept's text:
+the knowledge graph in Section 4 decides which concept to fetch, but the text
+always comes from here, never from the graph. The tutor queries it only when the
+pipeline's own content for the current topic is missing, and every query is
+filtered to the current module, for the reason given as the third reliability
+lesson in Appendix E.
 
 \subsection{Multi-provider access}
 
-An LLM factory gives the same uniformity on the model side that the tool
-servers give on the data side. Every call site in this report is written
-against one interface. A setting stored per user chooses whether calls go to
-Anthropic, to Portkey, or to a local Ollama model. That setting can be changed
-from the sidebar while the app is running. The full path from upload to a
-finished tutor session has been checked end to end against all three providers.
-Switching a deployment's model therefore changes only configuration, not the
-pipeline or the tutor code.
+An LLM factory gives the model side the same uniformity the tool servers give the
+data side: every call site is written against one interface. A per user setting,
+changeable from the sidebar at runtime, routes calls to Anthropic, Portkey, or a
+local Ollama model. The full path from upload to a finished session has been
+checked end to end against all three, so switching providers changes only
+configuration, not code.
 
 \subsection{Evaluation and observability}
 
-The system separates two kinds of evaluation that should not be mixed
-together. The first judges the learner during a session and drives the
-tutor itself. A language model call grades the learner's free text answer
-and decides whether the concept is mastered, and a deterministic step scores
-the diagnostic quiz and sets the presentation depth. The second judges the
-tutor's own output quality after a session ends and does not affect the
-session itself. Three metrics from DeepEval judge this output, each with a pass
-threshold of 0.5. They score whether the tutor's answers were relevant to the
-question asked, whether they stayed faithful to the source material, and
-whether the explanation was clear. These metrics run only when a user presses a
-Run Evals button on the observability page, so their cost stays under the
-user's control rather than being automatic. The same provider already selected
-for the session acts as the judge, so no separate key is needed. Every language
-model call in the system also sends a trace to a local tracing server. A
-developer can then inspect the calls a session actually made. Appendix F gives
-the full table of which tutor steps drive mastery and the definitions of the
-three quality metrics.
+The system separates two kinds of evaluation. The first judges the learner and
+drives the tutor: a call grades the free text answer and decides whether the
+concept is mastered, and a deterministic step scores the diagnostic quiz. The
+second judges the tutor's own output after a session, without affecting it: three
+DeepEval metrics (answer relevancy, faithfulness, and clarity, each with a 0.5
+pass threshold) run only when a user presses Run Evals, with the session's own
+provider as judge. Every call also emits an OpenTelemetry trace to a local Arize
+Phoenix server for inspection, with export to LangSmith available as an optional
+feature enabled from the \texttt{.env} file. Section~\ref{sec:eval-results}
+reports the results. Alongside these
+runtime evaluations, the codebase carries a pytest suite covering both unit tests
+of individual components, such as the parsers, the content pipeline, and the
+guardrail wrapper, and end to end tests that exercise the full path from upload
+to a finished session against each provider.
 
 \section{Guardrails on every language model call}
 
-The system makes its language model calls from fourteen call sites across
-the tutor and the content pipeline. None of them had any check on what went in
-or what came out. Two places carry text the system did not write itself into a
-prompt: text extracted from an uploaded document, and the learner's own free
-text answer in the tutor.
-
-Every call now goes through a wrapper class. The LLM factory puts this wrapper
-around the real provider client before handing it back to any caller. Because
-the wrapper sits at the factory, every call site is covered without any change
-to its own code. This includes call sites added later, such as the knowledge
-graph's relation extractor in Section 4. The wrapper runs four checks. A prompt
-injection check~\cite{greshake2023not} and an output quality check use a fixed
-set of patterns and no further language model call. A content safety check and
-a topic relevance check each use a second language model call against the same
-relevance check runs only when the caller passes the current topic. Of the four
-tutor functions that could do this, only one puts the learner's own words into
-its prompt: the function that grades a free text answer. The other three build
-their prompts from text the system already generated. Passing the topic to
-those three would only check the system's own well formed text against itself,
-with no safety benefit. If any check fails, the wrapper raises an error with a
-plain message. The existing error handling in the tutor and the pipeline then
-shows that message to the user, with no new code.
-
-The two checks that need a second language model call do not block a session
-if that second call itself fails. A failed safety check should not be worse
-than no safety check at all. The two pattern based checks never fail this way,
-since matching a fixed pattern cannot raise an error. Twenty six tests cover
-the wrapper. Appendix B gives the full table of checks and a regression the
-test suite caught while this layer was being built.
+The system makes language model calls from fourteen sites across the tutor and
+pipeline, none of which checked their input or output. Every call now goes
+through a wrapper that the LLM factory places around the provider client, so
+every site is covered, including ones added later such as the knowledge graph's
+relation extractor (Section 4). The wrapper runs four checks: a prompt injection
+check~\cite{greshake2023not} and an output quality check use fixed patterns,
+while a content safety check and a topic relevance check each make a second
+provider call. The relevance check runs only when the caller passes the current
+topic, which only the function grading a learner's free text answer does; the
+other sites build prompts from text the system already generated. A failed check
+raises a plain error that the existing error handling shows to the user, and a
+failure in the second call does not block the session. Twenty six tests cover the
+wrapper. Appendix B gives the full table and a regression the tests caught.
 
 \section{Graph-guided retrieval}
 
-Before this addition, the tutor had only one way to pull in outside material
-for a hint or a fallback explanation: the plain similarity search in Section
-2.4. That search has no notion that one concept is a prerequisite of another,
-or that two concepts are related beyond sounding alike. This limited what a
-hint could say. The tutor could re-explain the same concept the learner had
-just gotten wrong, but it could not pull in the earlier concept the learner was
-actually missing.
+The plain similarity search in Section 2.4 has no notion that one concept is a
+prerequisite of another, so a hint could only re-explain the concept the learner
+just missed, not the earlier one they actually lacked. The system now builds a
+graph for each module~\cite{hogan2021knowledge} that records typed relationships
+between concepts. It is built once every topic is enriched: a language model call
+reads the module's concepts and returns the relationships it finds, and any
+relationship to an unknown concept is dropped. If the call fails, the module
+still gets a graph from the parts that need no model, such as document order.
 
-The system now builds a graph for each module~\cite{hogan2021knowledge}. The
-graph records typed relationships between concepts, such as one concept being a
-prerequisite of another, or two concepts being related. It is built once the
-pipeline has
-enriched every topic, since deciding how concepts relate needs the whole set of
-concepts at once. A language model call reads a short list of the module's
-concepts and returns the relationships it finds through a tool call. The system
-drops any relationship that refers to a concept it does not recognize. If this
-call fails for any reason, the module still gets a graph built from the parts
-that need no language model, such as which topic follows which in the
-document's own order.
-
-When the tutor needs context, a retrieval function loads the module's graph
-and picks concepts relevant to the current concept and the kind of help needed.
-Presenting a concept pulls in related concepts and direct prerequisites. Giving
-a hint pulls in prerequisites first, since a wrong answer often means a missing
-earlier concept. Simplifying a concept pulls in prerequisites further back,
-ordered from earliest to latest. The function then fetches each selected
-concept's full text from the vector store in Section 2.5, the same store the
-plain similarity search already used. The system falls back to that same plain
-similarity search if a module has no graph yet, the current concept is not
-known, or any step raises an error. This follows the same discipline as the
-third reliability lesson in Section 6. Appendix C gives the full table of
+When the tutor needs context, a retrieval function picks concepts relevant to the
+current one and the kind of help needed (related concepts and prerequisites for a
+hint, prerequisites further back for a simplification), then fetches each one's
+text from the vector store in Section 2.5. It falls back to plain similarity
+search when a module has no graph, the concept is unknown, or any step fails,
+following the third reliability lesson in Appendix E. Appendix C gives the
 relationship types and the retrieval algorithm.
 
 \section{Bloom's taxonomy for question generation}
 
-The system generates questions in four places: the end of module quiz, the
-comprehension questions attached to each topic, the pre lesson diagnostic, and
-the tutor's own follow up question. Each question used to carry an informal
-label of easy, medium, or hard, with no real definition behind it. The system
-now tags every question with one of Bloom's six cognitive levels
-instead~\cite{anderson2001taxonomy}: remember, understand, apply, analyze,
-evaluate, and create. This follows the prompting approach from Scaria et
-al.~\cite{scaria2024bloom}. They tested
-several ways to prompt a language model for a target skill level. They found
-that three things worked best: giving the model a persona, asking it to reason
-through the question before writing it, and stating each level's definition in
-the prompt. Adding hand written example questions for each level made results
-worse, so the system does not use examples here.
+The system generates questions in four places: the end of module quiz, each
+topic's comprehension questions, the pre lesson diagnostic, and the tutor's
+follow up question. Each used to carry an informal easy, medium, or hard label;
+every question now carries one of Bloom's six cognitive levels
+instead~\cite{anderson2001taxonomy}. This follows Scaria et
+al.~\cite{scaria2024bloom}, who found that a persona, reasoning before writing,
+and stating each level's definition in the prompt worked best, while hand written
+examples made results worse. Each place uses a different slice of the six levels:
+the quiz mixes all six, comprehension questions use the first three, the
+diagnostic uses only remember and understand, and the follow up question maps the
+learner's depth to a pair of levels. Appendix D gives the full definitions and the
+question fields that changed.
 
-Each of the four places that generate questions uses a different slice of the
-six levels, since each one serves a different purpose. The end of module quiz
-mixes questions from all six levels in every attempt. The comprehension
-questions use only the first three levels, since a quick check during reading
-does not need the higher ones. The pre lesson diagnostic uses only remember and
-understand, since it runs before the learner has seen any material. The tutor's
-follow up question maps the learner's current presentation depth to a pair of
-levels. This ranges from remember or understand for a beginner up to evaluate
-or create for an advanced learner. Appendix D gives the full definitions of all
-six levels and the question fields that changed to carry the new label.
+\section{Evaluation results}
+\label{sec:eval-results}
 
-\section{Reliability lessons}
+The three end of session quality metrics are answer relevancy, faithfulness, and
+clarity. Relevancy checks that the explanation addresses the question asked,
+faithfulness that it says nothing the source does not support, and clarity
+(defined for this project) that it is understandable on its own. Each passes at a
+score of 0.5 or above. Scores are stored per metric and read back as a mean, a
+pass rate, and a count, so a session with several questions gives one aggregated
+result per metric rather than only the last answer's score.
 
-Three problems recurred across both the pipeline and the tutor.
+As a worked example, we ran the three metrics on a module generated from a slide
+deck on the Eyeriss deep learning accelerator~\cite{chen2016eyeriss}. All six
+slides passed the 0.5 threshold on every metric, with an overall average of
+0.799 (Table~\ref{tab:eyeriss-agg}); the lowest scores fell on the slide about
+data movement as an energy bottleneck. Appendix F gives the per slide table and
+the tutor steps that drive mastery during a session.
 
-The first is a one time setup cost left on the path the learner waits on. The
-vector store's embedding model downloads on first use, and the storage tool
-server's first call pays a variable cost importing native libraries. Both
-blocked the first content a new user saw, with no progress indicator and no
-time limit. The fix was the same in both cases: pay the cost once at startup, in
-a background thread, before any user reaches that code path, and give every call
-across a process boundary an explicit time limit.
+\begin{table}[h]
+\caption{Aggregate quality scores for the Eyeriss module (six slides).}
+\label{tab:eyeriss-agg}
+\centering
+\small
+\begin{tabular}{p{4.0cm}p{1.0cm}}
+\toprule
+\textbf{Metric} & \textbf{Score} \\
+\midrule
+Answer relevancy & 0.750 \\
+Faithfulness & 0.803 \\
+Explanation clarity & 0.843 \\
+Overall average & 0.799 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
-The second is that error handling does not cross from one runtime into
-another. The diagram renderer runs in the learner's browser, after the Python
-code that produced the diagram has returned and left its error handling behind.
-A raw failure in the browser was therefore invisible to the server and reached
-the learner directly. The fix was to catch the failure in the browser's own
-code, check that the diagram is visible and well formed before measuring it,
-give every render a time limit, and fall back to the bullet point summary from
-Section 2.2.
+\section{Future work}
 
-The third is that retrieval should be a narrow fallback, not something run on
-every call. An earlier version searched the vector store on every call and
-sometimes returned text that read well but came from the wrong module, which
-was worse than not searching at all. The tutor now searches only when the
-pipeline's own content for a topic is missing, and every search is filtered to
-the current module. Appendix E gives the full account of all three problems.
-
-
+Two experimental features were prototyped on a separate GitHub branch but are
+not yet part of the main system. The first is a chatbot that lets a student
+interact with the tutor in free conversation rather than only through the
+guided question and answer loop. The second is animation support that would
+illustrate a concept with a short motion graphic alongside its static diagram.
+Neither was stable enough to merge, so both are left for future work.
 
 \section{Conclusion}
 
-AI Tutor's content pipeline and its adaptive tutor are each a short chain of
-language model calls. Retries, fallbacks, and a per call decision about whether
-to ground the call in retrieved content connect that chain. Neither system is a
-single prompt, and neither is a fully autonomous agent making its own plans.
-The three additions in this report, the guardrail layer, the knowledge graph,
-and the Bloom's taxonomy labels, were each added at the boundary of this chain
-rather than by changing the chain itself. That is also why each one could be
-tested and verified on its own. The reliability lessons in Section 6 point the
-same way. Every recurring failure sat at a boundary: between two processes,
-between two programming languages, or between a call site and the decision of
-whether to retrieve for it. None sat inside the language model call itself.
+AI Tutor's content pipeline and adaptive tutor are each a short chain of language
+model calls connected by retries, fallbacks, and a per call decision about
+whether to ground the call in retrieved content. Neither is a single prompt, and
+neither is a fully autonomous agent. The three additions, the guardrail layer,
+the knowledge graph, and the Bloom's taxonomy labels, were each added at the
+boundary of this chain rather than by changing it, which is why each could be
+tested on its own. The reliability lessons point the same way: every recurring
+failure sat at a boundary between systems, never inside the language model call
+itself.
+
+\bibliography{report}
 
 \clearpage
 
@@ -436,7 +380,7 @@ Storage & Save a module to the database. Add a topic's text to the vector store.
 The vector store is a ChromaDB collection scoped to one module. A small model
 produces the text embedded into it, running locally through the ONNX runtime
 rather than a separate machine learning framework. This is why the first
-reliability lesson in Section 6 describes a one time download cost rather than a
+reliability lesson in Appendix E describes a one time download cost rather than a
 per call network cost. Each stored entry carries the module identifier and the
 topic identifier as metadata. That metadata is what lets a query in Section 2.5
 filter to the current module.
@@ -469,7 +413,8 @@ client implements did not yet declare a topic argument; only the wrapper did.
 The fix added that argument, with a default of no value, to the shared
 interface and to every provider client. A provider client used on its own and a
 provider client wrapped in guardrails now accept the same call. The test suite
-caught this before the change was committed. The lesson matches Section 6. A
+caught this before the change was committed. The lesson echoes those in
+Appendix E. A
 change that looks safe because it only adds an argument can still break a caller
 that does not go through the new code path.
 
@@ -528,7 +473,10 @@ difficulty label on a question now holds one of these six level names. A quiz
 that used to be generated at a single difficulty is now generated as a mix
 across all six levels in one pass.
 
-\section{Reliability lessons in full (supports Section 6)}
+\section{Reliability lessons}
+
+Three problems recurred across the pipeline and the tutor, each at a boundary
+between systems rather than inside a language model call.
 
 The vector store's default embedding function downloads an eighty megabyte
 model the first time it runs. Before the fix, this download happened on the
@@ -566,8 +514,11 @@ for the current topic was missing. This stopped happening, because the search
 space for any one call became much smaller and only ever contained content that
 could plausibly be relevant.
 
+\section{Evaluation detail (supports Section 6)}
 
-\section{Evaluation detail in full (supports Section 2.7)}
+Table~\ref{tab:eval-nodes} lists the tutor steps that drive mastery during a
+session. Table~\ref{tab:eyeriss-slides} gives the per slide quality scores for
+the Eyeriss worked example.
 
 \begin{table}[h]
 \caption{Steps that drive mastery during a session.}
@@ -588,41 +539,23 @@ Simplify & Yes & Resets the attempt count \\
 \end{tabular}
 \end{table}
 
-The three end of session quality metrics are an answer relevancy score, a
-faithfulness score, and a clarity score. The answer relevancy score checks that
-the tutor's explanation actually addresses the question asked rather than
-drifting off topic. The faithfulness score checks that the explanation does not
-say something the source material does not support. The clarity score, defined
-for this project, checks that the explanation is understandable on its own.
-Each metric passes at a score of 0.5 or above. Scores from a session are stored
-per metric and later read back as a mean, a pass rate, and a count, rather than
-being overwritten by the last value seen. A session with several questions
-therefore gets one aggregated result per metric, instead of losing all but the
-final answer's score.
-
-\section{Future work}
-
-A few gaps follow directly from the system described above. First, audio
-narration is currently generated for each topic only when that topic is about
-to be shown, rather than ahead of time. Pre-generating it for every topic
-during the pipeline run, with a way to invalidate the cache when a topic is
-regenerated, would remove that wait from the live tutoring path entirely. This
-is in the same spirit as the pre-warming fix in Section 6. Second, the
-guardrail layer in Section 3 checks topic relevance at one call site, because
-that is the one site that puts a learner's own words into a prompt. If a later
-change threads learner-authored text into the hint or follow up question calls,
-those sites should gain the same check. Third, the knowledge graph in Section 4
-is scoped to one module by design. Extending it to a learner's history across
-modules, while keeping the same per-module filtering discipline from Section 6,
-could let the tutor connect a new concept to material the learner already
-completed elsewhere. Fourth, the quality metrics in Section 2.7 have not yet
-been checked against actual learning outcomes, such as a learner's quiz score
-after a tutoring session. That comparison would show whether the metrics
-measure what the project intends. Finally, the relation extractor in Section 4
-makes one call per module regardless of how many concepts the module has. For a
-very large module, it may be worth splitting that call into smaller batches and
-checking whether this changes the quality of the relationships it finds.
-
-\bibliography{report}
+\begin{table}[h]
+\caption{Per slide quality scores for the Eyeriss module.}
+\label{tab:eyeriss-slides}
+\centering
+\small
+\begin{tabular}{p{4.0cm}p{0.9cm}p{0.9cm}p{0.9cm}}
+\toprule
+\textbf{Slide} & \textbf{Rel.} & \textbf{Faith.} & \textbf{Clarity} \\
+\midrule
+Eyeriss: energy-efficient CNN accelerator and data movement & 0.82 & 0.88 & 0.85 \\
+Data movement as a key energy bottleneck & 0.60 & 0.65 & 0.80 \\
+Challenges and gaps in CNN hardware accelerator design & 0.72 & 0.78 & 0.74 \\
+Eyeriss: a spatial architecture for energy efficiency & 0.82 & 0.85 & 0.91 \\
+CNN layer computation: feature maps, filters, convolution & 0.72 & 0.78 & 0.85 \\
+Eyeriss architecture: memory hierarchy and control & 0.82 & 0.88 & 0.91 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \end{document}
