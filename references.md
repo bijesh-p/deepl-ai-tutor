@@ -61,6 +61,11 @@
 - [Python sqlite3 stdlib](https://docs.python.org/3/library/sqlite3.html) — Standard library SQLite interface used in `backend/analytics/db.py`.
 - [Python dataclasses](https://docs.python.org/3/library/dataclasses.html) — Used for all data models.
 
+## Knowledge Graph
+
+- [NetworkX Documentation](https://networkx.org/documentation/stable/) — Python library for creating, manipulating, and analysing complex graphs; used in `backend/content/knowledge_graph/store.py` as the in-memory `MultiDiGraph` backing the per-module knowledge graph.
+- [GraphML Format](http://graphml.graphdrawing.org/) — XML-based graph interchange format; used for per-module persistence (`data/graph/{module_id}.graphml`). NetworkX `write_graphml`/`read_graphml` round-trip typed node/edge attributes.
+
 ## Package Management
 
 - [uv Documentation](https://docs.astral.sh/uv/) — Fast Python package and project manager; replaces pip + venv.
