@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 import streamlit as st
 from backend.quiz.assembler import assemble_quiz
 from backend.quiz.evaluator import evaluate
@@ -163,14 +165,22 @@ def _render_quiz_intro(bank: QuestionBank) -> None:
                 unsafe_allow_html=True,
             )
 
-    st.caption(f"{total} questions in the bank · quiz draws up to 12, spread across all six levels.")
+    quiz_count = min(total, 12)
+    quiz_mins = (quiz_count * 90) // 60
+    st.caption(
+        f"{total} questions in the bank · quiz draws up to 12, spread across all six levels. "
+        f"Time limit: **{quiz_mins} minutes** (1½ min per question)."
+    )
 
     st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
 
     if st.button("Start Quiz", type="primary"):
-        st.session_state["quiz"] = assemble_quiz(bank, num_questions=12)
+        quiz = assemble_quiz(bank, num_questions=12)
+        st.session_state["quiz"] = quiz
         st.session_state["quiz_current_idx"] = 0
         st.session_state["quiz_answers"] = {}
+        st.session_state["quiz_start_time"] = time.monotonic()
+        st.session_state["quiz_time_limit"] = len(quiz.questions) * 90
         st.rerun()
 
 
@@ -180,12 +190,25 @@ def _render_quiz_question() -> None:
     total_q = len(questions)
     ss = st.session_state
 
+    # ── Timer: check for expiry before rendering anything ─────────────────────
+    start = ss.get("quiz_start_time", 0)
+    limit = ss.get("quiz_time_limit", 0)
+    elapsed = time.monotonic() - start
+    remaining = max(0, int(limit - elapsed))
+
+    if remaining <= 0:
+        ss["quiz_timed_out"] = True
+        _submit_quiz(quiz)
+        return
+
+    mins, secs = divmod(remaining, 60)
+    timer_color = "#EF4444" if remaining <= 60 else ("#F59E0B" if remaining <= 180 else "#10B981")
+
     if "quiz_current_idx" not in ss:
         ss["quiz_current_idx"] = 0
     idx = ss["quiz_current_idx"]
     q = questions[idx]
 
-    # Restore any saved answer for this question into widget state BEFORE rendering
     _restore_widget_state(q, ss)
 
     answered_count = sum(1 for q2 in questions if _is_answered(q2, ss))
@@ -199,13 +222,15 @@ def _render_quiz_question() -> None:
     q_num_color = "#F1F5F9" if dark else "#1E1B4B"
     left_color = "#64748B" if dark else "#9CA3AF"
 
-    # ── Compact header: title + badge + progress stats in one HTML block ──────
+    # ── Compact header: title + badge + timer + progress stats ────────────────
     st.markdown(
         f"<div style='display:flex;align-items:center;justify-content:space-between;"
         f"margin-bottom:6px;flex-wrap:wrap;gap:6px;'>"
         f"<h2 style='margin:0;font-size:1.3rem;font-weight:700;color:{h2_color};'>Quiz</h2>"
         f"<div style='display:flex;align-items:center;gap:10px;flex-wrap:wrap;'>"
-        f"<span style='font-size:12px;color:#10B981;font-weight:600;'>✓ {answered_count}</span>"
+        f"<span style='font-size:13px;color:{timer_color};font-weight:700;"
+        f"font-variant-numeric:tabular-nums;'>&#9201; {mins:02d}:{secs:02d}</span>"
+        f"<span style='font-size:12px;color:#10B981;font-weight:600;'>&#10003; {answered_count}</span>"
         f"<span style='font-size:12px;color:{left_color};'>{unanswered} left</span>"
         f"<span style='background:{bloom_bg};color:{bloom_fg};border:1px solid {bloom_border};"
         f"padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;'>"
@@ -288,6 +313,19 @@ def _render_quiz_question() -> None:
         key="_quiz_submit",
     ):
         _submit_quiz(quiz)
+        return
+
+    _quiz_timer_fragment()
+
+
+@st.fragment(run_every=1)
+def _quiz_timer_fragment() -> None:
+    ss = st.session_state
+    start = ss.get("quiz_start_time", 0)
+    limit = ss.get("quiz_time_limit", 0)
+    remaining = max(0, int(limit - (time.monotonic() - start)))
+    if remaining <= 0:
+        st.rerun()
 
 
 def _submit_quiz(quiz) -> None:
@@ -299,10 +337,14 @@ def _submit_quiz(quiz) -> None:
     db = get_db(st.session_state.get("db_path"))
     save_attempt(result, "mixed", db=db)
 
+    timed_out = st.session_state.pop("quiz_timed_out", False)
     st.session_state["quiz_result"] = result
+    st.session_state["quiz_result_timed_out"] = timed_out
     st.session_state["quiz_questions_map"] = {q.question_id: q for q in quiz.questions}
     st.session_state["page"] = "results"
     del st.session_state["quiz"]
     st.session_state.pop("quiz_current_idx", None)
     st.session_state.pop("quiz_answers", None)
+    st.session_state.pop("quiz_start_time", None)
+    st.session_state.pop("quiz_time_limit", None)
     st.rerun()
