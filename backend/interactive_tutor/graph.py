@@ -23,6 +23,7 @@ from backend.core.llm_client import LLMFactory
 class GraphState(TypedDict):
     # Current position
     current_concept: str
+    current_topic_id: str          # topic_id for graph-guided retrieval (empty string = unknown)
     concept_content: str           # enriched Markdown (from pipeline or generated)
     concept_summary: str           # topic summary (always available from decomposer)
     current_question: dict | None
@@ -243,9 +244,20 @@ def present_concept(state: GraphState) -> dict:
     enriched = state.get("enriched_topic")
 
     # Pipeline hasn't enriched this topic yet (or session was resumed without
-    # state) — fall back to ChromaDB-retrieved content for this concept.
+    # state) — fall back to graph-guided retrieval (or pure vector if no graph).
     if not enriched or not enriched.get("content_md"):
-        retrieved = _retrieve_context(state["module_id"], concept, n_results=1)
+        topic_id = state.get("current_topic_id") or None
+        if topic_id:
+            from backend.content.knowledge_graph.retrieval import graph_guided_context
+            retrieved = graph_guided_context(
+                state.get("module_id", ""),
+                topic_id,
+                concept,
+                mode="present",
+                max_defs=1,
+            )
+        else:
+            retrieved = _retrieve_context(state.get("module_id", ""), concept, n_results=1)
         if retrieved:
             enriched = {
                 **(enriched or {}),
@@ -293,6 +305,12 @@ def present_concept(state: GraphState) -> dict:
                 pass
 
         if content_md:
+            # Populate current_topic_id from the enriched topic's topic object
+            topic_obj = enriched.get("topic", {})
+            current_topic_id = (
+                topic_obj.get("topic_id", "") if isinstance(topic_obj, dict)
+                else getattr(topic_obj, "topic_id", "")
+            )
             # Fast path: pipeline audio is already diagram-synced and depth-annotated.
             # Only run depth-adaptation LLM when pipeline audio is missing.
             audio_enabled = state.get("audio_enabled", True)
@@ -351,6 +369,7 @@ def present_concept(state: GraphState) -> dict:
                 "topic_audio_path": audio_path,
                 "topic_top_concepts": top_concepts,
                 "concept_content": transcript,
+                "current_topic_id": current_topic_id,
                 "chat_history": history,
                 "attempts": 0,
                 "concept_mastered": False,
@@ -576,7 +595,13 @@ def provide_hint(state: GraphState) -> dict:
         "and uses a different analogy or example than before."
     )
 
-    context = _retrieve_context(state["module_id"], feedback or concept)
+    from backend.content.knowledge_graph.retrieval import graph_guided_context
+    context = graph_guided_context(
+        state["module_id"],
+        state.get("current_topic_id") or None,
+        feedback or concept,
+        mode="hint",
+    )
     if context:
         prompt = f"Relevant material:\n{context}\n\n{prompt}"
 
@@ -592,6 +617,14 @@ def simplify_foundations(state: GraphState) -> dict:
     concept = state["current_concept"]
     content = state.get("concept_content", "")
 
+    from backend.content.knowledge_graph.retrieval import graph_guided_context
+    prereq_context = graph_guided_context(
+        state.get("module_id", ""),
+        state.get("current_topic_id") or None,
+        concept,
+        mode="simplify",
+    )
+
     prompt = (
         f"The student has struggled with '{concept}' after multiple attempts.\n"
         f"Original explanation:\n{content}\n\n"
@@ -599,6 +632,8 @@ def simplify_foundations(state: GraphState) -> dict:
         "Explain each one simply, then show how they combine. "
         "Use very simple language and concrete examples."
     )
+    if prereq_context:
+        prompt = f"Prerequisite concepts the student should understand first:\n{prereq_context}\n\n{prompt}"
 
     simplified = llm.generate(prompt, system="You are explaining to a complete beginner.")
     history = list(state.get("chat_history", []))
@@ -620,9 +655,23 @@ def _advance_concept(state: GraphState) -> dict:
     remaining = list(state.get("remaining_concepts", []))
     mastered = list(state.get("mastered_concepts", []))
     mastered.append(state["current_concept"])
+
+    # Prereq-aware reordering: only reorder when a prerequisite would otherwise
+    # be taught after its dependent (open question 2 resolution from spec).
+    try:
+        from backend.content.knowledge_graph.store import KnowledgeGraphStore
+        store = KnowledgeGraphStore.load(state.get("module_id", ""))
+        if store and remaining:
+            order = store.teaching_order()
+            order_map = {nid: i for i, nid in enumerate(order)}
+            remaining.sort(key=lambda n: order_map.get(n, 9999))
+    except Exception:
+        pass
+
     next_concept = remaining.pop(0) if remaining else ""
     return {
         "current_concept": next_concept,
+        "current_topic_id": "",  # cleared; present_concept will re-populate from enriched_topic
         "remaining_concepts": remaining,
         "mastered_concepts": mastered,
         "concept_mastered": False,
