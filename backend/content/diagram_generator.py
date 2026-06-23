@@ -213,26 +213,22 @@ def _try_diagram(source_text: str, topic: Topic, llm) -> Diagram | None:
 
 
 def _try_bullets(source_text: str, topic: Topic, llm) -> list[str]:
-    prompt = (
-        f"Topic: {topic.title}\n"
-        f"Summary: {topic.summary}\n\n"
-        f"Source text:\n{source_text[:3000]}\n\n"
-        "Extract the 4-6 most important key ideas."
-    )
-    try:
-        result = llm.generate(
-            prompt=prompt,
-            system=_BULLETS_SYSTEM,
-            tool_schema=_BULLETS_TOOL_SCHEMA,
-        )
-        if isinstance(result, dict):
-            bullets = result.get("bullets", [])
-            if bullets:
-                return bullets
-    except Exception:
-        pass
-    # Hard fallback — use the topic summary as a single bullet
-    return [topic.summary] if topic.summary else ["Key ideas from this section."]
+    """Extract 4-5 key bullets from source text without an LLM call.
+
+    Splits on sentence boundaries and picks the 5 longest (most content-dense)
+    sentences in document order. The llm parameter is kept for call-site
+    compatibility but is not used.
+    """
+    text = source_text[:3000].strip()
+    raw = re.split(r'(?<=[.!?])\s+', text)
+    sentences = [s.strip() for s in raw if len(s.split()) >= 6]
+    if not sentences:
+        return [topic.summary] if topic.summary else ["Key ideas from this section."]
+    # Pick indices of 5 longest sentences, then restore document order
+    indexed = sorted(enumerate(sentences), key=lambda x: len(x[1].split()), reverse=True)
+    top_indices = {i for i, _ in indexed[:5]}
+    ordered = [s for i, s in enumerate(sentences) if i in top_indices]
+    return [" ".join(s.split()[:20]) for s in ordered]
 
 
 _DIAGRAM_HEADER_RE = re.compile(
@@ -312,11 +308,11 @@ def _sanitize_mermaid(code: str) -> str:
         assignments = [f"class {nid} {classes[i % len(classes)]}" for i, nid in enumerate(node_ids)]
         code = code + "\n" + "\n".join(assignments)
 
-    # Hard node cap: reject diagrams with more than 7 nodes
+    # Soft node cap: switch to TD when too many nodes so the diagram stays readable
     node_pattern = re.compile(r'^\s*(\w+)\s*[\[\({]', re.MULTILINE)
     capped_node_ids = list(dict.fromkeys(m.group(1) for m in node_pattern.finditer(code)))
     if len(capped_node_ids) > 7:
-        return ""
+        code = re.sub(r'^(flowchart|graph)\s+LR', r'\1 TD', code, count=1, flags=re.MULTILINE)
 
     return code
 

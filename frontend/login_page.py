@@ -147,6 +147,9 @@ def _do_login(name: str, is_admin: bool) -> None:
         st.session_state["llm_model"] = saved_model
     st.session_state["dark_mode"] = profile.get("dark_mode", True)  # default dark if no saved preference
 
+    st.query_params["user"] = name
+    st.query_params["admin"] = "1" if is_admin else "0"
+
     st.session_state["page"] = "upload"
     st.rerun()
 

@@ -6,11 +6,14 @@ from datetime import datetime, timezone
 import streamlit as st
 from backend.content.diagram_generator import _sanitize_mermaid
 from backend.content.models import LearningModule, Question
+from frontend.audio_autostop import render_audio_autostop
 from frontend.mermaid_render import render_mermaid
 from frontend.nav import render_back_button
+from frontend.styles import topic_highlight_chips_html
 
 
 def render_module_viewer(module: LearningModule) -> None:
+    render_audio_autostop()
     render_back_button("← Back to Module Library", "module_library", key="_back_module_viewer")
 
     progress = st.session_state.get("pipeline_progress")
@@ -32,17 +35,6 @@ def render_module_viewer(module: LearningModule) -> None:
             st.rerun()
     st.markdown("---")
 
-    with st.sidebar:
-        st.markdown("### Contents")
-        for et in module.topics:
-            st.markdown(f"- {et.topic.title}")
-        if generating and progress:
-            pending_topics = progress.get("topics", [])
-            enriched_titles = {et.topic.title for et in module.topics}
-            for t in pending_topics:
-                if t.title not in enriched_titles:
-                    st.markdown(f"- *{t.title}* (pending)")
-
     if module.topics:
         # Tabs give an always-visible topic index — clearer "where am I" than
         # stacking every topic as an always-expanded expander, and they don't
@@ -51,8 +43,8 @@ def render_module_viewer(module: LearningModule) -> None:
         for tab, et in zip(tabs, module.topics):
             with tab:
                 if et.top_concepts:
-                    concepts_text = " | ".join(f"**{c}**" for c in et.top_concepts)
-                    st.info(f"Top concepts: {concepts_text}")
+                    st.markdown("**Top concepts:**")
+                    st.markdown(topic_highlight_chips_html(et.top_concepts), unsafe_allow_html=True)
 
                 if et.audio_path:
                     st.audio(et.audio_path, format="audio/mp3")

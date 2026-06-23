@@ -82,6 +82,7 @@ def run_sliding_pipeline(
     abort_event: threading.Event,
     tracer,
     chunk_words: int = CHUNK_WORDS,
+    max_topics: int = 0,
 ) -> list[EnrichedTopic]:
     """Process the document in sliding windows, publishing slides as they emerge.
 
@@ -91,6 +92,9 @@ def run_sliding_pipeline(
 
     Returns the final list of published EnrichedTopics.
     """
+    if max_topics <= 0:
+        max_topics = progress.get("max_topics", 0)
+
     all_words = _doc_words(doc)
     if not all_words:
         raise ValueError(
@@ -99,14 +103,17 @@ def run_sliding_pipeline(
         )
 
     if doc.source_type == SourceType.VTT:
-        return _run_pre_segmented(doc, llm, progress, abort_event, tracer)
+        return _run_pre_segmented(doc, llm, progress, abort_event, tracer, max_topics=max_topics)
     accumulated: list[tuple[str, str]] = []   # (word, section_id)
     published: list[EnrichedTopic] = []
     idx = 0
     total_words = len(all_words)
     module_id = progress.get("module_id", "")
     # Initial estimate: one topic per MAX_ACCUMULATE_WORDS words
-    progress["total_topics"] = max(1, total_words // MAX_ACCUMULATE_WORDS)
+    estimated = max(1, total_words // MAX_ACCUMULATE_WORDS)
+    if max_topics > 0:
+        estimated = min(estimated, max_topics)
+    progress["total_topics"] = estimated
 
     for start in range(0, total_words, chunk_words):
         if abort_event.is_set():
@@ -152,17 +159,24 @@ def run_sliding_pipeline(
                 # Refine total estimate using actual words-per-topic rate
                 words_processed = start + len(chunk)
                 words_per_topic = words_processed / len(published)
-                progress["total_topics"] = max(len(published), round(total_words / words_per_topic))
+                refined = max(len(published), round(total_words / words_per_topic))
+                if max_topics > 0:
+                    refined = min(refined, max_topics)
+                progress["total_topics"] = refined
 
                 if len(published) == 1:
                     progress["ready"] = True   # triggers redirect to tutor room
 
                 idx += 1
 
+                if max_topics > 0 and len(published) >= max_topics:
+                    break
+
             accumulated = []   # reset — next chunk starts fresh
 
     # Handle leftover text at end of document
-    if accumulated and not abort_event.is_set():
+    reached_cap = max_topics > 0 and len(published) >= max_topics
+    if accumulated and not abort_event.is_set() and not reached_cap:
         assessment = _assess(llm, accumulated)
         # Always publish leftover if nothing was published yet — last resort fallback
         force = not published
@@ -206,6 +220,7 @@ def _run_pre_segmented(
     progress: dict,
     abort_event: threading.Event,
     tracer,
+    max_topics: int = 0,
 ) -> list[EnrichedTopic]:
     """Fast path for documents whose parser already segments content by topic.
 
@@ -214,6 +229,10 @@ def _run_pre_segmented(
     """
     published: list[EnrichedTopic] = []
     module_id = progress.get("module_id", "")
+    total = len(doc.sections)
+    if max_topics > 0:
+        total = min(total, max_topics)
+    progress["total_topics"] = total
 
     for idx, section in enumerate(doc.sections):
         if abort_event.is_set():
@@ -248,6 +267,9 @@ def _run_pre_segmented(
             if len(published) == 1:
                 progress["ready"] = True
 
+            if max_topics > 0 and len(published) >= max_topics:
+                break
+
     progress["total_topics"] = len(published)
     return published
 
@@ -257,28 +279,32 @@ def _run_pre_segmented(
 # ---------------------------------------------------------------------------
 
 def _store_in_vector_db(enriched: EnrichedTopic, module_id: str) -> None:
-    """Upsert the enriched topic's content into ChromaDB via storage_server.
+    """Upsert the enriched topic's content into ChromaDB in a background thread.
 
-    Non-fatal: semantic search is a supporting feature, so any failure here
-    must not break slide publishing.
+    Fire-and-forget: the MCP server cold-start (chromadb + ONNX model import)
+    can take 30-60s and must not block slide publishing. Semantic search is a
+    supporting feature so any failure is non-fatal.
     """
-    try:
-        from backend.core.mcp_client import get_client
+    def _do_store():
+        try:
+            from backend.core.mcp_client import get_client
 
-        topic = enriched.topic
-        get_client("storage_server").call(
-            "upsert_to_vector_db",
-            documents=[enriched.content_md],
-            ids=[f"{module_id}:{topic.topic_id}"],
-            metadatas=[{
-                "module_id": module_id,
-                "topic_id": topic.topic_id,
-                "title": topic.title,
-                "order": topic.order,
-            }],
-        )
-    except Exception as exc:
-        print(f"[sliding_pipeline] _store_in_vector_db error ({type(exc).__name__}): {exc}")
+            topic = enriched.topic
+            get_client("storage_server").call(
+                "upsert_to_vector_db",
+                documents=[enriched.content_md],
+                ids=[f"{module_id}:{topic.topic_id}"],
+                metadatas=[{
+                    "module_id": module_id,
+                    "topic_id": topic.topic_id,
+                    "title": topic.title,
+                    "order": topic.order,
+                }],
+            )
+        except Exception as exc:
+            print(f"[sliding_pipeline] _store_in_vector_db error ({type(exc).__name__}): {exc}")
+
+    threading.Thread(target=_do_store, daemon=True).start()
 
 
 def _doc_words(doc: Document) -> list[tuple[str, str]]:

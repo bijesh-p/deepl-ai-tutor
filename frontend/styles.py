@@ -1,6 +1,8 @@
 """Global CSS injection and reusable HTML component helpers for the AI Tutor UI."""
 from __future__ import annotations
 
+import html
+
 import streamlit as st
 
 _GLOBAL_CSS = """
@@ -591,6 +593,16 @@ def _theme_overrides_css(dark: bool) -> str:
     color: {p['text_primary']} !important;
 }}
 
+/* Same gap as the uploader's "Browse files" button above: st.download_button()
+   renders inside [data-testid="stDownloadButton"], not .stButton, so it never
+   matched the .stButton button[kind="secondary"] rule and fell back to
+   white-on-white (native button background + inherited dark text color). */
+[data-testid="stDownloadButton"] button[kind="secondary"] {{
+    background: {p['card_bg']} !important;
+    border-color: #475569 !important;
+    color: {p['text_primary']} !important;
+}}
+
 /* Quiz option cards — base (unchecked) state. */
 [data-testid="stRadio"] [role="radiogroup"] > label,
 [data-testid="stCheckbox"] label {{
@@ -977,6 +989,39 @@ def concept_rail_html(mastered: list[str], current: str, remaining: list[str], d
         f'<div style="display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 14px;">'
         f'{inner}</div>'
     )
+
+
+# Fixed palette for per-concept highlight chips — colors cycle by position so
+# topics in the same "Key concepts" row are visually distinct from each other,
+# not tied to any semantic meaning (unlike the mastered/current/pending chips
+# above). Each tuple is (background, border, text) with text colors chosen for
+# contrast against their own background, independent of light/dark page mode.
+_TOPIC_CHIP_COLORS = [
+    ("#DBEAFE", "#93C5FD", "#1E40AF"),  # blue
+    ("#EDE9FE", "#C4B5FD", "#5B21B6"),  # purple
+    ("#CCFBF1", "#5EEAD4", "#0F766E"),  # teal
+    ("#FFEDD5", "#FDBA74", "#9A3412"),  # orange
+    ("#FCE7F3", "#F9A8D4", "#9D174D"),  # pink
+    ("#D1FAE5", "#6EE7B7", "#065F46"),  # green
+]
+
+
+def topic_highlight_chips_html(concepts: list[str]) -> str:
+    """Row of key-concept chips for a tutor slide, each in a different color
+    (cycling through a fixed palette) so individual topics stand out from one
+    another instead of blending into one plain list.
+    """
+    if not concepts:
+        return ""
+    chips = []
+    for i, c in enumerate(concepts):
+        bg, border, color = _TOPIC_CHIP_COLORS[i % len(_TOPIC_CHIP_COLORS)]
+        chips.append(
+            f'<span style="display:inline-block;padding:4px 12px;margin:3px 6px 3px 0;'
+            f'background:{bg};border:1px solid {border};border-radius:999px;'
+            f'font-size:12.5px;font-weight:600;color:{color};">{html.escape(c)}</span>'
+        )
+    return f'<div style="margin:2px 0 12px;">{"".join(chips)}</div>'
 
 
 def skeleton_slide_html(label: str = "Generating slide content…", dark: bool = False) -> str:
