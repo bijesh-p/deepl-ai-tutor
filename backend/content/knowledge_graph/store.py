@@ -77,13 +77,11 @@ class KnowledgeGraphStore:
     ) -> None:
         """Add a directed edge; silently skip if the exact (src, dst, relation) exists."""
         rel_val = relation.value
-        for _, _, data in self._g.edges(src, data=True):
-            if data.get("relation") == rel_val and _ == dst:
-                return
         # Check all existing edges between src and dst
         if self._g.has_edge(src, dst):
             for key in self._g[src][dst]:
-                if self._g[src][dst][key].get("relation") == rel_val:
+                attrs = self._g[src][dst][key]
+                if isinstance(attrs, dict) and attrs.get("relation") == rel_val:
                     return
         self._g.add_edge(src, dst, relation=rel_val, weight=weight, source=source)
 
@@ -148,7 +146,7 @@ class KnowledgeGraphStore:
                 rel = RelationType.PREREQUISITE_OF.value
                 keys_to_remove = [
                     k for k, d in self._g[min_edge[0]][min_edge[1]].items()
-                    if d.get("relation") == rel
+                    if isinstance(d, dict) and d.get("relation") == rel
                 ]
                 for k in keys_to_remove:
                     self._g.remove_edge(min_edge[0], min_edge[1], key=k)
@@ -186,8 +184,11 @@ class KnowledgeGraphStore:
                 for pred in self._g.predecessors(node):
                     if pred in visited:
                         continue
-                    for key in self._g[pred][node]:
-                        if self._g[pred][node][key].get("relation") == RelationType.PREREQUISITE_OF.value:
+                    edge_data = self._g[pred][node]
+                    # edge_data maps key → attr_dict; after GraphML round-trip keys may be strings
+                    for key in edge_data:
+                        attrs = edge_data[key]
+                        if isinstance(attrs, dict) and attrs.get("relation") == RelationType.PREREQUISITE_OF.value:
                             if pred in self._concept_ids():
                                 next_frontier.add(pred)
                             break
