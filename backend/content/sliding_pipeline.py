@@ -16,6 +16,9 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
+from backend.content.knowledge_graph.extractor import build_module_graph
+from backend.content.knowledge_graph.ontology import RelationType
+from backend.content.knowledge_graph.store import KnowledgeGraphStore
 from backend.content.models import EnrichedTopic, Topic
 from backend.ingestion.models import Document, SourceType
 
@@ -102,13 +105,16 @@ def run_sliding_pipeline(
             "It may be a scanned image PDF. Please use a text-based PDF, PPTX, DOCX, or VTT."
         )
 
+    module_id = progress.get("module_id", "")
+    kg_store = KnowledgeGraphStore(module_id)
+    kg_store.add_module(progress.get("module_title", ""))
+
     if doc.source_type == SourceType.VTT:
-        return _run_pre_segmented(doc, llm, progress, abort_event, tracer, max_topics=max_topics)
+        return _run_pre_segmented(doc, llm, progress, abort_event, tracer, max_topics=max_topics, kg_store=kg_store)
     accumulated: list[tuple[str, str]] = []   # (word, section_id)
     published: list[EnrichedTopic] = []
     idx = 0
     total_words = len(all_words)
-    module_id = progress.get("module_id", "")
     # Initial estimate: one topic per MAX_ACCUMULATE_WORDS words
     estimated = max(1, total_words // MAX_ACCUMULATE_WORDS)
     if max_topics > 0:
@@ -148,6 +154,7 @@ def run_sliding_pipeline(
             if enriched is not None:
                 published.append(enriched)
                 _store_in_vector_db(enriched, module_id)
+                _register_concept_node(enriched, published, kg_store)
                 now = time.monotonic()
                 progress["enriched_topics"] = list(published)
                 progress["topics_enriched"] = len(published)
@@ -197,6 +204,7 @@ def run_sliding_pipeline(
             if enriched is not None:
                 published.append(enriched)
                 _store_in_vector_db(enriched, module_id)
+                _register_concept_node(enriched, published, kg_store)
                 now = time.monotonic()
                 progress["enriched_topics"] = list(published)
                 progress["topics_enriched"] = len(published)
@@ -207,6 +215,11 @@ def run_sliding_pipeline(
                     progress["ready"] = True
 
     progress["total_topics"] = len(published)
+
+    # Build and persist the knowledge graph after all topics are enriched
+    if published and not abort_event.is_set():
+        _finalize_knowledge_graph(published, module_id, llm, kg_store, tracer)
+
     return published
 
 
@@ -221,6 +234,7 @@ def _run_pre_segmented(
     abort_event: threading.Event,
     tracer,
     max_topics: int = 0,
+    kg_store: KnowledgeGraphStore | None = None,
 ) -> list[EnrichedTopic]:
     """Fast path for documents whose parser already segments content by topic.
 
@@ -263,6 +277,8 @@ def _run_pre_segmented(
             published.append(enriched)
             _store_in_vector_db(enriched, module_id)
             now = time.monotonic()
+            if kg_store is not None:
+                _register_concept_node(enriched, published, kg_store)
             progress["enriched_topics"] = list(published)
             progress["topics_enriched"] = len(published)
             progress["current_topic"] = enriched.topic.title
@@ -278,6 +294,10 @@ def _run_pre_segmented(
                 break
 
     progress["total_topics"] = len(published)
+
+    if published and not abort_event.is_set() and kg_store is not None:
+        _finalize_knowledge_graph(published, module_id, llm, kg_store, tracer)
+
     return published
 
 
@@ -285,29 +305,78 @@ def _run_pre_segmented(
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _store_in_vector_db(enriched: EnrichedTopic, module_id: str) -> None:
-    """Upsert the enriched topic's content into ChromaDB via storage_server.
+def _register_concept_node(
+    enriched: EnrichedTopic,
+    published_so_far: list[EnrichedTopic],
+    store: KnowledgeGraphStore,
+) -> None:
+    """Register a CONCEPT node + structural edges into the in-progress KG store."""
+    t = enriched.topic
+    store.add_concept(t.topic_id, t.title, t.summary, t.order)
+    store.add_edge(t.topic_id, store.module_id, RelationType.PART_OF, weight=1.0, source="structural")
 
-    Non-fatal: semantic search is a supporting feature, so any failure here
-    must not break slide publishing.
-    """
+    # FOLLOWS edge to the previous concept (linear order)
+    if len(published_so_far) >= 2:
+        prev = published_so_far[-2].topic
+        store.add_edge(t.topic_id, prev.topic_id, RelationType.FOLLOWS, weight=1.0, source="structural")
+
+    # Structural MENTIONS edges from top_concepts and key_takeaways
+    for term_label in list(enriched.top_concepts or []) + list(enriched.key_takeaways or []):
+        if term_label.strip():
+            term_id = store.add_term(term_label)
+            store.add_edge(t.topic_id, term_id, RelationType.MENTIONS, weight=1.0, source="structural")
+
+
+def _finalize_knowledge_graph(
+    published: list[EnrichedTopic],
+    module_id: str,
+    llm,
+    store: KnowledgeGraphStore,
+    tracer,
+) -> None:
+    """Run LLM extraction and save the graph. Non-blocking for delivery; non-fatal."""
+    from backend.content.models import LearningModule
+    import datetime
     try:
-        from backend.core.mcp_client import get_client
-
-        topic = enriched.topic
-        get_client("storage_server").call(
-            "upsert_to_vector_db",
-            documents=[enriched.content_md],
-            ids=[f"{module_id}:{topic.topic_id}"],
-            metadatas=[{
-                "module_id": module_id,
-                "topic_id": topic.topic_id,
-                "title": topic.title,
-                "order": topic.order,
-            }],
+        module = LearningModule(
+            module_id=module_id,
+            title=store._g.nodes.get(module_id, {}).get("title", ""),
+            source_doc_id="",
+            topics=published,
+            created_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
         )
+        build_module_graph(module, llm, store, tracer=tracer)
     except Exception as exc:
-        print(f"[sliding_pipeline] _store_in_vector_db error ({type(exc).__name__}): {exc}")
+        print(f"[sliding_pipeline] KG finalisation error ({type(exc).__name__}): {exc}")
+
+
+def _store_in_vector_db(enriched: EnrichedTopic, module_id: str) -> None:
+    """Upsert the enriched topic's content into ChromaDB in a background thread.
+
+    Fire-and-forget: the MCP server cold-start (chromadb + ONNX model import)
+    can take 30-60s and must not block slide publishing. Semantic search is a
+    supporting feature so any failure is non-fatal.
+    """
+    def _do_store():
+        try:
+            from backend.core.mcp_client import get_client
+
+            topic = enriched.topic
+            get_client("storage_server").call(
+                "upsert_to_vector_db",
+                documents=[enriched.content_md],
+                ids=[f"{module_id}:{topic.topic_id}"],
+                metadatas=[{
+                    "module_id": module_id,
+                    "topic_id": topic.topic_id,
+                    "title": topic.title,
+                    "order": topic.order,
+                }],
+            )
+        except Exception as exc:
+            print(f"[sliding_pipeline] _store_in_vector_db error ({type(exc).__name__}): {exc}")
+
+    threading.Thread(target=_do_store, daemon=True).start()
 
 
 def _doc_words(doc: Document) -> list[tuple[str, str]]:

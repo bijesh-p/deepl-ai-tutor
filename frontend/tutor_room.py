@@ -33,9 +33,15 @@ def render_tutor_room() -> None:
             st.rerun()
         return
 
-    if st.button("← Back to Module Library", type="secondary", key="_back_tutor_room"):
-        _end_session(st.session_state.get("tutor_state"))
-        st.rerun()
+    col_back, col_end = st.columns([6, 1])
+    with col_back:
+        if st.button("← Back to Module Library", type="secondary", key="_back_tutor_room"):
+            _end_session(st.session_state.get("tutor_state"))
+            st.rerun()
+    with col_end:
+        if st.button("End Session", type="secondary", key="_end_session_top"):
+            _end_session(st.session_state.get("tutor_state"))
+            st.rerun()
 
     st.title("AI Tutor")
     st.caption(f"Module: **{module.title}**")
@@ -82,42 +88,7 @@ def render_tutor_room() -> None:
         unsafe_allow_html=True,
     )
 
-    # Progress + end session in sidebar-style column
-    col_main, col_meta = st.columns([4, 1])
-    with col_meta:
-        mastered = state.get("mastered_concepts", [])
-        remaining = state.get("remaining_concepts", [])
-        total = len(mastered) + 1 + len(remaining)
-        done = len(mastered)
-        pct = done / total if total else 0
-        st.caption(f"**Topics done: {done}/{total}**")
-        st.progress(pct)
-
-        current = state.get("current_concept", "")
-        all_topics = mastered + ([current] if current else []) + remaining
-        with st.expander("Topics", expanded=True):
-            for t in all_topics:
-                label = t[:30] + "…" if len(t) > 30 else t
-                if t in mastered:
-                    st.markdown(f"✅ {label}")
-                elif t == current:
-                    st.markdown(f"**▶ {label}**")
-                else:
-                    st.markdown(f"⬜ {label}")
-
-        depth = state.get("presentation_depth", "—")
-        st.caption(f"Level: **{depth}**")
-        # Wait time tracking
-        wait_total = st.session_state.get("total_wait_seconds", 0)
-        if phase == "waiting":
-            current_wait = int(time.monotonic() - st.session_state.get("waiting_since", time.monotonic()))
-        else:
-            current_wait = 0
-        if wait_total + current_wait > 0:
-            st.caption(f"Wait: {wait_total + current_wait}s")
-        if st.button("End Session"):
-            _end_session(state)
-            st.rerun()
+    col_main = st.container()
 
     with col_main:
         if phase == "diagnostic":
@@ -149,6 +120,7 @@ def render_tutor_room() -> None:
                             st.session_state["tutor_state"] = state
                             st.session_state["tutor_phase"] = "slide"
                             st.rerun()
+            _refresh_content_map(module)
             remaining = state.get("remaining_concepts", [])
             st.caption("The tutor will ask you a question to check your understanding of this topic.")
             col_ask, col_skip, col_lib = st.columns(3)
@@ -209,6 +181,7 @@ def render_tutor_room() -> None:
 
                     if state.get("concept_mastered", False):
                         _record_topic_mastery(state, state["current_concept"], mastered=True)
+                        _refresh_content_map(module)
                         remaining = state.get("remaining_concepts", [])
                         if remaining:
                             next_concept = remaining[0]
@@ -614,14 +587,13 @@ def _init_tutor_state(module) -> None:
     summary_map = {t.topic.title: t.topic.summary for t in topics}
     content_map = {t.topic.title: t.content_md for t in topics}
 
-    # Seed depth and mastery from persisted user profile
+    # Seed depth from persisted user profile; mastery is NOT carried over so
+    # each new session starts from topic 1 without pre-completed topics.
     profile = st.session_state.get("user_profile", {})
     prior_depth = profile.get("overall_depth", "intermediate")
-    prior_mastery: dict = profile.get("topic_mastery", {})
 
-    # Topics the user already mastered in any prior session go to front of mastered list
-    already_mastered = [c for c in concepts if prior_mastery.get(c)]
-    remaining = [c for c in concepts if c not in already_mastered]
+    already_mastered: list[str] = []
+    remaining = list(concepts)
     first_concept = remaining[0] if remaining else (concepts[0] if concepts else "")
 
     st.session_state["tutor_state"] = {

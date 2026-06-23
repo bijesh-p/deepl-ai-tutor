@@ -4,29 +4,25 @@ import random
 import uuid
 from datetime import datetime, timezone
 
-from backend.quiz.models import Quiz, QuestionBank, QuizQuestion
-
-_DIFFICULTY_ORDER = ["easy", "medium", "hard"]
+from backend.quiz.models import BLOOM_LEVELS, Quiz, QuestionBank, QuizQuestion
 
 
 def assemble_quiz(
     bank: QuestionBank,
-    difficulty: str,
-    num_questions: int = 10,
+    num_questions: int = 12,
 ) -> Quiz:
     """Select and randomise questions from the bank for a quiz session.
 
-    Falls back to adjacent difficulty levels if there are not enough
-    questions at the requested level.
+    Draws a mix across all six Bloom's taxonomy levels. Falls back to a
+    pooled backfill across all levels if any level has too few questions.
     """
-    selected = _select_questions(bank.questions, difficulty, num_questions)
+    selected = _select_questions(bank.questions, num_questions)
 
     random.shuffle(selected)
 
     return Quiz(
         quiz_id=str(uuid.uuid4()),
         module_id=bank.module_id,
-        difficulty=difficulty,
         questions=selected,
         created_at=datetime.now(timezone.utc).isoformat(),
     )
@@ -34,25 +30,32 @@ def assemble_quiz(
 
 def _select_questions(
     questions: list[QuizQuestion],
-    difficulty: str,
     n: int,
 ) -> list[QuizQuestion]:
-    by_difficulty: dict[str, list[QuizQuestion]] = {d: [] for d in _DIFFICULTY_ORDER}
+    by_level: dict[str, list[QuizQuestion]] = {level: [] for level in BLOOM_LEVELS}
     for q in questions:
-        if q.difficulty in by_difficulty:
-            by_difficulty[q.difficulty].append(q)
+        if q.bloom_level in by_level:
+            by_level[q.bloom_level].append(q)
 
-    primary = list(by_difficulty.get(difficulty, []))
-    random.shuffle(primary)
-    selected = primary[:n]
+    base = n // len(BLOOM_LEVELS)
+    remainder = n % len(BLOOM_LEVELS)
+    bonus_levels = set(random.sample(BLOOM_LEVELS, remainder))
+
+    selected: list[QuizQuestion] = []
+    selected_ids: set[str] = set()
+    for level in BLOOM_LEVELS:
+        target = base + (1 if level in bonus_levels else 0)
+        pool = list(by_level[level])
+        random.shuffle(pool)
+        for q in pool[:target]:
+            selected.append(q)
+            selected_ids.add(q.question_id)
 
     if len(selected) < n:
-        # Fill from adjacent difficulties
+        # Fill shortfall from a pool of every not-yet-selected question,
+        # regardless of level.
         remaining = n - len(selected)
-        others: list[QuizQuestion] = []
-        for d in _DIFFICULTY_ORDER:
-            if d != difficulty:
-                others.extend(by_difficulty[d])
+        others = [q for q in questions if q.question_id not in selected_ids]
         random.shuffle(others)
         selected += others[:remaining]
 

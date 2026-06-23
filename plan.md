@@ -772,6 +772,104 @@ test infra exists for `tutor_room.py`).
 
 ---
 
+## Phase 67 — Rename QuizQuestion.difficulty to bloom_level, remove Quiz.difficulty ✅ Complete
+
+**Goal:** First step of replacing the easy/medium/hard difficulty scale with Bloom's-taxonomy levels (remember, understand, apply, analyze, evaluate, create) across all question-generation flows, informed by Scaria et al. (AIED 2024). Scoped via `/spec-plan` as `changes/bloom-taxonomy-question-generation.{spec,plan}.md`.
+
+**Fix:** Added `BLOOM_LEVELS` constant to `backend/quiz/models.py`; renamed `QuizQuestion.difficulty` → `bloom_level`; removed `Quiz.difficulty` entirely (quizzes are mixed-level going forward, no single label). Updated the one production call site (`frontend/module_library_page.py::_bank_from_json`) and the test fixture in `tests/test_quiz/test_evaluator.py`.
+
+**Files:** `backend/quiz/models.py`, `backend/quiz/question_bank.py`, `frontend/module_library_page.py`, `tests/test_quiz/test_evaluator.py`. Commit: `8b3bdbc`.
+
+---
+
+## Phase 68 — Rewrite quiz bank generation prompt for Bloom's taxonomy levels ✅ Complete
+
+**Goal:** Make the main quiz-bank LLM prompt target Bloom's levels with structured grounding, following the paper's PS2 strategy (persona + chain-of-thought + inline skill-level definitions) — the best-performing strategy in the paper's RQ3 results. Deliberately did not add hardcoded per-level example questions (PS5), since the paper found those hurt both quality and skill-adherence.
+
+**Fix:** `backend/quiz/question_bank.py::_TOOL_SCHEMA` replaced the `difficulty` enum with a `bloom_level` enum over `BLOOM_LEVELS`, bumped `minItems` to 18; `_SYSTEM` rewritten to ask for 18-24 questions covering all topics with ≥3 questions per Bloom's level, with each level's definition spelled out inline (plus an extra clarifying sentence for `create`, since the paper found all five tested LLMs struggled most with that level). `generate_question_bank()` maps the new `bloom_level` field.
+
+**Files:** `backend/quiz/question_bank.py`, `tests/test_e2e/test_provider_e2e.py`. Commit: `3bb3e92`.
+
+---
+
+## Phase 69 — Mix quiz questions across all six Bloom's levels ✅ Complete
+
+**Goal:** Replace the single-difficulty quiz assembler with one that mixes questions across all six Bloom's levels in every attempt (per the confirmed scoping decision: no per-attempt level picker).
+
+**Fix:** Rewrote `backend/quiz/assembler.py::assemble_quiz()` to drop the `difficulty` parameter; `_select_questions()` now buckets questions by `bloom_level`, targets `n // 6` per level with `n % 6` levels randomly getting one extra question, and backfills any shortfall from the remaining pool across all levels (replacing the old adjacent-difficulty fallback).
+
+**Files:** `backend/quiz/assembler.py`, `tests/test_quiz/test_assembler.py` (rewritten: `test_assembles_correct_count`, `test_distributes_across_all_levels`, `test_falls_back_when_insufficient`, `test_different_orderings_across_calls`). Commit: `a2c71c7`.
+
+---
+
+## Phase 70 — Replace difficulty selector with Bloom's-level quiz UI ✅ Complete
+
+**Goal:** Update the Quiz page UI to match the mixed-level assembler — no level picker, per-question Bloom-level badges instead of one quiz-wide difficulty badge.
+
+**Fix:** `frontend/quiz_page.py` replaced `_DIFFICULTY_META_LIGHT/_DARK`/`_difficulty_meta()` with a 6-entry `_BLOOM_META_LIGHT/_DARK`/`_bloom_meta()` (icon/label/desc/colors per level: 🧠 Remember, 💡 Understand, 🔧 Apply, 🔍 Analyze, ⚖️ Evaluate, 🎨 Create). The old difficulty-selector screen was replaced with `_render_quiz_intro()`, showing a per-level question-count breakdown from the bank with a single "Start Quiz" button (no selection required). The per-question badge is now looked up per-question (`q.bloom_level`) instead of once for the whole quiz. Removed `"quiz_difficulty"` session-state references from `frontend/results_page.py`, `frontend/upload_page.py`, and `app.py`'s clear-keys lists.
+
+**Bug found and fixed during live verification:** `frontend/module_library_page.py::_bank_from_json` raised `KeyError` loading modules persisted before this change (old questions only have `difficulty`, not `bloom_level`). Added `_LEGACY_DIFFICULTY_TO_BLOOM = {"easy": "remember", "medium": "apply", "hard": "evaluate"}` mapping so old modules still load.
+
+**Verified:** live Playwright test against the running app — quiz intro screen shows the 6-level breakdown with no selector, each question's badge reflects its own level (confirmed badges differ across questions), submit and results page render correctly with no `quiz_difficulty` errors.
+
+**Files:** `frontend/quiz_page.py`, `frontend/results_page.py`, `frontend/upload_page.py`, `frontend/module_library_page.py`, `app.py`. Commit: `9ca4125`.
+
+---
+
+## Phase 71 — Tag inline per-topic questions with Bloom's levels ✅ Complete
+
+**Goal:** Extend Bloom's-level tagging to the inline per-topic comprehension questions in the Module Viewer (scoped to the first three levels only — remember/understand/apply — since those fit a quick comprehension check better than the higher-order levels).
+
+**Fix:** `backend/content/models.py::Question` gained `bloom_level: str = "understand"` (defaulted so old persisted modules round-trip via `Question(**d)` without a migration). `backend/content/inline_question_gen.py` added `_INLINE_BLOOM_LEVELS = ["remember", "understand", "apply"]`, added `bloom_level` to `_TOOL_SCHEMA` and `_SYSTEM` (asks for one remember/understand-level and one apply-level question), and `generate_inline_questions()` maps the new field.
+
+**Regression caught by tests:** `tests/test_content/test_pipeline.py::test_enrich_has_questions` failed after the schema change — its mock LLM responses lacked `bloom_level`, which `sliding_pipeline.py` was silently swallowing via a broad try/except around `generate_inline_questions`. Fixed by adding `bloom_level` to the mock question dicts.
+
+**Files:** `backend/content/models.py`, `backend/content/inline_question_gen.py`, `tests/test_content/test_inline_question_gen.py` (new), `tests/test_content/test_pipeline.py`, `tests/test_e2e/test_provider_e2e.py`. Commit: `c7b7b87`.
+
+---
+
+## Phase 72 — Reword diagnostic/tutor-room prompts for Bloom's levels ✅ Complete
+
+**Goal:** Apply Bloom's-level language to the two remaining question-generation flows in the Adaptive Tutor (diagnostic pre-assessment, tutor-room single question), as prompt-text-only changes — no schema changes, per the confirmed scoping decision.
+
+**Fix:** `backend/interactive_tutor/graph.py::_DIAGNOSTIC_SYSTEM` now asks for a mix of Remember-level and Understand-level questions only (a pre-lesson diagnostic shouldn't probe Apply/Analyze/Evaluate/Create yet). Added `_DEPTH_TO_BLOOM = {"beginner": "remember or understand", "intermediate": "apply or analyze", "advanced": "evaluate or create"}`; `ask_question()`'s prompt now targets the mapped Bloom's level pair for the student's `presentation_depth` instead of a vague "match the student's level" instruction.
+
+**Files:** `backend/interactive_tutor/graph.py`. Commit: `7e60e25`.
+
+---
+
+## Phase 73 — Core guardrails module, wrapper, and factory wiring ✅ Complete
+
+**Goal:** Add centralized input/output safety checks across all 14 LLM call sites with no per-call-site code, per the approved `feature/add-guardrails` plan: prompt-injection detection and a generic output-quality safety net (both rule-based), plus content-moderation and topic-relevance (both LLM-judge-based, the latter unreachable until Phase 74 wires it in).
+
+**Fix:** New package `backend/core/guardrails/` — `exceptions.py` (`GuardrailViolation`), `config.py` (`AI_TUTOR_GUARDRAILS_*` env toggles), `rules.py` (`check_prompt_injection`, `check_output_quality` — pure regex/keyword, no LLM calls), `judge.py` (`check_content_moderation`, `check_topic_relevance` — LLM-judge calls against the raw inner adapter, fail open on judge-call errors), `client.py` (`GuardrailedLLMClient(BaseLLMClient)` decorator). `backend/core/llm_client/factory.py::LLMFactory.create()` now wraps every adapter branch in `GuardrailedLLMClient` unconditionally.
+
+**Gotcha caught by tests:** an initial top-level `from backend.core.guardrails import GuardrailViolation` re-export in `backend/core/llm_client/__init__.py` created a real circular import (`llm_client` → `guardrails` → `llm_client.base`, hitting the partially-initialized `llm_client` package depending on import order) — confirmed by running `pytest`, not by static reasoning, and fixed by dropping the re-export (`GuardrailViolation` is imported from `backend.core.guardrails` directly). A second bug: `client.py` originally did `from judge import check_content_moderation, ...`, binding the function by value — monkeypatching `judge.check_content_moderation` in tests then silently had no effect. Fixed by having `client.py` import the `judge` module itself and call `judge.check_content_moderation(...)`, so patching the module attribute works as intended.
+
+**Files:** `backend/core/guardrails/{__init__,exceptions,config,rules,judge,client}.py` (new), `backend/core/llm_client/factory.py`, `.env.copy`, `SPEC.md` Appendix A + new §5, `tests/test_content/test_guardrails.py` (new, 26 tests), `tests/test_content/test_llm_client.py` (+1 factory test). Full pytest suite: 192 passed, 1 pre-existing unrelated failure (see Branch sync note above), 1 deselected (slow).
+
+---
+
+## Phase 74 — Topic-relevance wiring at the tutor-room student-input call site ✅ Complete
+
+**Goal:** Wire the topic-relevance check (built but unreachable in Phase 73) into the one call site that actually carries raw, unsanitized student free-text into an LLM prompt.
+
+**Decision:** of the four tutor-room call sites considered (`ask_question`, `evaluate_response`, `provide_hint`, `simplify_foundations`), only `evaluate_response()` embeds raw student text (`f"Student's answer: {answer}"`). The other three build prompts entirely from tutor/LLM-authored state — wiring topic-relevance there would be a tautological check with no security value, so they were deliberately left unwired (documented in `SPEC.md` §5).
+
+**Fix:** `backend/interactive_tutor/graph.py::evaluate_response()` now passes `topic_context=f"{concept}: {state.get('concept_summary', '')}"` to its `llm.generate(...)` call, binding `concept = state.get("current_concept", "")` alongside the function's existing locals.
+
+**Regression caught by the e2e suite (not slow-marker filtered, so worth always running before commit):** `tests/test_e2e/test_provider_e2e.py::test_pipeline_to_quiz_to_tutor[anthropic|portkey|ollama]` constructs raw adapters directly and monkeypatches `graph._get_llm`, bypassing `LLMFactory.create()` — passing `topic_context` to a raw `AnthropicAdapter.generate()` raised `TypeError`, since the kwarg only existed on `GuardrailedLLMClient`. Fixed by adding `topic_context: str | None = None` to `BaseLLMClient.generate()`'s abstract signature and all three concrete adapters (accepted, ignored — only the wrapper consumes it), restoring the "any `BaseLLMClient` is interchangeable" contract.
+
+**Files:** `backend/interactive_tutor/graph.py`, `backend/core/llm_client/base.py`, `backend/core/llm_client/adapters/{anthropic,portkey,ollama}_adapter.py`, `tests/test_tutor/test_graph_nodes.py`. Full pytest suite: 193 passed, 1 pre-existing unrelated failure, 1 deselected (slow); `tests/test_e2e/test_provider_e2e.py` (slow-marked) separately confirmed passing (3/3).
+
+---
+
+## Branch sync note
+
+While Phases 67-72 were in progress, `origin/main` advanced 8 commits ahead (max-topics-limit upload UX, audio/diagram fixes, session-restore-via-query-params). Per this project's commit convention, all 6 phases were committed individually before merging `origin/main` in, so the work was never at risk of being lost to a conflict. The merge (`e889f98`) resolved with zero textual conflicts; a pre-existing, unrelated test failure (`test_present_concept_fallback_populates_key_takeaways_even_with_diagram`) was confirmed via an isolated `git worktree` check to already fail on `origin/main` alone, not introduced by this branch.
+
+---
+
 ## Commit convention
 
 Format: `[Phase N] <short description>`

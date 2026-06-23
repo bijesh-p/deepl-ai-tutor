@@ -23,6 +23,7 @@ from backend.core.llm_client import LLMFactory
 class GraphState(TypedDict):
     # Current position
     current_concept: str
+    current_topic_id: str          # topic_id for graph-guided retrieval (empty string = unknown)
     concept_content: str           # enriched Markdown (from pipeline or generated)
     concept_summary: str           # topic summary (always available from decomposer)
     current_question: dict | None
@@ -121,7 +122,9 @@ _DIAGNOSTIC_SYSTEM = (
     "You are an educator assessing a student's prior knowledge before teaching. "
     "Generate 3-5 multiple-choice diagnostic questions on the given topic. "
     "Each question must have exactly 4 options. "
-    "Include a mix of easy and medium difficulty. "
+    "Include a mix of Remember-level questions (recall a fact or definition) and "
+    "Understand-level questions (explain or interpret an idea) — this is a pre-lesson "
+    "diagnostic, so it should not probe Apply, Analyze, Evaluate, or Create-level skills yet. "
     "Base questions only on what can be reasonably inferred from the topic title and summary — "
     "do not assume the student has read anything yet. "
     "For each question, include a short 1-2 sentence explanation of why the correct answer is correct."
@@ -227,6 +230,12 @@ _DEPTH_GUIDANCE = {
     ),
 }
 
+_DEPTH_TO_BLOOM = {
+    "beginner": "remember or understand",
+    "intermediate": "apply or analyze",
+    "advanced": "evaluate or create",
+}
+
 
 def present_concept(state: GraphState) -> dict:
     """Build a slide for the current concept, using enriched content if available."""
@@ -235,9 +244,20 @@ def present_concept(state: GraphState) -> dict:
     enriched = state.get("enriched_topic")
 
     # Pipeline hasn't enriched this topic yet (or session was resumed without
-    # state) — fall back to ChromaDB-retrieved content for this concept.
+    # state) — fall back to graph-guided retrieval (or pure vector if no graph).
     if not enriched or not enriched.get("content_md"):
-        retrieved = _retrieve_context(state["module_id"], concept, n_results=1)
+        topic_id = state.get("current_topic_id") or None
+        if topic_id:
+            from backend.content.knowledge_graph.retrieval import graph_guided_context
+            retrieved = graph_guided_context(
+                state.get("module_id", ""),
+                topic_id,
+                concept,
+                mode="present",
+                max_defs=1,
+            )
+        else:
+            retrieved = _retrieve_context(state.get("module_id", ""), concept, n_results=1)
         if retrieved:
             enriched = {
                 **(enriched or {}),
@@ -285,6 +305,12 @@ def present_concept(state: GraphState) -> dict:
                 pass
 
         if content_md:
+            # Populate current_topic_id from the enriched topic's topic object
+            topic_obj = enriched.get("topic", {})
+            current_topic_id = (
+                topic_obj.get("topic_id", "") if isinstance(topic_obj, dict)
+                else getattr(topic_obj, "topic_id", "")
+            )
             # Fast path: pipeline audio is already diagram-synced and depth-annotated.
             # Only run depth-adaptation LLM when pipeline audio is missing.
             audio_enabled = state.get("audio_enabled", True)
@@ -343,6 +369,7 @@ def present_concept(state: GraphState) -> dict:
                 "topic_audio_path": audio_path,
                 "topic_top_concepts": top_concepts,
                 "concept_content": transcript,
+                "current_topic_id": current_topic_id,
                 "chat_history": history,
                 "attempts": 0,
                 "concept_mastered": False,
@@ -473,6 +500,7 @@ def ask_question(state: GraphState) -> dict:
     attempts = state.get("attempts", 0)
 
     depth_note = _DEPTH_GUIDANCE[depth]
+    bloom_note = _DEPTH_TO_BLOOM[depth]
     context = ""
     if attempts > 0 and state.get("feedback"):
         context = f"\nThe student previously struggled with: {state['feedback']}\nAsk a question that approaches the concept differently."
@@ -495,7 +523,7 @@ def ask_question(state: GraphState) -> dict:
         f"Generate a single comprehension question about: {concept}\n\n"
         f"Explanation given to student:\n{content}\n"
         f"{depth_note}\n{context}\n\n"
-        "The question difficulty should match the student's level. "
+        f"Target a Bloom's taxonomy level of {bloom_note} for this student's level. "
         "Return via the tool."
     )
 
@@ -513,6 +541,7 @@ def evaluate_response(state: GraphState) -> dict:
     llm = _get_llm()
     question = state.get("current_question", {})
     answer = state.get("student_answer", "")
+    concept = state.get("current_concept", "")
 
     schema = {
         "name": "evaluate_answer",
@@ -537,10 +566,13 @@ def evaluate_response(state: GraphState) -> dict:
         "Identify specific misconceptions if present. Be encouraging."
     )
 
-    result = llm.generate(prompt, tool_schema=schema)
+    result = llm.generate(
+        prompt,
+        tool_schema=schema,
+        topic_context=f"{concept}: {state.get('concept_summary', '')}",
+    )
     evaluation = result if isinstance(result, dict) else {"is_correct": False, "feedback": str(result)}
 
-    concept = state.get("current_concept", "")
     history = list(state.get("chat_history", []))
     history.append({"role": "student", "content": answer, "concept": concept})
     history.append({"role": "tutor", "content": evaluation.get("feedback", ""), "concept": concept})
@@ -567,7 +599,13 @@ def provide_hint(state: GraphState) -> dict:
         "and uses a different analogy or example than before."
     )
 
-    context = _retrieve_context(state["module_id"], feedback or concept)
+    from backend.content.knowledge_graph.retrieval import graph_guided_context
+    context = graph_guided_context(
+        state["module_id"],
+        state.get("current_topic_id") or None,
+        feedback or concept,
+        mode="hint",
+    )
     if context:
         prompt = f"Relevant material:\n{context}\n\n{prompt}"
 
@@ -583,6 +621,14 @@ def simplify_foundations(state: GraphState) -> dict:
     concept = state["current_concept"]
     content = state.get("concept_content", "")
 
+    from backend.content.knowledge_graph.retrieval import graph_guided_context
+    prereq_context = graph_guided_context(
+        state.get("module_id", ""),
+        state.get("current_topic_id") or None,
+        concept,
+        mode="simplify",
+    )
+
     prompt = (
         f"The student has struggled with '{concept}' after multiple attempts.\n"
         f"Original explanation:\n{content}\n\n"
@@ -590,6 +636,8 @@ def simplify_foundations(state: GraphState) -> dict:
         "Explain each one simply, then show how they combine. "
         "Use very simple language and concrete examples."
     )
+    if prereq_context:
+        prompt = f"Prerequisite concepts the student should understand first:\n{prereq_context}\n\n{prompt}"
 
     simplified = llm.generate(prompt, system="You are explaining to a complete beginner.")
     history = list(state.get("chat_history", []))
@@ -611,9 +659,23 @@ def _advance_concept(state: GraphState) -> dict:
     remaining = list(state.get("remaining_concepts", []))
     mastered = list(state.get("mastered_concepts", []))
     mastered.append(state["current_concept"])
+
+    # Prereq-aware reordering: only reorder when a prerequisite would otherwise
+    # be taught after its dependent (open question 2 resolution from spec).
+    try:
+        from backend.content.knowledge_graph.store import KnowledgeGraphStore
+        store = KnowledgeGraphStore.load(state.get("module_id", ""))
+        if store and remaining:
+            order = store.teaching_order()
+            order_map = {nid: i for i, nid in enumerate(order)}
+            remaining.sort(key=lambda n: order_map.get(n, 9999))
+    except Exception:
+        pass
+
     next_concept = remaining.pop(0) if remaining else ""
     return {
         "current_concept": next_concept,
+        "current_topic_id": "",  # cleared; present_concept will re-populate from enriched_topic
         "remaining_concepts": remaining,
         "mastered_concepts": mastered,
         "concept_mastered": False,

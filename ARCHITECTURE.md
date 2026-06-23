@@ -53,6 +53,7 @@ Streamlit Frontend (entry point: app.py)
 | LLM abstraction | Strategy + factory pattern (`BaseLLMClient`, `LLMFactory`) | 2 |
 | Tool protocol | MCP (Model Context Protocol) | 2 |
 | Vector store | ChromaDB + ONNX `all-MiniLM-L6-v2` via `onnxruntime` (`DefaultEmbeddingFunction`, no torch) | 2 |
+| Knowledge graph | NetworkX `MultiDiGraph` (per-module, persisted as GraphML); hybrid retrieval in `experiments/llm-graph` | Exp |
 | Relational DB | SQLite (`sqlite3` stdlib), per-user DB + shared DB for published modules | 1 / 2 / 3 |
 | Document parsing | PyMuPDF (PDF), `python-pptx`, `python-docx` | 1 / 3 (Phase 35) |
 | Diagrams | Mermaid (LLM-generated, diagram-first approach) | 1 / 2 |
@@ -109,7 +110,12 @@ ai-tutor-platform/
 │   │   ├── diagram_generator.py       # Diagram-first: Mermaid or bullet fallback
 │   │   ├── content_enricher.py        # Anchor-grounded explanation generation
 │   │   ├── inline_question_gen.py     # Per-topic inline comprehension questions
-│   │   └── audio_generator.py         # edge-tts narration per topic
+│   │   ├── audio_generator.py         # edge-tts narration per topic
+│   │   └── knowledge_graph/           # [experiments/llm-graph] Hybrid knowledge store
+│   │       ├── ontology.py            # NodeType / RelationType enums + slug() helper
+│   │       ├── store.py               # KnowledgeGraphStore (NetworkX MultiDiGraph, GraphML)
+│   │       ├── extractor.py           # LLM relation extractor + build_module_graph()
+│   │       └── retrieval.py           # graph_guided_context() — hybrid retrieval entry point
 │   │
 │   ├── interactive_tutor/             # ADAPTIVE TUTOR — LangGraph
 │   │   ├── __init__.py

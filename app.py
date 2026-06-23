@@ -261,7 +261,7 @@ def main() -> None:
 
     elif page == "module_library":
         if st.session_state.get("module") is None:
-            for key in ("module", "bank", "quiz", "quiz_answers", "quiz_result", "quiz_difficulty"):
+            for key in ("module", "bank", "quiz", "quiz_answers", "quiz_result"):
                 st.session_state.pop(key, None)
         from frontend.module_library_page import render_module_library_page
         render_module_library_page()

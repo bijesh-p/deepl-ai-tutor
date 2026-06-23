@@ -49,6 +49,7 @@ class MockLLMClient:
                         "options": ["Machine Learning", "Model Logic", "Meta Layer", "Math Logic"],
                         "correct_answers": [0],
                         "explanation": "ML stands for Machine Learning.",
+                        "bloom_level": "remember",
                     },
                     {
                         "question_text": "Which are supervised tasks?",
@@ -56,6 +57,7 @@ class MockLLMClient:
                         "options": ["Classification", "Clustering", "Regression", "Dimensionality Reduction"],
                         "correct_answers": [0, 2],
                         "explanation": "Classification and regression are supervised.",
+                        "bloom_level": "apply",
                     },
                 ]
             }
@@ -100,6 +102,7 @@ class MockLLMNoDiagram:
                         "options": ["Good generalisation", "Memorising training data", "Low error", "High bias"],
                         "correct_answers": [1],
                         "explanation": "Overfitting = memorising training data.",
+                        "bloom_level": "understand",
                     },
                     {
                         "question_text": "Which best describes a model?",
@@ -107,6 +110,7 @@ class MockLLMNoDiagram:
                         "options": ["A database", "A mathematical function", "A chart", "A dataset"],
                         "correct_answers": [1],
                         "explanation": "A model is a mathematical function.",
+                        "bloom_level": "remember",
                     },
                 ]
             }

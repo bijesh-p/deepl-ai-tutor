@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+BLOOM_LEVELS = ["remember", "understand", "apply", "analyze", "evaluate", "create"]
+
 
 @dataclass
 class QuizQuestion:
@@ -11,7 +13,7 @@ class QuizQuestion:
     options: list[str]
     correct_answers: list[int]
     explanation: str
-    difficulty: str             # "easy", "medium", "hard"
+    bloom_level: str            # one of BLOOM_LEVELS
     topic_id: str
 
 
@@ -25,7 +27,6 @@ class QuestionBank:
 class Quiz:
     quiz_id: str
     module_id: str
-    difficulty: str
     questions: list[QuizQuestion]
     created_at: str             # ISO 8601
 

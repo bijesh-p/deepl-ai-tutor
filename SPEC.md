@@ -1,6 +1,6 @@
 # SPEC.md — AI Tutor System Specification
 
-> **Version:** 0.29 | **Last updated:** 2026-06-22
+> **Version:** 0.30 | **Last updated:** 2026-06-23
 > Architecture, directory layout, and component design are in [ARCHITECTURE.md](ARCHITECTURE.md).
 > **GUI / frontend requirements are specified in [gui_spec.md](gui_spec.md)** — that document
 > is authoritative for all GUI features, normative UI decisions (dark-theme default, button
@@ -16,6 +16,7 @@
 | 2 | Functional Skeleton | ✅ Complete | LLM factory, MCP servers, LangGraph tutor, JIT pipeline, audio, observability |
 | 3 | Refined Platform | 🔄 In Progress | Feature polish, admin-curated module library, PPTX/DOCX, full ChromaDB wiring |
 | 4 | VTT Transcript Ingestion | 🔲 Planned | Parse training/classroom `.vtt` transcripts into learning modules |
+| Exp | LLM Knowledge Graph | 🔄 experiments/llm-graph | Hybrid store: NetworkX graph (relationships) + ChromaDB (definitions); graph-guided adaptive retrieval. See [llmgraph_spec.md](llmgraph_spec.md) |
 
 ---
 
@@ -345,6 +346,65 @@ with a "Continue to lesson →" button to proceed.
 **Files:** `backend/interactive_tutor/graph.py`, `frontend/tutor_room.py`,
 `tests/test_tutor/test_graph_nodes.py`.
 
+### Bloom's-taxonomy-based question generation levels
+
+**Goal** (feature, not a bug — included here per compilation request, scoped
+via `/spec-plan` as `changes/bloom-taxonomy-question-generation.{spec,plan}.md`):
+question generation across the app used an informal easy/medium/hard
+difficulty scale with no grounding in a cognitive-skill model. Replace it
+with proper Bloom's-taxonomy levels (remember, understand, apply, analyze,
+evaluate, create), informed by Scaria et al., "Automated Educational
+Question Generation at Different Bloom's Skill Levels using Large Language
+Models" (AIED 2024) — specifically its PS2 prompting strategy (persona +
+chain-of-thought + inline skill-level definitions), which the paper found
+gave the best balance of quality and skill-adherence; adding hardcoded
+few-shot examples on top (PS5) measurably hurt both, so none were added.
+
+**Decisions:** all four question-generation flows (main quiz bank, inline
+per-topic questions, diagnostic pre-assessment, tutor-room single question)
+were updated. Bloom's level *replaces* difficulty everywhere — not tracked
+alongside it. The end-of-module quiz mixes questions across all six levels
+in every attempt (no per-attempt level picker); inline per-topic questions
+are restricted to the first three levels (remember / understand / apply),
+since those fit a quick comprehension check better than the higher-order
+levels. The orphaned `BLOOMS_LEVELS`/`DIFFICULTY_MAP` in
+`mcp_servers/assessment_server/server.py` was left untouched — not wired
+into any real path, out of scope for this change.
+
+**Fix:** `backend/quiz/models.py` gained `BLOOM_LEVELS` and renamed
+`QuizQuestion.difficulty` → `bloom_level`; `Quiz.difficulty` was removed
+entirely (quizzes are mixed-level, no single label). `backend/quiz/question_bank.py`'s
+generation prompt and tool schema now ask for 18-24 questions covering all
+six levels (≥3 per level) with the levels' definitions inline.
+`backend/quiz/assembler.py` rewrote `assemble_quiz()` to bucket and sample
+roughly evenly across all six levels with cross-level backfill, instead of
+a single-difficulty filter. `frontend/quiz_page.py` replaced the
+Easy/Medium/Hard card selector with a quiz-intro screen showing a per-level
+question-count breakdown, and switched the per-question badge from one
+quiz-wide difficulty tag to each question's own Bloom-level icon/label.
+`backend/content/models.py::Question` gained `bloom_level` (defaulted for
+backward-compat with modules persisted before this change), and
+`backend/content/inline_question_gen.py` now tags each inline question with
+one of the first three levels. `backend/interactive_tutor/graph.py`'s
+diagnostic prompt now asks for a mix of Remember/Understand-level questions
+only (pre-lesson, so higher levels aren't appropriate yet), and
+`ask_question()`'s prompt maps `presentation_depth` (beginner/intermediate/advanced)
+to a target Bloom's level pair instead of a vague "match the student's
+level" instruction. `frontend/module_library_page.py` gained a legacy
+difficulty→Bloom-level mapping so modules persisted before this change still
+load instead of raising a `KeyError`.
+
+**Files:** `backend/quiz/models.py`, `backend/quiz/question_bank.py`,
+`backend/quiz/assembler.py`, `frontend/quiz_page.py`,
+`frontend/module_library_page.py`, `frontend/results_page.py`,
+`frontend/upload_page.py`, `app.py`, `backend/content/models.py`,
+`backend/content/inline_question_gen.py`,
+`backend/interactive_tutor/graph.py`,
+`tests/test_quiz/test_assembler.py`, `tests/test_quiz/test_evaluator.py`,
+`tests/test_content/test_inline_question_gen.py` (new),
+`tests/test_content/test_pipeline.py`, `tests/test_e2e/test_provider_e2e.py`.
+See [gui_spec.md](gui_spec.md) §3.6 for the updated Quiz UI checklist.
+
 ---
 
 ## 4. Bug Fixes — ported from `experiment/improve-ui`
@@ -354,6 +414,109 @@ with a "Continue to lesson →" button to proceed.
 - [x] **Highlight each slide's "Key concepts" in different colors in the tutor room (Phase 64)** — **Resolved (enhancement):** `frontend/tutor_room.py::_render_slide()` previously rendered `top_concepts` as a single `st.info()` box with all concepts in identical backtick-styled text (`` `concept` | `concept` ``), giving no visual distinction between individual topics. Added `topic_highlight_chips_html()` to `frontend/styles.py` — renders each concept as its own colored pill, cycling through a fixed 6-color palette (blue/purple/teal/orange/pink/green, each a pastel background + matching dark text, same self-contained style as the existing `slide_chips_html`/`concept_rail_html` chips) — and swapped the `st.info()` call for a plain `st.markdown("**Key concepts:**")` label (inherits theme text color normally) followed by the chip row. Verified live in both themes via a synthetic harness: 6 distinct chip colors render correctly in light mode and remain identical (self-contained backgrounds, unaffected by theme CSS) in dark mode, with the label text correctly following the theme. Full pytest suite: 139 passed, 0 failures.
 - [x] **"Top concepts" still shown as one undifferentiated blue box in the Module Viewer (Phase 65)** — **Resolved:** Phase 64 only fixed the live Adaptive Tutor's slide rendering (`frontend/tutor_room.py::_render_slide()`). The static Module Viewer page (shown when browsing a module's topics directly, outside a tutor session) has its own, separate "Top concepts" rendering in `frontend/module_viewer.py` — `st.info(f"Top concepts: {' | '.join(f'**{c}**' for c in et.top_concepts)}")` — which Phase 64 never touched, so it still wrapped every concept in one uniform `st.info()` box (Streamlit's info boxes render with a single blue-tinted background/text, which is exactly what made every concept look "all blue" regardless of content). Reported live with real content: "Self-Attention Mechanism", "Token Representation in Embedding Space", "Attention Weights" all rendering blue and pipe-separated. Fixed by applying the same `topic_highlight_chips_html()` treatment used in Phase 64: replaced the `st.info(...)` call with `st.markdown("**Top concepts:**")` + the chip row. Verified live with the exact 3 reported concept strings, in both light and dark mode — now rendering as 3 distinct chips (blue/purple/teal). Full pytest suite: 147 passed, 0 failures.
 - [x] **Module Viewer: switching topic tabs doesn't stop the previous tab's audio; two tabs' audio can play simultaneously (Phase 66)** — **Resolved:** `frontend/module_viewer.py` renders each topic as an `st.tabs()` panel with its own `st.audio(et.audio_path, format="audio/mp3")` (no autoplay — user clicks play manually). Streamlit's `st.tabs()` keeps every tab panel (and its `<audio>` element) mounted in the DOM at all times, only hiding inactive ones via CSS — the same "all panels stay mounted" mechanic already documented as the root cause of the earlier Mermaid-in-tabs bug. Since nothing paused the previous tab's audio on switch, playing audio in tab 1 then clicking tab 2 left tab 1's audio running; playing tab 2's audio too then overlapped both. The existing fix for this exact class of bug, `frontend/audio_autostop.py::render_audio_autostop()` (Phase 54, built for the Adaptive Tutor — an invisible iframe whose script pauses every `<audio>` element on any `<button>` click), was wired into `tutor_room.py` but never into `module_viewer.py`. Confirmed live via Playwright DOM inspection that Streamlit's `st.tabs()` headers render as real `<button role="tab" data-testid="stTab">` elements, so the existing click selector (`e.target.closest('button')`) already covers tab switches with no changes needed to `audio_autostop.py` itself — the only gap was the missing call. Fixed by adding `render_audio_autostop()` to the top of `render_module_viewer()`, identical to the existing `tutor_room.py` pattern. Verified live with two real audio files across two tabs: starting tab 1's audio then clicking tab 2 paused tab 1's audio (confirmed via the audio element's `paused` property, not just visual hiding); starting tab 2's audio afterward left tab 1 still paused (no overlap); switching back to tab 1 likewise paused tab 2's audio. Full pytest suite: 147 passed, 0 failures.
+
+---
+
+## 5. Guardrails — Input/Output Safety for LLM Calls
+
+**Goal:** the app had zero safety/validation guardrails — all 14 LLM call
+sites (interactive tutor nodes, content pipeline, quiz generation) went
+through `LLMFactory.create()` → `BaseLLMClient.generate()` with no input
+sanitization, no output moderation, and no scope control. Two surfaces carry
+genuinely untrusted content into prompts: uploaded document text and the
+student's raw free-text answer in the tutor room.
+
+**Decisions:** four categories in scope — prompt-injection detection
+(input), content moderation (output), topic/scope relevance (input,
+tutor-room only), and a generic output-quality safety net (output).
+Architecture is a single decorator, `GuardrailedLLMClient`, wrapping
+`BaseLLMClient` and inserted at `LLMFactory.create()` — every call site is
+protected automatically with no per-call-site code. Violations block the
+call/output and raise `GuardrailViolation` with a friendly message (no
+silent sanitization, no log-only mode). Detection is hybrid: fast
+deterministic regex/keyword rules for injection and output-quality; an
+LLM-judge call (via the existing tool-schema pattern, run against the raw
+inner adapter to avoid recursion) for the two semantic checks, moderation
+and topic-relevance.
+
+**Fix — Phase 73 (core module + wrapper + factory wiring):** new package
+`backend/core/guardrails/`: `exceptions.py` (`GuardrailViolation`, whose
+`str()` is the friendly user-facing message), `config.py` (env-var toggles),
+`rules.py` (pure regex/keyword checks — `check_prompt_injection`,
+`check_output_quality`), `judge.py` (LLM-judge checks —
+`check_content_moderation`, `check_topic_relevance`, both failing open on
+judge-call errors), `client.py` (`GuardrailedLLMClient`). `LLMFactory.create()`
+now wraps every adapter (anthropic/portkey/ollama) in `GuardrailedLLMClient`
+unconditionally — the enable/disable logic lives entirely inside the
+wrapper's own `guardrails_enabled()` check, so the factory itself stays
+simple. No new dependencies — stdlib `re` plus the existing
+`BaseLLMClient`/tool-schema infrastructure covers both rule-based and
+judge-based checks; a third-party moderation library would just duplicate
+what the judge prompt already covers and add another thing to calibrate
+against false-positiving on legitimate academic content (the moderation and
+topic-relevance judge prompts are explicitly calibrated to allow normal
+discussion of sensitive academic subjects — security exploits, history of
+violence, biology, mental health — and only flag clear, unambiguous
+violations).
+
+Confirmed via direct code review (not just design): exceptions raised from
+`generate()` propagate cleanly to existing friendly-error UI with zero new
+try/except needed anywhere — `frontend/tutor_room.py::_run_node()`'s blanket
+`except Exception` and `frontend/upload_page.py::_run_pipeline_bg()`'s
+per-step try/except both already display `str(exc)`. Three content-pipeline
+calls (`sliding_pipeline.py::_assess()`, `content_enricher.py::enrich()`,
+`diagram_generator.py::_try_diagram()`) already catch broad `Exception`
+internally and fail open to a degraded fallback rather than surfacing an
+error — a guardrail violation there silently degrades instead of blocking
+visibly. Accepted as-is: those are heuristic/structural calls, not where
+adversarial content does real damage, and changing that pre-existing
+fail-open behavior is out of scope for this feature.
+
+**Files:** `backend/core/guardrails/__init__.py`,
+`backend/core/guardrails/exceptions.py`, `backend/core/guardrails/config.py`,
+`backend/core/guardrails/rules.py`, `backend/core/guardrails/judge.py`,
+`backend/core/guardrails/client.py`, `backend/core/llm_client/factory.py`,
+`.env.copy`, `tests/test_content/test_guardrails.py` (new),
+`tests/test_content/test_llm_client.py`.
+
+**Fix — Phase 74 (topic-relevance wiring):** of the four tutor-room
+call sites considered (`ask_question`, `evaluate_response`, `provide_hint`,
+`simplify_foundations` in `backend/interactive_tutor/graph.py`), only
+`evaluate_response()` actually embeds raw, unsanitized student free-text in
+its prompt (`f"Student's answer: {answer}"`, where `answer =
+state.get("student_answer", "")` — the exact value `frontend/tutor_room.py`'s
+`st.text_area()` writes). The other three build their prompts entirely from
+tutor/LLM-authored state (`concept_content`, `feedback` — itself
+LLM-generated by `evaluate_response`) — never raw student text. Wiring
+topic-relevance into those three would be a tautological check on the
+tutor's own well-formed pedagogical text, with no security value, so they
+were deliberately left unwired. `evaluate_response()` now passes
+`topic_context=f"{concept}: {state.get('concept_summary', '')}"` to
+`llm.generate(...)` — the same title+summary signal `generate_diagnostic()`
+already uses for its own scope-setting prompt.
+
+**Regression caught by tests:** `tests/test_e2e/test_provider_e2e.py`
+constructs raw adapters directly (bypassing `LLMFactory.create()`, the same
+pattern as `make_adapter()` in `test_llm_client.py`) and monkeypatches
+`graph._get_llm` to return them — a real, intentional simulation of "what a
+`BaseLLMClient` looks like," not just the guardrail-wrapped case. Passing
+`topic_context` to a raw `AnthropicAdapter.generate()` raised `TypeError:
+got an unexpected keyword argument` — `topic_context` had only been added
+to `GuardrailedLLMClient.generate()`, not to `BaseLLMClient`'s abstract
+signature or the three concrete adapters, breaking the implicit contract
+that any `BaseLLMClient` is interchangeable regardless of guardrail
+wrapping. Fixed by adding `topic_context: str | None = None` to
+`BaseLLMClient.generate()`'s abstract signature and to all three adapters'
+concrete signatures (accepted, silently ignored — only
+`GuardrailedLLMClient` consumes it). Caught by running the full suite, not
+by static reasoning — confirms the value of always re-running
+`pytest tests/ -m "not slow"` after a guardrails-adjacent change, even one
+that looks purely additive.
+
+**Files:** `backend/interactive_tutor/graph.py`,
+`backend/core/llm_client/base.py`,
+`backend/core/llm_client/adapters/{anthropic,portkey,ollama}_adapter.py`,
+`tests/test_tutor/test_graph_nodes.py`.
 
 ---
 
@@ -375,6 +538,9 @@ with a "Continue to lesson →" button to proceed.
 | `AI_TUTOR_MAX_FILE_MB` | Max upload size | `50` |
 | `AI_TUTOR_CHROMA_PATH` | ChromaDB persistence directory | `data/chroma` |
 | `AI_TUTOR_TOKEN_BUDGET` | Max tokens per generation run | `200000` |
+| `AI_TUTOR_GUARDRAILS_ENABLED` | Master switch for all LLM guardrail checks (Phase 73) | `true` |
+| `AI_TUTOR_GUARDRAILS_MODERATION_ENABLED` | Toggle the content-moderation judge check independently (Phase 73) | `true` |
+| `AI_TUTOR_GUARDRAILS_TOPIC_RELEVANCE_ENABLED` | Toggle the topic-relevance judge check independently (Phase 73) | `true` |
 | `PHOENIX_COLLECTOR_ENDPOINT` | Arize Phoenix OTEL endpoint | `http://localhost:6006/v1/traces` |
 | `LANGCHAIN_API_KEY` | LangSmith API key (optional tracing) | — |
 | `LANGCHAIN_TRACING_V2` | Enable LangSmith export | `false` |
