@@ -69,20 +69,23 @@ additions built on it: a guardrail layer on every language model call, a
 knowledge graph that grounds a hint in a prerequisite concept, and a switch from
 informal difficulty labels to Bloom's taxonomy levels. Section 6 reports
 evaluation results and Section 7 outlines future work. The appendices give
-supporting detail, including three reliability lessons that recurred at the
-boundaries between these systems.
+supporting detail, including challenges and fixes done during integration of
+the system and future scope of work.
 
 \section{System architecture}
 
 \subsection{Ingestion pipeline}
 
-A parser specific to the file type turns each upload into one shared model of
-titled sections, so the rest of the system never sees the original format. A PDF
-is read through PyMuPDF (one section per table of contents entry, else per page);
-a slide deck becomes one section per slide; a Word file splits at each heading;
-and a WebVTT transcript is split by its own classifier (Appendix A). Each parser
-bounds how much it reads, so a long document cannot push unbounded text
-downstream.
+Ingestion pipelines implements parsers specific to the
+file types which  converts input file contents  into one shared model of 
+titled sections, so the rest of the system never has to know which format 
+a file started as. A PDF is read through PyMuPDF, with each table of contents
+entry becoming one section, or one section per page when no table of contents
+exists. A slide deck becomes one section per slide. A Word file splits at each 
+heading, folding the paragraphs that follow into that section, or becomes one 
+section when it has no headings. A WebVTT transcript is split by its own classifier, 
+covered in Appendix A. Each parser also bounds how much of a file it reads, 
+so a very long document cannot push unbounded text downstream.
 
 \subsection{Content pipeline}
 
@@ -153,15 +156,13 @@ present concept, hint, and simplify steps use graph-guided retrieval
 
 All effects outside the language model are isolated behind three tool servers
 that follow the Model Context Protocol~\cite{anthropic2024mcp}, reached through a
-single client. A document server parses an uploaded PDF, slide deck, Word file,
-or transcript and extracts embedded images; any other input format would need a
-new tool on that server. An assessment server checks that a piece of generated
-output matches the schema the calling code expects. A storage server saves a
-finished module to the database and reads and writes the vector store
-(Section 2.5). Because every server is reached through the same client, the
-pipeline and tutor never import a parsing library, database driver, or vector
-store client directly. Appendix A gives the full pipeline diagram, the tools each
-server exposes, and the VTT transcript path.
+single client. A document server parses uploads and extracts embedded images; an
+assessment server checks that generated output matches the expected shape; and a
+storage server saves modules and reads and writes the vector store (Section 2.5).
+Because every server is reached through the same client, the pipeline and tutor
+never import a parsing library, database driver, or vector store client directly.
+Appendix A gives the full pipeline diagram, the tools each server exposes, and
+the VTT transcript path.
 
 \subsection{Vector retrieval}
 
@@ -174,15 +175,16 @@ pipeline's own content for the current topic is missing, and every query is
 filtered to the current module, for the reason given as the third reliability
 lesson in Appendix E.
 
-
 \subsection{Multi-provider access}
 
-An LLM factory gives the model side the same uniformity the tool servers give the
-data side: every call site is written against one interface. A per user setting,
-changeable from the sidebar at runtime, routes calls to Anthropic, Portkey, or a
-local Ollama model. The full path from upload to a finished session has been
-checked end to end against all three, so switching providers changes only
-configuration, not code.
+An LLM factory gives the abstraction on the model side that the tool
+servers give on the data side. Every call site in this report is written
+against one interface. A setting stored per user chooses whether calls go to
+Anthropic, to Portkey, or to a local Ollama model. That setting can be changed
+from the sidebar while the app is running. The full path from upload to a
+finished tutor session has been checked end to end against all three providers.
+Switching a deployment's model therefore changes only configuration, not the
+pipeline or the tutor code.
 
 \subsection{Evaluation and observability}
 
@@ -203,23 +205,23 @@ to a finished session against each provider.
 
 \section{Guardrails on every language model call}
 
-The system makes language model calls from fourteen sites across the tutor and
-pipeline, none of which checked their input or output. Every call now goes
+The system makes language model calls from various points across the tutor and
+pipeline, each of which needs to be checked for their input or output. Every call now goes
 through a wrapper that the LLM factory places around the provider client, so
 every site is covered, including ones added later such as the knowledge graph's
 relation extractor (Section 4). The wrapper runs four checks: a prompt injection
 check~\cite{greshake2023not} and an output quality check use fixed patterns,
-while a content safety check and a topic relevance check each make a second
+while a content safety check and a topic relevance check each make a second LLM
 provider call. The relevance check runs only when the caller passes the current
 topic, which only the function grading a learner's free text answer does; the
 other sites build prompts from text the system already generated. A failed check
 raises a plain error that the existing error handling shows to the user, and a
-failure in the second call does not block the session. Twenty six tests cover the
+failure in the second call does not block the session. 26 tests cover the
 wrapper. Appendix B gives the full table and a regression the tests caught.
 
 \section{Graph-guided retrieval}
 
-The plain similarity search in Section 2.4 has no notion that one concept is a
+The plain similarity search in Section 2.5 has no notion that one concept is a
 prerequisite of another, so a hint could only re-explain the concept the learner
 just missed, not the earlier one they actually lacked. The system now builds a
 graph for each module~\cite{hogan2021knowledge} that records typed relationships
@@ -242,16 +244,14 @@ The system generates questions in four places: the end of module quiz, each
 topic's comprehension questions, the pre lesson diagnostic, and the tutor's
 follow up question. Each used to carry an informal easy, medium, or hard label;
 every question now carries one of Bloom's six cognitive levels
-instead~\cite{anderson2001taxonomy}: remember, understand, apply, analyze,
-evaluate, and create. This follows Scaria et al.~\cite{scaria2024bloom}, who
-found that a persona, reasoning before writing, and stating each level's
-definition in the prompt worked best, while hand written examples made results
-worse. Each place uses a different slice of the six levels: the quiz mixes all
-six, comprehension questions use the first three, the diagnostic uses only
-remember and understand, and the follow up question maps the learner's depth to a
-pair of levels. The end of module quiz is timed, and on expiry it is submitted
-automatically. Appendix D gives the full definitions and the question fields that
-changed.
+instead~\cite{anderson2001taxonomy}. This follows Scaria et
+al.~\cite{scaria2024bloom}, who found that a persona, reasoning before writing,
+and stating each level's definition in the prompt worked best, while hand written
+examples made results worse. Each place uses a different slice of the six levels:
+the quiz mixes all six, comprehension questions use the first three, the
+diagnostic uses only remember and understand, and the follow up question maps the
+learner's depth to a pair of levels. Appendix D gives the full definitions and the
+question fields that changed.
 
 \section{Evaluation results}
 \label{sec:eval-results}
@@ -296,18 +296,21 @@ interact with the tutor in free conversation rather than only through the
 guided question and answer loop. The second is animation support that would
 illustrate a concept with a short motion graphic alongside its static diagram.
 Neither was stable enough to merge, so both are left for future work.
+Details of the scope of future work and implementation are provided in Appendix G.
 
 \section{Conclusion}
 
-AI Tutor's content pipeline and adaptive tutor are each a short chain of language
-model calls connected by retries, fallbacks, and a per call decision about
-whether to ground the call in retrieved content. Neither is a single prompt, and
-neither is a fully autonomous agent. The three additions, the guardrail layer,
-the knowledge graph, and the Bloom's taxonomy labels, were each added at the
-boundary of this chain rather than by changing it, which is why each could be
-tested on its own. The reliability lessons point the same way: every recurring
-failure sat at a boundary between systems, never inside the language model call
-itself.
+AI Tutor is a system with content generation pipeline and adaptive tutor
+for dynamically generating learning modules which are personalized for 
+user based on the input given. It has mid level  agency as it is neither a simple 
+augmented LLM agent nor a highly autonomous agent. The system itself is hybrid 
+with combination of series of LLM calls augmented with memory and tools 
+via  model context protocol and multiple agentic nodes in a LangGraph for 
+Adaptive AI tutor. The three additional components the guardrail layer, the 
+knowledge graph, and the Bloom's taxonomy labels, augment the system to
+make it more complex but at the same time can be tested independently of
+other components. LLM Evals with different quality metrics is a key module to 
+to continuously analyze and improve the system.
 
 \bibliography{report}
 
@@ -478,46 +481,41 @@ difficulty label on a question now holds one of these six level names. A quiz
 that used to be generated at a single difficulty is now generated as a mix
 across all six levels in one pass.
 
-\section{Reliability lessons}
+\section{Challenges and fixes}
 
-Three problems recurred across the pipeline and the tutor, each at a boundary
-between systems rather than inside a language model call.
+Three problems recurred across both the pipeline and the tutor, and none of
+them are related to bottleneck of LLM calls.
 
-The vector store's default embedding function downloads an eighty megabyte
-model the first time it runs. Before the fix, this download happened on the
-exact request that was building a new user's first topic. The user saw nothing
-beyond a normal wait. The storage tool server has the same kind of cost on its
-own first call. Importing the numeric libraries it depends on can take anywhere
-from about one second to over thirty seconds, depending on what else is running
-on the machine. A call with no time limit would simply hang if that import took
-unusually long. Both costs are now paid once, in a background thread, when the
-application process starts, well before any real user reaches that code path.
-The storage tool server's client now also enforces an explicit time limit on
-every call as a second line of defense.
+The first is a one time intialization cost the learner is waiting
+on. The vector store's embedding model downloads on first use. The storage tool
+server's first call has high latency importing native libraries.
+Both of these blocked the very first piece of content a new user saw, with no
+progress indicator and no time limit, because neither cost had been paid ahead
+of time or bounded. The fix was the same in both cases. Pay the cost once at
+startup, in a background thread, before any user reaches that code path. Also
+give every call across a process boundary an explicit time limit, however
+reliable it is expected to be.
 
-The diagram rendering failure had three distinct causes, found one after
-another. First, a diagram with no usable content still produced a non empty
-string. The code that prepares the diagram's source text always adds a required
-header line, even to an empty diagram, so a check for an empty string did not
-catch this case and the renderer attempted to draw nothing. Second, a page that
-shows several topics as tabs keeps every tab's content in the page at once and
-only hides the ones not currently selected. The library that measures text size
-for layout returns a size of zero for anything inside a hidden tab, and the
-rendering library only measures text once. A diagram first rendered while its
-tab was hidden therefore stayed broken even after the tab was opened. Third, a
-diagram with a cycle in it could make the rendering library's layout step run
-for an unbounded amount of time with no result. Each of these three was fixed
-the same way: a check before depending on the thing that check verifies, a
-visibility check before measuring, and a time limit on the layout step that
-falls back to the same bullet point summary if the limit is reached.
+The second is that error handling does not cross from one runtime into
+another. The diagram renderer runs in the learner's browser. By then the Python
+code that produced the diagram's source text has already returned and left its
+own error handling behind. A raw rendering failure in the browser was therefore
+invisible to the server and reached the learner directly. Several further
+browser side failures appeared in the same renderer: a stray style rule
+capturing the diagram's frame, a measurement library reading a size of zero
+inside a hidden tab, and a malformed diagram hanging the rendering library.
+Each was fixed the same way. Catch the failure in the browser's own code. Check
+that the diagram is actually visible and well formed before depending on a
+measurement of it. Give every render its own time limit. In every case, fall
+back to the same bullet point summary from Section 2.2.
 
-The retrieval scoping problem showed up as the tutor occasionally giving a
-hint that read fine on its own but was clearly about a different topic than the
-one the learner was struggling with. Retrieval calls were then changed to
-filter by the current module and to run only when the pipeline's own content
-for the current topic was missing. This stopped happening, because the search
-space for any one call became much smaller and only ever contained content that
-could plausibly be relevant.
+The third is that retrieval should be a narrow fallback, not something run
+on every call. The tutor's hint and concept presentation calls search the
+vector store only when the pipeline's own content for that topic is missing,
+and every search is filtered to the current module. An earlier version searched
+on every call. It sometimes returned text that read well but came from the
+wrong module, which was worse than not searching at all. Appendix E gives the
+full account of each of these three problems.
 
 \section{Evaluation detail (supports Section 6)}
 
@@ -562,5 +560,28 @@ Eyeriss architecture: memory hierarchy and control & 0.82 & 0.88 & 0.91 \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+\section{Future work}
+
+A few gaps follow directly from the system described above. First, audio
+narration is currently generated for each topic only when that topic is about
+to be shown, rather than ahead of time. Pre-generating it for every topic
+during the pipeline run, with a way to invalidate the cache when a topic is
+regenerated, would remove that latency. Second, the guardrail layer in Section 3 
+checks topic relevance at one call site, because that is the one site that puts a 
+learner's own words into a prompt. If a later change threads learner-authored text 
+into the hint or follow up question calls, those sites should gain the same check. 
+Third, the generated diagrams are just the tree structures similar to mermaid diagrams. 
+But the diagrams should be actual images and animations that convey the concept and 
+allow user to interact with it. Since the content library is generic and not handcrafted for 
+specific content, this is the scope for future work. Next, the knowledge graph in Section 4
+is scoped to one module by design. Fourth, the quality metrics in Section 2.7 have not yet
+been checked against actual learning outcomes, such as a learner's quiz score
+after a tutoring session. That comparison would show whether the metrics
+measure what the project intends. Finally, the relation extractor in Section 4
+makes one call per module regardless of how many concepts the module has. For a
+very large module, it may be worth splitting that call into smaller batches and
+checking whether this changes the quality of the relationships it finds.
+
 
 \end{document}
