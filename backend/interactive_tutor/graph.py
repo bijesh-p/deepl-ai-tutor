@@ -541,6 +541,7 @@ def evaluate_response(state: GraphState) -> dict:
     llm = _get_llm()
     question = state.get("current_question", {})
     answer = state.get("student_answer", "")
+    concept = state.get("current_concept", "")
 
     schema = {
         "name": "evaluate_answer",
@@ -565,10 +566,13 @@ def evaluate_response(state: GraphState) -> dict:
         "Identify specific misconceptions if present. Be encouraging."
     )
 
-    result = llm.generate(prompt, tool_schema=schema)
+    result = llm.generate(
+        prompt,
+        tool_schema=schema,
+        topic_context=f"{concept}: {state.get('concept_summary', '')}",
+    )
     evaluation = result if isinstance(result, dict) else {"is_correct": False, "feedback": str(result)}
 
-    concept = state.get("current_concept", "")
     history = list(state.get("chat_history", []))
     history.append({"role": "student", "content": answer, "concept": concept})
     history.append({"role": "tutor", "content": evaluation.get("feedback", ""), "concept": concept})

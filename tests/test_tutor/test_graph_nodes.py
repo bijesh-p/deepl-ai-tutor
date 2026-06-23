@@ -354,6 +354,25 @@ def test_evaluate_response_appends_to_chat_history(monkeypatch):
     assert "tutor" in roles
 
 
+def test_evaluate_response_passes_topic_context_to_llm(monkeypatch):
+    evaluation = {"is_correct": True, "feedback": "Well done!"}
+    mock_llm = _MockLLM(evaluation)
+    monkeypatch.setattr(graph, "_get_llm", lambda: mock_llm)
+
+    state: graph.GraphState = {
+        "current_concept": "Photosynthesis",
+        "concept_summary": "Plants convert light to energy.",
+        "current_question": {"question": "What is ATP?", "expected_answer": "Energy", "misconceptions": []},
+        "student_answer": "ATP is the energy currency of cells.",
+        "attempts": 0,
+        "chat_history": [],
+    }
+    graph.evaluate_response(state)
+
+    assert len(mock_llm.calls) == 1
+    assert mock_llm.calls[0]["topic_context"] == "Photosynthesis: Plants convert light to energy."
+
+
 # ---------------------------------------------------------------------------
 # simplify_foundations
 # ---------------------------------------------------------------------------

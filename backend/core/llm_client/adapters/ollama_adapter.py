@@ -29,6 +29,7 @@ class OllamaAdapter(BaseLLMClient):
         system: str | None = None,
         tool_schema: dict | None = None,
         cached_blocks: list[dict] | None = None,
+        topic_context: str | None = None,
     ) -> str | dict:
         messages: list[dict[str, Any]] = []
 
