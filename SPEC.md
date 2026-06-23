@@ -16,6 +16,7 @@
 | 2 | Functional Skeleton | ✅ Complete | LLM factory, MCP servers, LangGraph tutor, JIT pipeline, audio, observability |
 | 3 | Refined Platform | 🔄 In Progress | Feature polish, admin-curated module library, PPTX/DOCX, full ChromaDB wiring |
 | 4 | VTT Transcript Ingestion | 🔲 Planned | Parse training/classroom `.vtt` transcripts into learning modules |
+| Exp | LLM Knowledge Graph | 🔄 experiments/llm-graph | Hybrid store: NetworkX graph (relationships) + ChromaDB (definitions); graph-guided adaptive retrieval. See [llmgraph_spec.md](llmgraph_spec.md) |
 
 ---
 

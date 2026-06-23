@@ -185,6 +185,7 @@ No new package is required — LangGraph picks this up automatically.
 | `AI_TUTOR_ADMIN_PASSWORD` | Admin mode | Password required for admin usernames | — |
 | `AI_TUTOR_DEFAULT_MAX_TOPICS` | — | Default "Max topics" value on upload page (0 = unlimited) | `0` |
 | `AI_TUTOR_CHROMA_DIR` | — | ChromaDB storage directory | `data/chroma` |
+| `AI_TUTOR_GRAPH_DIR` | experiments/llm-graph | Per-module knowledge graph (GraphML) directory | `data/graph` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | — | Phoenix OTLP endpoint | `http://localhost:6006/v1/traces` |
 | `LANGCHAIN_TRACING_V2` | — | Enable LangSmith tracing | — |
 | `LANGCHAIN_API_KEY` | LangSmith | LangSmith API key | — |
