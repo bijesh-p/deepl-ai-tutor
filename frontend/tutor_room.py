@@ -116,6 +116,11 @@ def render_tutor_room() -> None:
                         else:
                             visited.pop()
                             state["remaining_concepts"].insert(0, state["current_concept"])
+                            mastered = state.get("mastered_concepts", [])
+                            for t in (state["current_concept"], prev):
+                                if t in mastered:
+                                    mastered.remove(t)
+                            state["mastered_concepts"] = mastered
                             state["current_concept"] = prev
                             st.session_state["tutor_state"] = state
                             st.session_state["tutor_phase"] = "slide"
@@ -162,6 +167,11 @@ def render_tutor_room() -> None:
                         else:
                             visited.pop()
                             state["remaining_concepts"].insert(0, state["current_concept"])
+                            mastered = state.get("mastered_concepts", [])
+                            for t in (state["current_concept"], prev):
+                                if t in mastered:
+                                    mastered.remove(t)
+                            state["mastered_concepts"] = mastered
                             state["current_concept"] = prev
                             st.session_state["tutor_state"] = state
                             st.session_state["tutor_phase"] = "slide"
@@ -339,8 +349,9 @@ def _render_diagnostic(state: dict, graph) -> None:
                     remaining = state.get("remaining_concepts", [])
                     state["remaining_concepts"] = [concept] + remaining
                     mastered = state.get("mastered_concepts", [])
-                    if concept in mastered:
-                        mastered.remove(concept)
+                    for t in (concept, prev):
+                        if t in mastered:
+                            mastered.remove(t)
                     state["mastered_concepts"] = mastered
                     state["current_concept"] = prev
                     state["attempts"] = 0
@@ -360,7 +371,7 @@ def _render_diagnostic(state: dict, graph) -> None:
             key=f"diag_q_{i}",
             label_visibility="collapsed",
         )
-        answers.append(q["options"].index(choice) if choice in q["options"] else 0)
+        answers.append(q["options"].index(choice) if choice in q["options"] else -1)
 
     if st.button("Submit & Start Learning", type="primary"):
         state["diagnostic_answers"] = answers
@@ -391,6 +402,8 @@ def _render_diagnostic_review(state: dict, graph) -> None:
         options = q.get("options", [])
         if chosen_idx is not None and 0 <= chosen_idx < len(options):
             st.markdown(f"Your answer: {options[chosen_idx]}")
+        elif chosen_idx == -1:
+            st.markdown("_No answer selected._")
         if not is_correct and 0 <= correct_idx < len(options):
             st.markdown(f"Correct answer: {options[correct_idx]}")
         explanation = q.get("explanation", "")
@@ -418,12 +431,6 @@ def _render_slide(state: dict, graph) -> None:
         return
 
     concept = slide.get("concept", state["current_concept"])
-
-    # Record this concept as visited (safety net for any path not through _advance_to_next)
-    _visited = st.session_state.setdefault("tutor_visited_concepts", [])
-    _cur = state.get("current_concept", "")
-    if _cur and (not _visited or _visited[-1] != _cur):
-        _visited.append(_cur)
 
     top_concepts = slide.get("top_concepts", [])
     transcript = slide.get("transcript", "")
@@ -524,10 +531,6 @@ def _render_slide(state: dict, graph) -> None:
         if has_next:
             if next_ready:
                 if st.button("Next slide →", type="secondary"):
-                    visited = st.session_state.setdefault("tutor_visited_concepts", [])
-                    current = state.get("current_concept", "")
-                    if current and (not visited or visited[-1] != current):
-                        visited.append(current)
                     _do_advance_from_slide(state, graph)
                     st.rerun()
             else:

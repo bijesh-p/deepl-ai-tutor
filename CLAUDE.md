@@ -8,16 +8,9 @@
 
 All authoritative requirements live in **SPEC.md**. Architecture diagrams are in **ARCHITECTURE.md**.
 
----
+AI Tutor is an intelligent web application that transforms static documentation (PDFs, PowerPoint, Word, and WebVTT transcripts) into dynamic, interactive learning modules. Uploaded content is decomposed into sub-topics with diagrams, audio narration, and inline questions, then served either as a self-paced module with a Bloom's-taxonomy-leveled quiz, or through a LangGraph-driven adaptive tutor that diagnoses the learner, adapts depth in real time, and tracks mastery across sessions. The platform also includes an admin-curated shared module library, a dark-mode UI, observability (tracing + LLM-judge evals), centralized input/output guardrails on every LLM call, and an experimental per-module knowledge graph that guides hints and concept ordering beyond plain vector search.
 
-## Project Status
-
-| Phase | Name | Status |
-|-------|------|--------|
-| 1 | PDF POC | ✅ Complete |
-| 2 | Functional Skeleton | ✅ Complete |
-| 3 | Refined Platform | 🔄 In Progress |
-| 4 | VTT Transcript Ingestion | ✅ Complete |
+All authoritative requirements live in **SPEC.md**.
 
 ---
 
@@ -301,6 +294,12 @@ PYTHONPATH=. uv run pytest -m "not slow"
 
 ---
 
+## Project Structure
+
+See [ARCHITECTURE.md §1](ARCHITECTURE.md#1-directory-structure) for the current directory layout.
+
+---
+
 ## Diagrams
 
 Use Mermaid diagrams whenever a visual would aid understanding. This applies to:
@@ -334,3 +333,5 @@ flowchart LR
     Analytics --> UI[Streamlit UI]
 ```
 ````
+
+---

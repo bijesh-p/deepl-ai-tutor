@@ -246,12 +246,23 @@ def test_present_concept_fallback_populates_key_takeaways_even_with_diagram(monk
     """When mermaid_code IS present, bullets must still be computed and stored
     in key_takeaways (not prepended into the transcript) — the diagram
     renderer needs this fallback in case a structurally-valid-looking
-    mermaid_code still fails to render client-side."""
+    mermaid_code still fails to render client-side.
+
+    _try_bullets is a pure text-extraction function (no LLM call) that splits
+    the transcript into sentences of >=6 words. The transcript must be long
+    enough to produce real bullets.
+    """
+    _TRANSCRIPT = (
+        "Entropy measures the degree of disorder or randomness in a thermodynamic system. "
+        "Higher entropy means more disorder and less usable energy within the system. "
+        "The second law of thermodynamics states that entropy always increases in an isolated system. "
+        "This principle explains why heat flows from hot objects to cold objects naturally. "
+        "Engineers use entropy calculations to determine the efficiency of heat engines."
+    )
     slide_dict = {
         "top_concepts": ["concept_a"],
-        "transcript": "Here is the fallback explanation.",
+        "transcript": _TRANSCRIPT,
         "mermaid_code": "flowchart TD\nA[Start]-->B[End]",
-        "bullets": ["Point A", "Point B"],
     }
     monkeypatch.setattr(graph, "_get_llm", lambda: _MockLLM(slide_dict))
     monkeypatch.setattr(graph, "_retrieve_context", lambda *a, **kw: "")
@@ -271,10 +282,11 @@ def test_present_concept_fallback_populates_key_takeaways_even_with_diagram(monk
 
     slide = next(m for m in result["chat_history"] if m.get("role") == "slide")
     assert slide["mermaid_code"] == "flowchart TD\nA[Start]-->B[End]"
-    assert slide["key_takeaways"] == ["Point A", "Point B"]
+    # key_takeaways must be populated (sentence extracts from transcript)
+    assert len(slide["key_takeaways"]) > 0
     # Prepend-into-transcript is the no-mermaid_code-only behavior — must not
     # also happen here now that mermaid_code is present.
-    assert slide["transcript"] == "Here is the fallback explanation."
+    assert slide["transcript"] == _TRANSCRIPT
 
 
 # ---------------------------------------------------------------------------

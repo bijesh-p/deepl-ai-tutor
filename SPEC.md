@@ -1,6 +1,6 @@
 # SPEC.md — AI Tutor System Specification
 
-> **Version:** 0.30 | **Last updated:** 2026-06-23
+> **Version:** 0.31 | **Last updated:** 2026-06-23
 > Architecture, directory layout, and component design are in [ARCHITECTURE.md](ARCHITECTURE.md).
 > **GUI / frontend requirements are specified in [gui_spec.md](gui_spec.md)** — that document
 > is authoritative for all GUI features, normative UI decisions (dark-theme default, button
@@ -15,8 +15,8 @@
 | 1 | PDF POC | ✅ Complete | Role-based access, Anthropic-only, SQLite, persistent module library |
 | 2 | Functional Skeleton | ✅ Complete | LLM factory, MCP servers, LangGraph tutor, JIT pipeline, audio, observability |
 | 3 | Refined Platform | 🔄 In Progress | Feature polish, admin-curated module library, PPTX/DOCX, full ChromaDB wiring |
-| 4 | VTT Transcript Ingestion | 🔲 Planned | Parse training/classroom `.vtt` transcripts into learning modules |
-| Exp | LLM Knowledge Graph | 🔄 experiments/llm-graph | Hybrid store: NetworkX graph (relationships) + ChromaDB (definitions); graph-guided adaptive retrieval. See [llmgraph_spec.md](llmgraph_spec.md) |
+| 4 | VTT Transcript Ingestion | ✅ Complete | Parse training/classroom `.vtt` transcripts into learning modules |
+| Exp | LLM Knowledge Graph | ✅ Complete (experimental) | Hybrid store: NetworkX graph (relationships) + ChromaDB (definitions); graph-guided adaptive retrieval. See §6 below |
 
 ---
 
@@ -106,7 +106,7 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
 | Streamlit upgrade + Windows/Linux audit (Phase 46) | Confirmed no Streamlit upgrade is possible (already on latest stable, 1.58.0); the sidebar-collapse bug is a recurring upstream issue with no fix version to wait for, not something this app's CSS caused. Removed the now-fully-confirmed-dead `stSidebarCollapsedControl` CSS (pre-1.38 testid name, renamed to `stSidebarCollapseButton`) from both `frontend/styles.py` and `frontend/login_page.py`. Audited `pyproject.toml`/`uv.lock` for Windows/Linux platform risk — none found beyond the already-handled `onnxruntime` pin. | ✅ Done |
 | Sidebar collapse/expand JS workaround (Phase 47) | New `frontend/sidebar_toggle.py::render_sidebar_toggle()` — a small always-visible custom button rendered via `st.iframe()`, forwarding clicks to Streamlit's hidden native sidebar control via `window.parent.document`. Pinned to the page edge via a new `[data-testid="stIFrame"]` rule in `_GLOBAL_CSS`. Theme-aware (violet in dark mode, indigo/blue in light). Resolves the Phase 45/46 open question. | ✅ Done |
 | UI polish round 2 (Phase 48) | Re-themed sidebar dark palette from violet to neutral slate-gray (`_DARK_PALETTE` + `sidebar_toggle.py`). Fixed quiz radio/checkbox options becoming invisible on hover/select in dark mode — the unconditional light `:hover`/`:has(input:checked)` backgrounds in `_GLOBAL_CSS` combined with near-white dark-mode text to produce near-white-on-near-white; added dark-appropriate hover/checked colors. Fixed the login page's "AI Tutor" title rendering outside its white card — the card was built by opening a `<div>` in one `st.markdown()` call and closing it in a later, separate call, which Streamlit doesn't nest content inside; replaced with `st.container(key="login_canvas")`, which gives every element rendered in the `with` block a real shared parent. | ✅ Done |
-| Configurable max topic limit | A numeric "Max topics" input on the upload page lets the user cap how many topics/slides the pipeline generates from the uploaded document. When set (e.g. 5), the pipeline selects the N most important topics from the document and terminates after enriching them — useful for quick demos or targeted study. When set to 0 or left blank, the pipeline generates topics for the entire document (current default behaviour). The limit applies uniformly to all document types (PDF, PPTX, DOCX, VTT). Implemented as: (1) `st.number_input` on the upload page, stored in `session_state["max_topics"]`; (2) passed through to `sliding_pipeline.run()` which truncates the decomposed topic list to the configured cap before enrichment begins; (3) parsers' existing `max_slides`/`max_sections` defaults (16) remain unchanged — the new cap operates at the pipeline level after decomposition, not at the parser level. Default: 0 (unlimited / generate all). Environment-variable override: `AI_TUTOR_DEFAULT_MAX_TOPICS` sets the default value shown in the input. | 🔲 Planned |
+| Configurable max topic limit (Phase 55) | A numeric "Max topics" input on the upload page lets the user cap how many topics/slides the pipeline generates from the uploaded document. When set (e.g. 5), the pipeline selects the N most important topics from the document and terminates after enriching them — useful for quick demos or targeted study. When set to 0 or left blank, the pipeline generates topics for the entire document (current default behaviour). The limit applies uniformly to all document types (PDF, PPTX, DOCX, VTT). Implemented as: (1) `st.slider` on the upload page, stored in `session_state["max_topics"]`; (2) passed through to `_start_pipeline`/`_run_pipeline_bg` which truncates the decomposed topic list to the configured cap before enrichment begins; (3) parsers' existing `max_slides`/`max_sections` defaults (16) remain unchanged — the new cap operates at the pipeline level after decomposition, not at the parser level. Default: 0 (unlimited / generate all). Environment-variable override: `AI_TUTOR_DEFAULT_MAX_TOPICS` sets the default value shown in the input. | ✅ Done |
 
 **Definition of done for Phase 3:**
 - [x] Admin user can publish a module to the shared library; all other users see it in their module library without generating it themselves
@@ -124,9 +124,11 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
 - [x] Quiz questions are generated according to the selected difficulty
 - [x] Selected difficulty is visible on the quiz page and results page
 - [x] Difficulty level is stored with quiz attempt analytics
+- [x] Upload page exposes a "Max topics" numeric input; when set to N > 0 the pipeline generates at most N topics; when 0 or blank it generates all topics from the document
+
 ---
 
-### Phase 4 — VTT Transcript Ingestion 🔲 Planned
+### Phase 4 — VTT Transcript Ingestion ✅ Complete
 
 **Goal:** Allow users to upload WebVTT (`.vtt`) training or classroom recording transcripts and transform them into interactive learning modules — same experience as PDF/PPTX/DOCX uploads. The parser must extract **teaching content and key concepts** (not raw conversation), capture **important Q&A exchanges**, and **never record speaker/participant names** (privacy).
 
@@ -136,11 +138,11 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
 
 | Task | Description | Status |
 |---|---|---|
-| VTT parser | `backend/ingestion/vtt_parser.py` — `parse_vtt(path, max_sections=16)` reads a `.vtt` file, strips timestamps/cue formatting/speaker names, and produces a clean `Document`. **Content extraction:** (1) Identify teaching/instructional content (explanations, definitions, walkthroughs) vs. non-content chatter (greetings, logistics, "can you hear me?"). (2) Detect Q&A exchanges — questions asked during the session and their answers — and preserve them as dedicated sections or inline within the relevant topic section. **Privacy:** All speaker/participant names are stripped from the output — sections are titled by topic/concept, never by person (e.g. `"Topic: Neural Network Basics"`, `"Q&A: Backpropagation"`, not `"Speaker: John"`). **Segmentation:** Split on topic/concept shifts detected from content flow, with time-gap (>30 s) as a secondary signal, and ~500-word fixed chunking as final fallback. Returns a `Document` with `source_type=SourceType.VTT`. | 🔲 Planned |
-| SourceType enum | Add `VTT = "vtt"` to `backend/ingestion/models.py::SourceType` | 🔲 Planned |
-| MCP document_server tool | Expose `extract_text_from_vtt` in `mcp_servers/document_server/` — delegates to `vtt_parser.parse_vtt`, returns `Document.to_json()` (same pattern as PDF/PPTX/DOCX tools) | 🔲 Planned |
-| Upload page integration | Add `"vtt"` to the accepted file types in `frontend/upload_page.py`; route `.vtt` uploads to `extract_text_from_vtt` via the existing `_TOOL_FOR_EXT` dispatch map | 🔲 Planned |
-| Unit tests | `tests/test_ingestion/test_vtt_parser.py` — parse a fixture `.vtt` file with speaker turns, verify section count/titles/body; edge cases: no speakers, single cue, empty file. `tests/test_mcp/test_document_server_vtt.py` — MCP round-trip test | 🔲 Planned |
+| VTT parser | `backend/ingestion/vtt_parser.py` — `parse_vtt(path, max_sections=16)` reads a `.vtt` file, strips timestamps/cue formatting/speaker names, and produces a clean `Document`. **Content extraction:** (1) Identify teaching/instructional content (explanations, definitions, walkthroughs) vs. non-content chatter (greetings, logistics, "can you hear me?"). (2) Detect Q&A exchanges — questions asked during the session and their answers — and preserve them as dedicated sections or inline within the relevant topic section. **Privacy:** All speaker/participant names are stripped from the output — sections are titled by topic/concept, never by person (e.g. `"Topic: Neural Network Basics"`, `"Q&A: Backpropagation"`, not `"Speaker: John"`). **Segmentation:** Split on topic/concept shifts detected from content flow, with time-gap (>30 s) as a secondary signal, and ~500-word fixed chunking as final fallback. Returns a `Document` with `source_type=SourceType.VTT`. | ✅ Done |
+| SourceType enum | Add `VTT = "vtt"` to `backend/ingestion/models.py::SourceType` | ✅ Done |
+| MCP document_server tool | Expose `extract_text_from_vtt` in `mcp_servers/document_server/` — delegates to `vtt_parser.parse_vtt`, returns `Document.to_json()` (same pattern as PDF/PPTX/DOCX tools) | ✅ Done |
+| Upload page integration | Add `"vtt"` to the accepted file types in `frontend/upload_page.py`; route `.vtt` uploads to `extract_text_from_vtt` via the existing `_TOOL_FOR_EXT` dispatch map | ✅ Done |
+| Unit tests | `tests/test_ingestion/test_vtt_parser.py` — parse a fixture `.vtt` file with speaker turns, verify section count/titles/body; edge cases: no speakers, single cue, empty file. `tests/test_mcp/test_document_server_vtt.py` — MCP round-trip test | ✅ Done |
 
 **VTT parsing details:**
 
@@ -155,16 +157,16 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
 6. **Limits:** Max 16 sections (consistent with PPTX/DOCX). `total_pages` set to number of sections (VTT has no page concept).
 
 **Definition of done for Phase 4:**
-- [ ] `SourceType.VTT` exists in models.py
-- [ ] `parse_vtt()` returns a valid `Document` from a `.vtt` file
-- [ ] Output sections are titled by topic/concept — **no speaker names** appear anywhere in the `Document`
-- [ ] Teaching content (explanations, concepts, examples) is extracted and non-content chatter is discarded
-- [ ] Q&A exchanges from the session are captured and preserved (as dedicated sections or inline with topic)
-- [ ] `parse_vtt()` handles the no-speaker fallback (time-gap and fixed-chunk segmentation)
-- [ ] `extract_text_from_vtt` MCP tool is exposed and callable via `mcp_client`
-- [ ] Upload page accepts `.vtt` files and routes them through the existing pipeline
-- [ ] A `.vtt` upload produces a complete learning module (topics + quiz + tutor session)
-- [ ] Unit tests pass for parser, Q&A extraction, name stripping, and MCP round-trip
+- [x] `SourceType.VTT` exists in models.py
+- [x] `parse_vtt()` returns a valid `Document` from a `.vtt` file
+- [x] Output sections are titled by topic/concept — **no speaker names** appear anywhere in the `Document`
+- [x] Teaching content (explanations, concepts, examples) is extracted and non-content chatter is discarded
+- [x] Q&A exchanges from the session are captured and preserved (as dedicated sections or inline with topic)
+- [x] `parse_vtt()` handles the no-speaker fallback (time-gap and fixed-chunk segmentation)
+- [x] `extract_text_from_vtt` MCP tool is exposed and callable via `mcp_client`
+- [x] Upload page accepts `.vtt` files and routes them through the existing pipeline
+- [x] A `.vtt` upload produces a complete learning module (topics + quiz + tutor session)
+- [x] Unit tests pass for parser, Q&A extraction, name stripping, and MCP round-trip
 
 ---
 
@@ -235,7 +237,7 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
 
 ---
 
-## 3. Bug Fixes — Navaneeth
+## 3. Bug Fixes
 
 Compiled from standalone change specs scoped under `changes/` via the `/spec-plan`
 skill before implementation (see each `changes/<name>.spec.md` for full detail —
@@ -520,6 +522,60 @@ that looks purely additive.
 
 ---
 
+## 6. Knowledge Graph (experimental)
+
+**Goal:** the adaptive tutor's hint/simplify/present fallbacks only had ChromaDB's
+pure semantic search to draw on — "what sounds similar to this query" — with no
+notion of which concepts are prerequisites of others, or which are closely
+related beyond surface wording. Augment retrieval with structural relationships
+between a module's concepts (prerequisite, related, elaborates, mentions,
+defines) so the tutor can ground hints in *foundational* material, not just
+similar-sounding material.
+
+**Decisions:** a `NetworkX MultiDiGraph` per module, persisted as GraphML
+(`data/graph/{module_id}.graphml`, directory configurable via
+`AI_TUTOR_GRAPH_DIR`). Structural edges (PART_OF, FOLLOWS, MENTIONS) are derived
+directly from the topic list as each topic is enriched — cheap, no LLM needed.
+Semantic edges (PREREQUISITE_OF, RELATED_TO, ELABORATES) require an LLM to
+actually read the content, so they're extracted once, after all topics are
+enriched, via a single tool-call over the whole module's concept catalogue —
+not per-topic. The graph is always an enhancement, never a hard dependency:
+every retrieval call falls back to plain ChromaDB vector search whenever the
+graph file is absent, the current topic is unknown, or any step raises — the
+tutor must work identically well with no graph at all.
+
+**Fix:** `backend/content/knowledge_graph/store.py::KnowledgeGraphStore` wraps
+the graph with idempotent `add_concept`/`add_term`/`add_edge` calls and
+traversals (`prerequisites(depth)`, `related(k)`, `teaching_order()` — a
+topological sort on PREREQUISITE_OF edges, falling back to FOLLOWS order;
+`break_prerequisite_cycles()` drops the lowest-weight edge in any detected
+cycle so this never raises). `extractor.py::build_module_graph()` orchestrates:
+extract semantic edges via an LLM tool-call (`emit_knowledge_graph`, dropping
+edges with unknown ids, invalid relation types, or self-loops; fails non-fatally
+to an empty list on any LLM error) → register edges → break cycles → save.
+`backend/content/sliding_pipeline.py` calls this after all topics publish, and
+registers structural nodes/edges per topic as it goes.
+
+At query time, `retrieval.py::graph_guided_context(module_id, topic_id,
+query_text, mode)` is the single entry point the tutor calls: it loads the
+graph, picks candidate concepts based on `mode` (`present`: related then
+prerequisites; `hint`: prerequisites first, for missing-foundation cases;
+`simplify`: depth-2 prerequisites in teaching order), fetches each candidate's
+definition text from ChromaDB, and tops up with plain vector search if the
+graph yields too few. `backend/interactive_tutor/graph.py`'s `present_concept`
+(fallback path), `provide_hint`, and `simplify_foundations` nodes call this
+with their respective modes; `_advance_concept` reorders `remaining_concepts`
+by `teaching_order()` when a graph exists for the module.
+
+**Files:** `backend/content/knowledge_graph/{__init__,ontology,store,extractor,retrieval}.py`,
+`backend/content/sliding_pipeline.py`, `backend/interactive_tutor/graph.py`,
+`tests/test_content/test_kg_store.py`, `tests/test_content/test_kg_extractor.py`,
+`tests/test_tutor/test_graph_guided_retrieval.py` (27 tests total). New
+dependency: `networkx>=3.6.1`. Commits `4631c67`..`43bd751` (see `plan.md`
+Phases 75-81 for full phase-by-phase detail).
+
+---
+
 ## Appendix A: Environment Variables
 
 | Variable | Purpose | Default |
@@ -541,6 +597,7 @@ that looks purely additive.
 | `AI_TUTOR_GUARDRAILS_ENABLED` | Master switch for all LLM guardrail checks (Phase 73) | `true` |
 | `AI_TUTOR_GUARDRAILS_MODERATION_ENABLED` | Toggle the content-moderation judge check independently (Phase 73) | `true` |
 | `AI_TUTOR_GUARDRAILS_TOPIC_RELEVANCE_ENABLED` | Toggle the topic-relevance judge check independently (Phase 73) | `true` |
+| `AI_TUTOR_GRAPH_DIR` | Per-module knowledge graph (GraphML) directory (experimental, §6) | `data/graph` |
 | `PHOENIX_COLLECTOR_ENDPOINT` | Arize Phoenix OTEL endpoint | `http://localhost:6006/v1/traces` |
 | `LANGCHAIN_API_KEY` | LangSmith API key (optional tracing) | — |
 | `LANGCHAIN_TRACING_V2` | Enable LangSmith export | `false` |
