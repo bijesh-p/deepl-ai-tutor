@@ -106,4 +106,4 @@ These mocked tests do **not** exercise real network calls — they verify the ad
    - Repeat the same upload → module generation → tutor session flow.
    - Record pass/fail and any provider-specific quirks.
 
-Results of this manual checklist are tracked as part of Phase 3 / Phase 31 follow-on validation (see `SPEC.md` §0 Phase 3 "Portkey / Ollama validation").
+Results of this manual checklist are tracked as part of Phase 3 / Phase 31 follow-on validation (see `SPEC.md` §1 Release Status — "Remaining for Phase 3").

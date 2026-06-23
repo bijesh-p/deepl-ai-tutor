@@ -69,7 +69,7 @@ Removed dead duplicated `coerce_tool_array`/`coerce_tool_item` from `anthropic_a
 
 ---
 
-**Phase 2 status: ✅ Complete** — all three remaining DoD items (Phases 29, 30, 31) are done. See SPEC.md §0 and §Phase 2 for details.
+**Phase 2 status: ✅ Complete** — all three remaining DoD items (Phases 29, 30, 31) are done. See SPEC.md §1 for the release-status summary.
 
 ## Phase 3 — Refined Platform 🔄 In Progress
 
@@ -95,7 +95,7 @@ Two-mode login: the login page has separate **"User Login"** and **"Admin Login"
 
 ### Phase 33 — Tutor session resume + per-topic mastery persistence ✅ Done
 
-`tutor_room.py` invokes graph nodes manually via `_run_node()`, never `graph.invoke(state, config=...)`, so a real `SqliteSaver` checkpointer doesn't fit without rewriting the tutor's control flow (see SPEC.md §2, superseded resolution). Instead: a new `tutor_sessions` table stores the serialized `GraphState` dict + UI phase, keyed by `(user_id, module_id)`. On entering the tutor room, if a non-"done" saved session exists for this user/module, restore it and show a "Resuming your previous session" banner with a "Restart from scratch" option; otherwise initialize fresh as before. After every settled render, upsert the current state/phase (or delete the row once `phase == "done"`). Separately, the existing-but-unused `topic_mastery` table (`user_id, module_id, topic_id, mastered, difficulty, attempts, last_updated`) is now written to incrementally — once per concept when it's mastered (slide auto-advance or Q&A success), and as an "in progress" (`mastered=0`) row if the session ends mid-concept.
+`tutor_room.py` invokes graph nodes manually via `_run_node()`, never `graph.invoke(state, config=...)`, so a real `SqliteSaver` checkpointer doesn't fit without rewriting the tutor's control flow (see SPEC.md §3, superseded resolution). Instead: a new `tutor_sessions` table stores the serialized `GraphState` dict + UI phase, keyed by `(user_id, module_id)`. On entering the tutor room, if a non-"done" saved session exists for this user/module, restore it and show a "Resuming your previous session" banner with a "Restart from scratch" option; otherwise initialize fresh as before. After every settled render, upsert the current state/phase (or delete the row once `phase == "done"`). Separately, the existing-but-unused `topic_mastery` table (`user_id, module_id, topic_id, mastered, difficulty, attempts, last_updated`) is now written to incrementally — once per concept when it's mastered (slide auto-advance or Q&A success), and as an "in progress" (`mastered=0`) row if the session ends mid-concept.
 
 **Files:**
 - `backend/analytics/db.py` — new `tutor_sessions` table
@@ -612,7 +612,7 @@ slide dict at both diagram-recovery paths. D — switch both call sites
 walkthrough of valid and deliberately-broken diagrams in both the Adaptive
 Tutor and Module Viewer, light and dark mode.
 
-**Files:** see `SPEC.md` §3.
+**Files:** see `SPEC.md` §4.
 
 **Commit:** `[mermaid-render-reliability Phase D] Switch call sites off streamlit-mermaid, fix iframe CSS scoping` (`6d9cc4f`)
 
