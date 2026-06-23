@@ -18,6 +18,12 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+try:
+    from deepeval.models import DeepEvalBaseLLM
+except ImportError:  # deepeval not installed — _run() logs a warning and returns early
+    class DeepEvalBaseLLM:  # type: ignore[no-redef]
+        pass
+
 _log = logging.getLogger(__name__)
 
 
@@ -66,6 +72,7 @@ def _run(
 ) -> None:
     try:
         from deepeval import evaluate
+        from deepeval.evaluate.configs import AsyncConfig, DisplayConfig
         from deepeval.metrics import AnswerRelevancyMetric, FaithfulnessMetric, GEval
         from deepeval.test_case import LLMTestCase, LLMTestCaseParams
     except ImportError:
@@ -99,8 +106,8 @@ def _run(
         results = evaluate(
             test_cases=test_cases,
             metrics=metrics,
-            run_async=False,
-            print_results=False,
+            async_config=AsyncConfig(run_async=False),
+            display_config=DisplayConfig(show_indicator=False, print_results=False),
         )
         _persist_results(results, user_id, module_id, db_path=db_path)
         record_eval_run(user_id, module_id, case_count=len(test_cases), db_path=db_path)
@@ -199,13 +206,17 @@ def _looks_like_feedback(content: str) -> bool:
 # LLMFactory judge — proper DeepEvalBaseLLM subclass
 # ---------------------------------------------------------------------------
 
-class LLMFactoryJudge:
+class LLMFactoryJudge(DeepEvalBaseLLM):
     """DeepEval judge that delegates to the project's LLMFactory.
 
     Uses whichever provider/model is active in the app (Anthropic, Portkey,
     or Ollama) — no separate eval API key needed. The provider and model are
     captured at construction time from the caller (tutor_room passes them
     from session_state before the background thread starts).
+
+    Must subclass DeepEvalBaseLLM (not just duck-type its methods) —
+    deepeval.metrics.utils.initialize_model() does a strict isinstance()
+    check and rejects anything else.
     """
 
     def __init__(self, provider: str | None = None, model: str | None = None) -> None:
