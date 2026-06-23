@@ -4,6 +4,8 @@ import uuid
 from backend.core.llm_client import BaseLLMClient as LLMClient, coerce_tool_array, coerce_tool_item
 from backend.content.models import EnrichedTopic, Question
 
+_INLINE_BLOOM_LEVELS = ["remember", "understand", "apply"]
+
 _TOOL_SCHEMA = {
     "name": "return_questions",
     "description": "Return 2 inline comprehension questions for the topic.",
@@ -34,6 +36,10 @@ _TOOL_SCHEMA = {
                             "description": "Zero-based indices of correct option(s).",
                         },
                         "explanation": {"type": "string"},
+                        "bloom_level": {
+                            "type": "string",
+                            "enum": _INLINE_BLOOM_LEVELS,
+                        },
                     },
                     "required": [
                         "question_text",
@@ -41,6 +47,7 @@ _TOOL_SCHEMA = {
                         "options",
                         "correct_answers",
                         "explanation",
+                        "bloom_level",
                     ],
                 },
             }
@@ -51,7 +58,10 @@ _TOOL_SCHEMA = {
 
 _SYSTEM = (
     "You are an expert educator writing quick comprehension checks. "
-    "Generate exactly 2 questions that test the key concepts of the topic. "
+    "Generate exactly 2 questions that test the key concepts of the topic, each tagged with "
+    "a Bloom's taxonomy level from: remember (recall a fact), understand (explain or "
+    "interpret an idea), or apply (use a concept in a new situation). "
+    "Make one question remember or understand level, and the other apply level. "
     "Mix single-choice and multiple-choice. Each question must have exactly 4 options."
 )
 
@@ -84,6 +94,7 @@ def generate_inline_questions(
                 options=q["options"],
                 correct_answers=q["correct_answers"],
                 explanation=q["explanation"],
+                bloom_level=q["bloom_level"],
             )
         )
     return questions

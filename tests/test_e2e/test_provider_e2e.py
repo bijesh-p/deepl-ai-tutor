@@ -52,12 +52,14 @@ _TOOL_RESPONSES: dict[str, dict] = {
                 "question_type": "single_choice",
                 "options": ["Chlorophyll", "Melanin", "Haemoglobin", "Keratin"],
                 "correct_index": 0,
+                "bloom_level": "remember",
             },
             {
                 "question_text": "What is produced by photosynthesis?",
                 "question_type": "single_choice",
                 "options": ["ATP", "CO2", "Nitrogen", "Iron"],
                 "correct_index": 0,
+                "bloom_level": "apply",
             },
         ]
     },

@@ -29,6 +29,9 @@ class Question:
     options: list[str]          # exactly 4 options
     correct_answers: list[int]  # indices of correct option(s)
     explanation: str
+    # "remember", "understand", or "apply" — defaults to "understand" so
+    # Question(**d) round-trips modules persisted before this field existed.
+    bloom_level: str = "understand"
 
 
 @dataclass
