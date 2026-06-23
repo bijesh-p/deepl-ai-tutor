@@ -38,30 +38,32 @@ class GuardrailedLLMClient(BaseLLMClient):
         tool_schema: dict | None = None,
         cached_blocks: list[dict] | None = None,
         topic_context: str | None = None,
+        skip_input_guardrails: bool = False,
     ) -> str | dict:
         if not guardrails_enabled():
             return self._inner.generate(prompt, system, tool_schema, cached_blocks)
 
-        reason = check_prompt_injection(prompt)
-        if reason:
-            raise GuardrailViolation(
-                "prompt_injection",
-                "Your message couldn't be processed because it looked like an "
-                "attempt to manipulate the tutor's instructions. Please rephrase "
-                "your question normally.",
-                details=reason,
-            )
-
-        if topic_context and topic_relevance_enabled():
-            reason = judge.check_topic_relevance(self._inner, prompt, topic_context)
+        if not skip_input_guardrails:
+            reason = check_prompt_injection(prompt)
             if reason:
                 raise GuardrailViolation(
-                    "topic_relevance",
-                    "That looks like it's not related to the current lesson topic. "
-                    "Try asking something about the concept we're covering, or use "
-                    "'Back to Library' to switch topics.",
+                    "prompt_injection",
+                    "Your message couldn't be processed because it looked like an "
+                    "attempt to manipulate the tutor's instructions. Please rephrase "
+                    "your question normally.",
                     details=reason,
                 )
+
+            if topic_context and topic_relevance_enabled():
+                reason = judge.check_topic_relevance(self._inner, prompt, topic_context)
+                if reason:
+                    raise GuardrailViolation(
+                        "topic_relevance",
+                        "That looks like it's not related to the current lesson topic. "
+                        "Try asking something about the concept we're covering, or use "
+                        "'Back to Library' to switch topics.",
+                        details=reason,
+                    )
 
         result = self._inner.generate(prompt, system, tool_schema, cached_blocks)
 

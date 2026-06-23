@@ -1,8 +1,8 @@
 # plan.md — AI Tutor Implementation
 
 > **Goal:** Deliver a fully working AI Tutor with adaptive tutoring, observability, and admin-curated module sharing.
-> **Spec:** SPEC.md v0.25
-> **Last updated:** 2026-06-22
+> **Spec:** SPEC.md v0.32
+> **Last updated:** 2026-06-23
 
 ---
 
@@ -959,6 +959,79 @@ Phases 75-81 below were implemented and merged via PR #25 (`experiments/llm-grap
 ## Branch sync note
 
 While Phases 67-72 were in progress, `origin/main` advanced 8 commits ahead (max-topics-limit upload UX, audio/diagram fixes, session-restore-via-query-params). Per this project's commit convention, all 6 phases were committed individually before merging `origin/main` in, so the work was never at risk of being lost to a conflict. The merge (`e889f98`) resolved with zero textual conflicts; a pre-existing, unrelated test failure (`test_present_concept_fallback_populates_key_takeaways_even_with_diagram`) was confirmed via an isolated `git worktree` check to already fail on `origin/main` alone, not introduced by this branch.
+
+---
+
+## Phase 67 — Module Chatbot ✅ Complete
+
+**Goal:** Add a chatbot page that answers user questions grounded in their training modules. Queries outside the scope of available modules are flagged. Uses ChromaDB semantic search to retrieve relevant content and the LLM to generate grounded answers.
+
+### Phase A — Backend: chatbot query engine ✅ Done
+
+Created `backend/chatbot/engine.py` with `ask(question, module_ids, llm)`:
+1. Queries ChromaDB via `storage_server.query_vector_db` across all user modules
+2. Filters by relevance (distance threshold 1.4) — returns "no module available" if nothing matches
+3. Passes retrieved chunks + question to LLM with a system prompt constraining answers to training material
+4. Returns `ChatResponse` with answer, source citations, and relevance flag
+
+**Files:**
+- `backend/chatbot/__init__.py` (new)
+- `backend/chatbot/engine.py` (new)
+
+**Status:** ✅ Done
+
+### Phase B — Frontend: chatbot page + sidebar navigation ✅ Done
+
+Created `frontend/chatbot_page.py` with full-featured chat UI:
+- `page_header_html` branded banner, module count bar, welcome state with suggestion chips
+- `st.chat_input` / `st.chat_message` with 🧑‍🎓/🤖 avatars
+- Theme-aware CSS: readable Inter font (15px/500 weight for input, 14px/1.65 line-height for messages), dark/light mode colors for bubbles, input, text
+- Source citation chips (green pills), clear conversation button
+- Empty state when no modules exist
+
+Wired `💬 Chatbot` sidebar button and `elif page == "chatbot"` route in `app.py`.
+
+**Files:**
+- `frontend/chatbot_page.py` (new)
+- `app.py` — sidebar button + page route
+
+**Status:** ✅ Done
+
+### Phase C — SPEC + plan update ✅ Done
+
+Updated SPEC.md v0.32 with Module Chatbot feature in Phase 3 scope table and definition of done. Updated plan.md.
+
+**Files:**
+- `SPEC.md`
+- `plan.md`
+
+**Status:** ✅ Done
+
+---
+
+## Phase 68 — Module Chatbot fixes: history, metadatas, source enrichment, threshold ✅ Complete
+
+**Goal:** Fix five issues found during critical review of the Module Chatbot against the spec.
+
+**What shipped:**
+
+1. **Conversation history sent to LLM** — `ask()` in `backend/chatbot/engine.py` now accepts a `history` parameter. `_format_history()` formats the last 10 turns (20 messages) as `Student: ...` / `Assistant: ...` pairs and includes them as a `## Conversation History` section in the prompt. `frontend/chatbot_page.py` passes `st.session_state["chat_messages"]` to `ask()`. Follow-up questions like "tell me more about that" now work.
+
+2. **`query_vector_db` returns metadatas** — `mcp_servers/storage_server/server.py` now includes `metadatas` in the JSON response and explicitly requests `include=["documents", "distances", "metadatas"]` from ChromaDB.
+
+3. **Source title/topic_title populated from metadatas** — `_retrieve_chunks()` reads `meta.get("title")` and `meta.get("topic_id")` from the ChromaDB response instead of leaving them as empty strings. The LLM prompt now shows accurate `[Module: X | Topic: Y]` labels instead of `[Module: Unknown | Topic: Unknown]`.
+
+4. **Empty "Retrieved Content" section omitted** — When only the catalog matches (meta-questions like "what modules are available?"), the prompt no longer includes an empty `## Retrieved Content` heading.
+
+5. **Relevance threshold raised from 1.4 to 1.8** — ChromaDB's default L2 distance with `all-MiniLM-L6-v2` produces distances where 1.4 over-filters moderately related content. 1.8 gives better recall for broad questions while still filtering clearly irrelevant results.
+
+**Files:**
+- `backend/chatbot/engine.py` — history support, metadata extraction, prompt cleanup, threshold change
+- `frontend/chatbot_page.py` — pass history to `ask()`
+- `mcp_servers/storage_server/server.py` — return metadatas from query
+- `SPEC.md` — new Phase 68 row in Phase 3 table
+
+**Verified:** 229 passed, 1 deselected (slow ChromaDB integration test — pre-existing timeout, unrelated to this change).
 
 ---
 
