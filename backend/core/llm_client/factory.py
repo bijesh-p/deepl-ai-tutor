@@ -38,17 +38,18 @@ class LLMFactory:
 
         if prov == "anthropic":
             from backend.core.llm_client.adapters.anthropic_adapter import AnthropicAdapter
-            return AnthropicAdapter(**kwargs)
-
-        if prov == "portkey":
+            adapter = AnthropicAdapter(**kwargs)
+        elif prov == "portkey":
             from backend.core.llm_client.adapters.portkey_adapter import PortkeyAdapter
-            return PortkeyAdapter(**kwargs)
-
-        if prov == "ollama":
+            adapter = PortkeyAdapter(**kwargs)
+        elif prov == "ollama":
             from backend.core.llm_client.adapters.ollama_adapter import OllamaAdapter
-            return OllamaAdapter(**kwargs)
+            adapter = OllamaAdapter(**kwargs)
+        else:
+            raise ValueError(
+                f"Unknown LLM provider: {prov!r}. "
+                "Supported: 'anthropic', 'portkey', 'ollama'."
+            )
 
-        raise ValueError(
-            f"Unknown LLM provider: {prov!r}. "
-            "Supported: 'anthropic', 'portkey', 'ollama'."
-        )
+        from backend.core.guardrails import GuardrailedLLMClient
+        return GuardrailedLLMClient(adapter)

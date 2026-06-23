@@ -838,6 +838,18 @@ test infra exists for `tutor_room.py`).
 
 ---
 
+## Phase 73 — Core guardrails module, wrapper, and factory wiring ✅ Complete
+
+**Goal:** Add centralized input/output safety checks across all 14 LLM call sites with no per-call-site code, per the approved `feature/add-guardrails` plan: prompt-injection detection and a generic output-quality safety net (both rule-based), plus content-moderation and topic-relevance (both LLM-judge-based, the latter unreachable until Phase 74 wires it in).
+
+**Fix:** New package `backend/core/guardrails/` — `exceptions.py` (`GuardrailViolation`), `config.py` (`AI_TUTOR_GUARDRAILS_*` env toggles), `rules.py` (`check_prompt_injection`, `check_output_quality` — pure regex/keyword, no LLM calls), `judge.py` (`check_content_moderation`, `check_topic_relevance` — LLM-judge calls against the raw inner adapter, fail open on judge-call errors), `client.py` (`GuardrailedLLMClient(BaseLLMClient)` decorator). `backend/core/llm_client/factory.py::LLMFactory.create()` now wraps every adapter branch in `GuardrailedLLMClient` unconditionally.
+
+**Gotcha caught by tests:** an initial top-level `from backend.core.guardrails import GuardrailViolation` re-export in `backend/core/llm_client/__init__.py` created a real circular import (`llm_client` → `guardrails` → `llm_client.base`, hitting the partially-initialized `llm_client` package depending on import order) — confirmed by running `pytest`, not by static reasoning, and fixed by dropping the re-export (`GuardrailViolation` is imported from `backend.core.guardrails` directly). A second bug: `client.py` originally did `from judge import check_content_moderation, ...`, binding the function by value — monkeypatching `judge.check_content_moderation` in tests then silently had no effect. Fixed by having `client.py` import the `judge` module itself and call `judge.check_content_moderation(...)`, so patching the module attribute works as intended.
+
+**Files:** `backend/core/guardrails/{__init__,exceptions,config,rules,judge,client}.py` (new), `backend/core/llm_client/factory.py`, `.env.copy`, `SPEC.md` Appendix A + new §5, `tests/test_content/test_guardrails.py` (new, 26 tests), `tests/test_content/test_llm_client.py` (+1 factory test). Full pytest suite: 192 passed, 1 pre-existing unrelated failure (see Branch sync note above), 1 deselected (slow).
+
+---
+
 ## Branch sync note
 
 While Phases 67-72 were in progress, `origin/main` advanced 8 commits ahead (max-topics-limit upload UX, audio/diagram fixes, session-restore-via-query-params). Per this project's commit convention, all 6 phases were committed individually before merging `origin/main` in, so the work was never at risk of being lost to a conflict. The merge (`e889f98`) resolved with zero textual conflicts; a pre-existing, unrelated test failure (`test_present_concept_fallback_populates_key_takeaways_even_with_diagram`) was confirmed via an isolated `git worktree` check to already fail on `origin/main` alone, not introduced by this branch.

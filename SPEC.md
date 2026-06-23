@@ -409,6 +409,70 @@ See [gui_spec.md](gui_spec.md) §3.6 for the updated Quiz UI checklist.
 
 ---
 
+## 5. Guardrails — Input/Output Safety for LLM Calls
+
+**Goal:** the app had zero safety/validation guardrails — all 14 LLM call
+sites (interactive tutor nodes, content pipeline, quiz generation) went
+through `LLMFactory.create()` → `BaseLLMClient.generate()` with no input
+sanitization, no output moderation, and no scope control. Two surfaces carry
+genuinely untrusted content into prompts: uploaded document text and the
+student's raw free-text answer in the tutor room.
+
+**Decisions:** four categories in scope — prompt-injection detection
+(input), content moderation (output), topic/scope relevance (input,
+tutor-room only), and a generic output-quality safety net (output).
+Architecture is a single decorator, `GuardrailedLLMClient`, wrapping
+`BaseLLMClient` and inserted at `LLMFactory.create()` — every call site is
+protected automatically with no per-call-site code. Violations block the
+call/output and raise `GuardrailViolation` with a friendly message (no
+silent sanitization, no log-only mode). Detection is hybrid: fast
+deterministic regex/keyword rules for injection and output-quality; an
+LLM-judge call (via the existing tool-schema pattern, run against the raw
+inner adapter to avoid recursion) for the two semantic checks, moderation
+and topic-relevance.
+
+**Fix — Phase 73 (core module + wrapper + factory wiring):** new package
+`backend/core/guardrails/`: `exceptions.py` (`GuardrailViolation`, whose
+`str()` is the friendly user-facing message), `config.py` (env-var toggles),
+`rules.py` (pure regex/keyword checks — `check_prompt_injection`,
+`check_output_quality`), `judge.py` (LLM-judge checks —
+`check_content_moderation`, `check_topic_relevance`, both failing open on
+judge-call errors), `client.py` (`GuardrailedLLMClient`). `LLMFactory.create()`
+now wraps every adapter (anthropic/portkey/ollama) in `GuardrailedLLMClient`
+unconditionally — the enable/disable logic lives entirely inside the
+wrapper's own `guardrails_enabled()` check, so the factory itself stays
+simple. No new dependencies — stdlib `re` plus the existing
+`BaseLLMClient`/tool-schema infrastructure covers both rule-based and
+judge-based checks; a third-party moderation library would just duplicate
+what the judge prompt already covers and add another thing to calibrate
+against false-positiving on legitimate academic content (the moderation and
+topic-relevance judge prompts are explicitly calibrated to allow normal
+discussion of sensitive academic subjects — security exploits, history of
+violence, biology, mental health — and only flag clear, unambiguous
+violations).
+
+Confirmed via direct code review (not just design): exceptions raised from
+`generate()` propagate cleanly to existing friendly-error UI with zero new
+try/except needed anywhere — `frontend/tutor_room.py::_run_node()`'s blanket
+`except Exception` and `frontend/upload_page.py::_run_pipeline_bg()`'s
+per-step try/except both already display `str(exc)`. Three content-pipeline
+calls (`sliding_pipeline.py::_assess()`, `content_enricher.py::enrich()`,
+`diagram_generator.py::_try_diagram()`) already catch broad `Exception`
+internally and fail open to a degraded fallback rather than surfacing an
+error — a guardrail violation there silently degrades instead of blocking
+visibly. Accepted as-is: those are heuristic/structural calls, not where
+adversarial content does real damage, and changing that pre-existing
+fail-open behavior is out of scope for this feature.
+
+**Files:** `backend/core/guardrails/__init__.py`,
+`backend/core/guardrails/exceptions.py`, `backend/core/guardrails/config.py`,
+`backend/core/guardrails/rules.py`, `backend/core/guardrails/judge.py`,
+`backend/core/guardrails/client.py`, `backend/core/llm_client/factory.py`,
+`.env.copy`, `tests/test_content/test_guardrails.py` (new),
+`tests/test_content/test_llm_client.py`.
+
+---
+
 ## Appendix A: Environment Variables
 
 | Variable | Purpose | Default |
@@ -427,6 +491,9 @@ See [gui_spec.md](gui_spec.md) §3.6 for the updated Quiz UI checklist.
 | `AI_TUTOR_MAX_FILE_MB` | Max upload size | `50` |
 | `AI_TUTOR_CHROMA_PATH` | ChromaDB persistence directory | `data/chroma` |
 | `AI_TUTOR_TOKEN_BUDGET` | Max tokens per generation run | `200000` |
+| `AI_TUTOR_GUARDRAILS_ENABLED` | Master switch for all LLM guardrail checks (Phase 73) | `true` |
+| `AI_TUTOR_GUARDRAILS_MODERATION_ENABLED` | Toggle the content-moderation judge check independently (Phase 73) | `true` |
+| `AI_TUTOR_GUARDRAILS_TOPIC_RELEVANCE_ENABLED` | Toggle the topic-relevance judge check independently (Phase 73) | `true` |
 | `PHOENIX_COLLECTOR_ENDPOINT` | Arize Phoenix OTEL endpoint | `http://localhost:6006/v1/traces` |
 | `LANGCHAIN_API_KEY` | LangSmith API key (optional tracing) | — |
 | `LANGCHAIN_TRACING_V2` | Enable LangSmith export | `false` |

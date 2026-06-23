@@ -63,6 +63,16 @@ def test_factory_unknown_provider():
         LLMFactory.create("nonexistent")
 
 
+def test_factory_wraps_adapter_in_guardrails(monkeypatch):
+    monkeypatch.setenv("AI_TUTOR_LLM_API_KEY", "test-key")
+    from backend.core.guardrails import GuardrailedLLMClient
+
+    client = LLMFactory.create("anthropic")
+    assert isinstance(client, GuardrailedLLMClient)
+    assert client.provider == "anthropic"
+    assert client.model
+
+
 def test_base_class_is_abstract():
     with pytest.raises(TypeError):
         BaseLLMClient()
