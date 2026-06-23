@@ -1,6 +1,6 @@
 # AI Tutor — Architecture
 
-> **Version:** 1.4 | **Updated:** 2026-06-17
+> **Version:** 1.5 | **Updated:** 2026-06-23
 > Companion to [SPEC.md](SPEC.md).
 
 ---
@@ -21,6 +21,7 @@ AI Tutor is a web platform that transforms uploaded documents into interactive, 
 4. **Admin mode** lets an admin publish curated modules to a shared library (separate SQLite DB) so all users can access them without generating their own. Login has separate User (no password) and Admin (password-gated) tabs.
 5. A **Mastery Report** page shows per-topic mastery, attempts, and difficulty for any module a user has studied, alongside a cohort comparison.
 6. An **Observability** dashboard links out to Arize Phoenix traces and shows DeepEval quality metrics per session.
+7. Every LLM call — across the pipeline, quiz generation, and the tutor — passes through a **Guardrails** layer (§5) that screens for prompt injection, off-topic drift, and unsafe output before it reaches the LLM or the user.
 
 ### High-Level Component Map
 
@@ -51,6 +52,8 @@ Streamlit Frontend (entry point: app.py)
 | Adaptive tutor | LangGraph state machine | 2 |
 | LLM providers | Anthropic SDK, Portkey, Ollama (OpenAI-compat) | 1 / 2 / 2 |
 | LLM abstraction | Strategy + factory pattern (`BaseLLMClient`, `LLMFactory`) | 2 |
+| LLM guardrails | `GuardrailedLLMClient` decorator — prompt-injection + output-quality rules, content-moderation + topic-relevance LLM-judge checks | 73 / 74 |
+| Question taxonomy | Bloom's six cognitive levels (remember/understand/apply/analyze/evaluate/create), replacing easy/medium/hard difficulty | 67–72 |
 | Tool protocol | MCP (Model Context Protocol) | 2 |
 | Vector store | ChromaDB + ONNX `all-MiniLM-L6-v2` via `onnxruntime` (`DefaultEmbeddingFunction`, no torch) | 2 |
 | Relational DB | SQLite (`sqlite3` stdlib), per-user DB + shared DB for published modules | 1 / 2 / 3 |
@@ -59,6 +62,7 @@ Streamlit Frontend (entry point: app.py)
 | Audio TTS | `edge-tts` (Microsoft Edge voices, offline) | 2 |
 | LLM quality evals | DeepEval (LLM-as-judge, async, per session) | 2 |
 | Observability | Arize Phoenix + OTEL (`opentelemetry-sdk`), dedicated dashboard page | 2 / 3 (Phase 37) |
+| Theming | Dark mode via CSS injection, per-user toggle persisted to profile | 41 |
 | Package manager | `uv` | 1 |
 | Python | 3.14+ | 1 |
 
@@ -80,26 +84,34 @@ ai-tutor-platform/
 ├── mcp_servers/                        # TOOL LAYER — MCP microservices
 │   ├── __init__.py
 │   ├── document_server/                # Tools: extract_text_from_pdf, parse_images,
-│   │                                    #        extract_text_from_pptx, extract_text_from_docx
+│   │                                    #        extract_text_from_pptx, extract_text_from_docx,
+│   │                                    #        extract_text_from_vtt
 │   ├── assessment_server/              # Tools: validate_json_schema, evaluate_taxonomy
 │   └── storage_server/                 # Tools: upsert_to_vector_db, save_module_to_db, query_vector_db
 │
 ├── backend/                            # CORE LOGIC LAYER
 │   ├── core/
 │   │   ├── mcp_client.py              # Helper to discover and call MCP tools
-│   │   └── llm_client/               # Provider factory + adapters
-│   │       ├── base.py               # Abstract BaseLLMClient
-│   │       ├── factory.py            # LLMFactory.create(provider) -> BaseLLMClient
-│   │       └── adapters/
-│   │           ├── anthropic_adapter.py
-│   │           ├── portkey_adapter.py
-│   │           └── ollama_adapter.py
+│   │   ├── llm_client/               # Provider factory + adapters
+│   │   │   ├── base.py               # Abstract BaseLLMClient
+│   │   │   ├── factory.py            # LLMFactory.create(provider) -> GuardrailedLLMClient
+│   │   │   └── adapters/
+│   │   │       ├── anthropic_adapter.py
+│   │   │       ├── portkey_adapter.py
+│   │   │       └── ollama_adapter.py
+│   │   └── guardrails/               # Input/output safety wrapper (Phase 73/74) — see §5
+│   │       ├── client.py             # GuardrailedLLMClient(BaseLLMClient) decorator
+│   │       ├── rules.py              # Prompt-injection + output-quality regex checks
+│   │       ├── judge.py              # Content-moderation + topic-relevance LLM-judge checks
+│   │       ├── config.py             # AI_TUTOR_GUARDRAILS_* env toggles
+│   │       └── exceptions.py         # GuardrailViolation
 │   │
 │   ├── ingestion/                     # Document parsers
 │   │   ├── models.py                  # Document, Section, ExtractedImage dataclasses
 │   │   ├── pdf_parser.py
 │   │   ├── pptx_parser.py             # Phase 35
 │   │   ├── docx_parser.py             # Phase 35
+│   │   ├── vtt_parser.py              # WebVTT transcripts — teaching-content extraction, Q&A capture (Phase 4/41-45)
 │   │   └── image_extractor.py
 │   │
 │   ├── content/                       # Content generation pipeline
@@ -120,10 +132,9 @@ ai-tutor-platform/
 │   │   ├── tracer.py                  # OTEL setup → Arize Phoenix (+ optional LangSmith)
 │   │   └── eval_runner.py             # DeepEval metrics (async, fire-and-forget per session)
 │   │
-│   ├── quiz/                          # Quiz engine (Phase 1 core)
-│   │   ├── models.py
+│   ├── quiz/                          # Quiz engine — Bloom's-taxonomy levels, not difficulty (Phase 67-72)
+│   │   ├── models.py                  # QuizQuestion.bloom_level (6 levels); Quiz.difficulty removed
 │   │   ├── question_bank.py
-│   │   ├── difficulty.py
 │   │   ├── assembler.py
 │   │   └── evaluator.py
 │   │
@@ -136,25 +147,33 @@ ai-tutor-platform/
 │
 ├── frontend/                          # PRESENTATION LAYER (pages rendered by app.py)
 │   ├── login_page.py                  # Two-mode login: User tab / Admin tab (Phase 32)
-│   ├── upload_page.py                 # Upload PDF/PPTX/DOCX, run background JIT pipeline,
+│   ├── upload_page.py                 # Upload PDF/PPTX/DOCX/VTT, run background JIT pipeline,
 │   │                                  # per-step error UI + partial-failure recovery (Phase 36)
 │   ├── module_library_page.py         # My Modules + Shared Library, admin publish controls (Phase 32)
 │   ├── module_viewer.py               # Topics with diagram-first slides, inline audio, inline Qs
-│   ├── quiz_page.py
+│   ├── quiz_page.py                   # Bloom's-level quiz intro + per-question level badges (Phase 70)
 │   ├── results_page.py
 │   ├── tutor_room.py                  # LangGraph tutor: diagnostic → slides → Q&A,
 │   │                                  # session resume banner (Phase 33), error recovery UI (Phase 36)
 │   ├── mastery_report_page.py         # Per-topic + cohort mastery report (Phase 40)
 │   ├── observability_page.py          # Phoenix link + DeepEval metrics dashboard (Phase 37)
-│   └── system_check_page.py           # Verify env + packages
+│   ├── system_check_page.py           # Verify env + packages
+│   ├── nav.py                         # render_back_button() — consistent top-of-page back nav (Phase 42)
+│   ├── styles.py                      # Global CSS + dark-mode theme overrides (Phase 41/45/48)
+│   ├── sidebar_toggle.py              # JS workaround for Streamlit 1.58.0 sidebar-collapse bug (Phase 47)
+│   ├── audio_autostop.py              # Pauses other <audio> elements on any button click (Phase 27/66)
+│   ├── mermaid_render.py              # Custom vendored Mermaid renderer, no streamlit-mermaid dep
+│   └── static/vendor/                 # Vendored mermaid.js + svg-pan-zoom.min.js
 │
 ├── tests/
-│   ├── test_ingestion/
-│   ├── test_content/                  # incl. test_llm_client.py, test_sliding_pipeline.py
+│   ├── test_ingestion/                # incl. test_vtt_parser.py
+│   ├── test_content/                  # incl. test_llm_client.py, test_sliding_pipeline.py, test_guardrails.py
 │   ├── test_quiz/
 │   ├── test_analytics/
 │   ├── test_tutor/                    # LangGraph node tests with mock LLM (Phase 38)
 │   ├── test_mcp/
+│   ├── test_e2e/                      # Provider integration matrix (anthropic/portkey/ollama)
+│   ├── test_observability/
 │   └── fixtures/
 │
 └── data/                              # Runtime data (gitignored)
@@ -365,13 +384,20 @@ classDiagram
         +generate(...)
         +make_context_blocks(text) plain_prefix
     }
+    class GuardrailedLLMClient {
+        -_inner: BaseLLMClient
+        +generate(prompt, system, tool_schema, context_blocks, topic_context) str|dict
+        +make_context_blocks(text) list
+    }
     class LLMFactory {
-        +create(provider, **kwargs) BaseLLMClient
+        +create(provider, **kwargs) GuardrailedLLMClient
     }
     BaseLLMClient <|-- AnthropicAdapter
     BaseLLMClient <|-- PortkeyAdapter
     BaseLLMClient <|-- OllamaAdapter
-    LLMFactory --> BaseLLMClient
+    BaseLLMClient <|-- GuardrailedLLMClient
+    GuardrailedLLMClient --> BaseLLMClient : wraps
+    LLMFactory --> GuardrailedLLMClient
 ```
 
 ### Adapters
@@ -382,7 +408,20 @@ classDiagram
 | `PortkeyAdapter` | `portkey_ai` | Anthropic native | `cache_control` blocks |
 | `OllamaAdapter` | `openai` (compat) | OpenAI function format (translated internally) | No caching |
 
-`LLMFactory.create(provider)` reads `AI_TUTOR_LLM_PROVIDER` from env if provider is `None`. The same factory is used by the **DeepEval judge** — eval metrics use whichever provider is selected in the sidebar, with no separate API key.
+`LLMFactory.create(provider)` reads `AI_TUTOR_LLM_PROVIDER` from env if provider is `None`, builds the matching adapter, and wraps it in `GuardrailedLLMClient` (below) before returning — every caller gets a guardrailed client transparently, never the raw adapter. The same factory is used by the **DeepEval judge** — eval metrics use whichever provider is selected in the sidebar, with no separate API key.
+
+### Guardrails
+
+`GuardrailedLLMClient` (`backend/core/guardrails/`) wraps the real adapter and runs checks around every `generate()` call, raising `GuardrailViolation` (a friendly message + a technical `details` string) on a hit instead of silently sanitizing:
+
+| Check | Side | Method | Always on? |
+|---|---|---|---|
+| Prompt injection | Input, before the real call | Regex/keyword (`rules.py`) | Yes |
+| Topic relevance | Input, before the real call | LLM-judge (`judge.py`), via the *unwrapped* inner adapter to avoid recursion | Only when caller passes `topic_context` — currently just `evaluate_response()`, the one tutor-room call site with raw student text in its prompt |
+| Output quality | Output, after the real call | Regex (empty/refusal-boilerplate) | Yes, string results only |
+| Content moderation | Output, after the real call | LLM-judge | Yes |
+
+Toggled via `AI_TUTOR_GUARDRAILS_ENABLED` (master switch) and per-check `AI_TUTOR_GUARDRAILS_MODERATION_ENABLED` / `AI_TUTOR_GUARDRAILS_TOPIC_RELEVANCE_ENABLED`. Judge-based checks fail open (treat as "no violation") if the judge call itself errors, so a flaky network call never blocks legitimate content.
 
 ---
 
@@ -407,6 +446,7 @@ flowchart LR
         T2[parse_images]
         T1b[extract_text_from_pptx]
         T1c[extract_text_from_docx]
+        T1d[extract_text_from_vtt]
     end
 
     subgraph assessment_server
@@ -435,6 +475,7 @@ flowchart LR
 | `parse_images` | `(file_path: str, max_pages: int = 4) -> str` | Extract embedded images, save as PNG |
 | `extract_text_from_pptx` | `(file_path: str, max_slides: int = 16) -> str` | Parse PPTX via `python-pptx`, return `Document.to_json()` (Phase 35) |
 | `extract_text_from_docx` | `(file_path: str, max_sections: int = 16) -> str` | Parse DOCX via `python-docx`, return `Document.to_json()` (Phase 35) |
+| `extract_text_from_vtt` | `(file_path: str) -> str` | Parse WebVTT transcripts — teaching-content extraction, Q&A capture, chatter filtering, speaker names never in output (Phase 4/41-45) |
 
 ### assessment_server tools
 
@@ -608,7 +649,7 @@ flowchart LR
 | Upload | `frontend/upload_page.py` | Upload PDF/PPTX/DOCX, run background JIT pipeline, abort support, per-step error UI + partial-recovery buttons | 2 / 35 / 36 |
 | Module Library | `frontend/module_library_page.py` | My Modules (with Mastery Report button) + Shared Library section; admin publish/unpublish controls | 1 / 32 / 40 |
 | Module Viewer | `frontend/module_viewer.py` | Diagram-first slides, inline audio player, inline Qs, deferred quiz button | 2 |
-| Quiz | `frontend/quiz_page.py` | Difficulty selector, questions, submit | 1 |
+| Quiz | `frontend/quiz_page.py` | Bloom's-level intro screen (question-count breakdown), questions, submit | 1 / 70 |
 | Results | `frontend/results_page.py` | Score, cohort bar chart, per-question breakdown | 1 |
 | Tutor Room | `frontend/tutor_room.py` | Diagnostic quiz → slide presentation → Q&A loop with hints; session resume banner; error recovery UI | 2 / 33 / 36 |
 | Mastery Report | `frontend/mastery_report_page.py` | Per-topic mastery/difficulty/attempts + cohort comparison for a given module | 40 |
@@ -690,7 +731,7 @@ class LearningModule:
 
 ### Quiz (`backend/quiz/models.py`) and Analytics (`backend/analytics/models.py`)
 
-Unchanged from Phase 1 — see source files.
+`QuizQuestion.bloom_level` (one of six Bloom's-taxonomy levels — remember/understand/apply/analyze/evaluate/create) replaced the original `difficulty` field; `Quiz.difficulty` was removed entirely, since each quiz now mixes questions across all six levels rather than being pitched at one difficulty (Phase 67-72). Analytics models are otherwise unchanged from Phase 1.
 
 ### Analytics additions (Phase 3)
 

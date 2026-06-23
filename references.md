@@ -25,6 +25,15 @@
 - [LangGraph GitHub](https://github.com/langchain-ai/langgraph) — Source and issue tracker.
 - [LangGraph Checkpoint SQLite](https://langchain-ai.github.io/langgraph/reference/checkpoints/) — SqliteSaver for persisting tutor session state.
 
+## Assessment & Question Generation
+
+- [Scaria et al., "Automated Educational Question Generation at Different Bloom's Skill Levels using Large Language Models: Strategies and Evaluation" (AIED 2024)](https://arxiv.org/abs/2408.04394) — informs the six-level (remember/understand/apply/analyze/evaluate/create) question generation used across `backend/quiz/question_bank.py`, inline questions, and the diagnostic/tutor-room prompts in `backend/interactive_tutor/graph.py`. Specifically uses the paper's PS2 prompting strategy (persona + chain-of-thought + inline skill-level definitions), which it found gave the best quality/skill-adherence balance; PS5's hardcoded few-shot examples measurably hurt both, so none were added.
+
+## LLM Safety / Guardrails
+
+- [OWASP Top 10 for LLM Applications — Prompt Injection](https://owasp.org/www-project-top-10-for-large-language-model-applications/) — informs the rule-based prompt-injection patterns in `backend/core/guardrails/rules.py` (instruction-override phrasing, fake role-marker tags, jailbreak keywords).
+- [Anthropic — Tool Use](https://docs.anthropic.com/en/docs/tool-use) (same SDK feature as above) — the content-moderation and topic-relevance checks in `backend/core/guardrails/judge.py` reuse the existing tool-schema pattern to get a structured, parseable classification from an LLM-as-judge call against the real configured provider.
+
 ## Model Context Protocol (MCP)
 
 - [MCP Specification](https://modelcontextprotocol.io/) — Protocol for LLM tool access; three MCP servers in `mcp_servers/`.
@@ -53,8 +62,10 @@
 ## Frontend
 
 - [Streamlit Documentation](https://docs.streamlit.io/) — Python web framework powering all UI pages.
-- [streamlit-mermaid](https://github.com/jhavens1566/streamlit-mermaid) — Streamlit component for rendering Mermaid diagrams.
+- [streamlit-mermaid](https://github.com/jhavens1566/streamlit-mermaid) — Streamlit component for rendering Mermaid diagrams. **Replaced** by a custom vendored renderer (`frontend/mermaid_render.py`) — its client-side render failures couldn't be caught by Python `try/except`, so diagram errors surfaced mermaid.js's raw syntax-error text with no fallback.
 - [Mermaid Diagram Syntax](https://mermaid.js.org/intro/) — Diagram-as-code DSL; diagrams generated as Mermaid code by the LLM.
+- [Mermaid.js GitHub](https://github.com/mermaid-js/mermaid) — Source for the vendored `frontend/static/vendor/mermaid.min.js`, run inside an `st.iframe()` with a JS `try/catch` and a 5-second render timeout instead of the dropped `streamlit-mermaid` component.
+- [svg-pan-zoom](https://github.com/bumbu/svg-pan-zoom) — Pan/zoom for the rendered diagram SVG; vendored as `frontend/static/vendor/svg-pan-zoom.min.js`.
 
 ## Data & Storage
 
