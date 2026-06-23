@@ -66,7 +66,7 @@ Streamlit Frontend (entry point: app.py)
 | Observability | Arize Phoenix + OTEL (`opentelemetry-sdk`), dedicated dashboard page | 2 / 3 (Phase 37) |
 | Theming | Dark mode via CSS injection, per-user toggle persisted to profile | 41 |
 | Package manager | `uv` | 1 |
-| Python | 3.14+ | 1 |
+| Python | 3.13+ | 1 |
 
 ---
 

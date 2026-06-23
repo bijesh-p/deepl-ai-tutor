@@ -9,7 +9,14 @@ from backend.quiz.models import QuizResult
 from frontend.nav import render_back_button
 from frontend.styles import score_banner_html
 
-_LIBRARY_CLEAR_KEYS = ["module", "bank", "quiz", "quiz_answers", "quiz_result"]
+_LIBRARY_CLEAR_KEYS = ["module", "bank", "quiz", "quiz_answers", "quiz_result", "quiz_difficulty", "quiz_deadline", "quiz_timed_out"]
+
+
+_DIFFICULTY_DISPLAY = {
+    "easy":   ("🟢", "Easy",         "#F0FDF4", "#10B981", "#065F46"),
+    "medium": ("🟡", "Intermediate", "#FFFBEB", "#F59E0B", "#92400E"),
+    "hard":   ("🔴", "Hard",         "#FEF2F2", "#EF4444", "#991B1B"),
+}
 
 
 def render_results_page(result: QuizResult) -> None:
@@ -22,6 +29,33 @@ def render_results_page(result: QuizResult) -> None:
     # expander's background, which is dark in dark mode, so the text color
     # must follow the theme instead of being hardcoded to dark text.
     question_text_color = "#F1F5F9" if st.session_state.get("dark_mode", True) else "#111827"
+
+    # ── Difficulty badge ──────────────────────────────────────────────────────
+    difficulty = st.session_state.get("quiz_difficulty", "medium")
+    d_icon, d_label, d_bg, d_border, d_fg = _DIFFICULTY_DISPLAY.get(
+        difficulty, ("🟡", "Intermediate", "#FFFBEB", "#F59E0B", "#92400E")
+    )
+    st.markdown(
+        f"<div style='text-align:center;margin-bottom:8px;'>"
+        f"<span style='background:{d_bg};color:{d_fg};border:1px solid {d_border};"
+        f"padding:4px 14px;border-radius:999px;font-size:13px;font-weight:600;'>"
+        f"{d_icon} {d_label}</span></div>",
+        unsafe_allow_html=True,
+    )
+
+    # ── Time's Up banner (if quiz was auto-submitted by timer) ──────────────
+    timed_out = st.session_state.get("quiz_timed_out", False)
+    if timed_out:
+        st.markdown(
+            "<div style='text-align:center;padding:12px 20px;background:#FEF2F2;"
+            "border:2px solid #EF4444;border-radius:12px;margin-bottom:14px;'>"
+            "<span style='font-size:1.4rem;'>⏱️</span> "
+            "<span style='font-size:16px;font-weight:700;color:#991B1B;'>"
+            "Time’s Up!</span>"
+            "<div style='font-size:12px;color:#6B7280;margin-top:4px;'>"
+            "The quiz was auto-submitted because the timer expired.</div></div>",
+            unsafe_allow_html=True,
+        )
 
     # ── Big score banner ──────────────────────────────────────────────────────
     st.markdown(
@@ -39,21 +73,26 @@ def render_results_page(result: QuizResult) -> None:
     st.markdown("### Question Breakdown")
 
     correct = sum(1 for ar in result.answers if ar.is_correct)
-    wrong = len(result.answers) - correct
+    not_answered = sum(1 for ar in result.answers if not ar.selected)
+    wrong = len(result.answers) - correct - not_answered
 
-    c1, c2 = st.columns(2)
+    c1, c2, c3 = st.columns(3)
     c1.metric("Correct", f"{correct} ✅")
-    c2.metric("Incorrect", f"{wrong} ❌")
+    c2.metric("Wrong", f"{wrong} ❌")
+    c3.metric("Not Answered", f"{not_answered} ⚪")
 
     st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
 
     questions_map = st.session_state.get("quiz_questions_map", {})
 
     for i, ar in enumerate(result.answers):
-        icon = "✅" if ar.is_correct else "❌"
-        border_color = "#10B981" if ar.is_correct else "#EF4444"
-        bg_color = "#F0FDF4" if ar.is_correct else "#FEF2F2"
-        label = "Correct" if ar.is_correct else "Incorrect"
+        is_unanswered = not ar.selected
+        if ar.is_correct:
+            icon, border_color, bg_color, label = "✅", "#10B981", "#F0FDF4", "Correct"
+        elif is_unanswered:
+            icon, border_color, bg_color, label = "⚪", "#9CA3AF", "#F9FAFB", "Not Answered"
+        else:
+            icon, border_color, bg_color, label = "❌", "#EF4444", "#FEF2F2", "Incorrect"
         q = questions_map.get(ar.question_id)
 
         with st.expander(f"{icon} Question {i + 1}", expanded=True):
@@ -117,11 +156,14 @@ def render_results_page(result: QuizResult) -> None:
     lines = []
     lines.append(f"Quiz Results — {result.module_id}")
     lines.append(f"Score: {result.score} / {result.total} ({result.percentage}%)")
+    raw_diff = st.session_state.get("quiz_difficulty", "medium")
+    diff_display = _DIFFICULTY_DISPLAY.get(raw_diff, ("", raw_diff.capitalize()))[1]
+    lines.append(f"Difficulty: {diff_display}")
     lines.append("")
     lines.append("--- Question Breakdown ---")
     for i, ar in enumerate(result.answers):
         q = questions_map.get(ar.question_id)
-        status = "CORRECT" if ar.is_correct else "INCORRECT"
+        status = "CORRECT" if ar.is_correct else ("NOT ANSWERED" if not ar.selected else "INCORRECT")
         q_text = q.question_text if q else f"Question {i + 1}"
         lines.append(f"\nQ{i + 1}. [{status}] {q_text}")
         if q and q.options:
@@ -150,7 +192,7 @@ def render_results_page(result: QuizResult) -> None:
     st.markdown("---")
     if st.button("🔄 Retake Quiz", type="secondary", use_container_width=True):
         st.session_state["page"] = "quiz"
-        for key in ["quiz", "quiz_answers", "quiz_result"]:
+        for key in ["quiz", "quiz_answers", "quiz_result", "quiz_difficulty", "quiz_deadline", "quiz_timed_out"]:
             st.session_state.pop(key, None)
         st.rerun()
 

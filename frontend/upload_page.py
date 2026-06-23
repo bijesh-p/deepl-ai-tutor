@@ -425,7 +425,7 @@ def _pipeline_status_fragment() -> None:
 
     elif state == "enriching":
         done = progress.get("topics_enriched", 0)
-        total = progress.get("total_topics", 0)
+        total = max(progress.get("total_topics", 0), done)
         enriched = progress.get("enriched_topics", [])
         current = progress.get("current_topic", "")
         detail = progress.get("detail", "")

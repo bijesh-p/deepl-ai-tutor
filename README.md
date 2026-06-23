@@ -54,7 +54,7 @@ See [SPEC.md](SPEC.md) for the full phase breakdown and definitions of done.
 | Tracing | Arize Phoenix (local OTLP) + openinference auto-instrumentation |
 | Eval Metrics | DeepEval (faithfulness, relevancy, clarity) |
 | Package Manager | [uv](https://docs.astral.sh/uv/) |
-| Python | 3.14+ |
+| Python | 3.13+ |
 
 ## Quick Start
 

@@ -34,6 +34,10 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
 - Cohort analytics: score vs. min/max/avg of all participants shown on results page
 - Demo mode: sidebar toggle loads fixture JSON, bypasses all LLM calls
 - All five work streams integrated and tested end-to-end
+- User must select a difficulty level before the quiz begins
+- Question complexity and explanations must adapt to the selected difficulty
+- Selected difficulty must be shown on the quiz screen and persisted with quiz results
+- Randomised questions and per-question explanations
 
 **Definition of done:** ✅ All items delivered.
 
@@ -115,6 +119,11 @@ Single Anthropic provider, PDF-only input, SQLite persistence, Streamlit fronten
 - [x] Dark mode toggle persists per-user and is legible (WCAG-checked) across every page
 - [x] Every page has a single, consistent top-of-page back affordance
 - [x] Adaptive tutor and module viewer show a clear position/progress indicator among topics
+- [x] User must select a difficulty level before starting a quiz
+- [x] Difficulty options available: Easy, Intermediate, Hard
+- [x] Quiz questions are generated according to the selected difficulty
+- [x] Selected difficulty is visible on the quiz page and results page
+- [x] Difficulty level is stored with quiz attempt analytics
 - [x] Upload page exposes a "Max topics" numeric input; when set to N > 0 the pipeline generates at most N topics; when 0 or blank it generates all topics from the document
 
 ---

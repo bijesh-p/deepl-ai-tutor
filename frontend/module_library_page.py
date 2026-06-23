@@ -12,6 +12,7 @@ from backend.analytics.persistence import (
     load_module,
     load_published_module,
     publish_module,
+    rename_module,
     unpublish_module,
 )
 from backend.content.models import LearningModule
@@ -95,6 +96,22 @@ def _render_my_modules(db, shared_db, is_admin: bool) -> None:
         with col_mastery:
             if st.button("Mastery", key=f"mastery_{mod['module_id']}", type="secondary", use_container_width=True):
                 _load_for_mastery_report(mod["module_id"], db)
+        with action_cols[2]:
+            with st.popover("Rename", use_container_width=True):
+                new_name = st.text_input(
+                    "New name", value=mod["title"], key=f"rename_input_{mod['module_id']}"
+                )
+                if st.button("Save", key=f"rename_save_{mod['module_id']}", type="primary", use_container_width=True):
+                    stripped = new_name.strip()
+                    if stripped and stripped != mod["title"]:
+                        rename_module(mod["module_id"], stripped, db=db)
+                        st.rerun()
+        with action_cols[3]:
+            if st.button("Delete", key=f"del_{mod['module_id']}", type="secondary", use_container_width=True):
+                delete_module(mod["module_id"], db=db)
+                st.rerun()
+        if is_admin:
+            with action_cols[4]:
         with col_delete:
             if st.button("Delete", key=f"del_{mod['module_id']}", type="secondary", use_container_width=True):
                 delete_module(mod["module_id"], db=db)
