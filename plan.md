@@ -772,6 +772,78 @@ test infra exists for `tutor_room.py`).
 
 ---
 
+## Phase 67 — Rename QuizQuestion.difficulty to bloom_level, remove Quiz.difficulty ✅ Complete
+
+**Goal:** First step of replacing the easy/medium/hard difficulty scale with Bloom's-taxonomy levels (remember, understand, apply, analyze, evaluate, create) across all question-generation flows, informed by Scaria et al. (AIED 2024). Scoped via `/spec-plan` as `changes/bloom-taxonomy-question-generation.{spec,plan}.md`.
+
+**Fix:** Added `BLOOM_LEVELS` constant to `backend/quiz/models.py`; renamed `QuizQuestion.difficulty` → `bloom_level`; removed `Quiz.difficulty` entirely (quizzes are mixed-level going forward, no single label). Updated the one production call site (`frontend/module_library_page.py::_bank_from_json`) and the test fixture in `tests/test_quiz/test_evaluator.py`.
+
+**Files:** `backend/quiz/models.py`, `backend/quiz/question_bank.py`, `frontend/module_library_page.py`, `tests/test_quiz/test_evaluator.py`. Commit: `8b3bdbc`.
+
+---
+
+## Phase 68 — Rewrite quiz bank generation prompt for Bloom's taxonomy levels ✅ Complete
+
+**Goal:** Make the main quiz-bank LLM prompt target Bloom's levels with structured grounding, following the paper's PS2 strategy (persona + chain-of-thought + inline skill-level definitions) — the best-performing strategy in the paper's RQ3 results. Deliberately did not add hardcoded per-level example questions (PS5), since the paper found those hurt both quality and skill-adherence.
+
+**Fix:** `backend/quiz/question_bank.py::_TOOL_SCHEMA` replaced the `difficulty` enum with a `bloom_level` enum over `BLOOM_LEVELS`, bumped `minItems` to 18; `_SYSTEM` rewritten to ask for 18-24 questions covering all topics with ≥3 questions per Bloom's level, with each level's definition spelled out inline (plus an extra clarifying sentence for `create`, since the paper found all five tested LLMs struggled most with that level). `generate_question_bank()` maps the new `bloom_level` field.
+
+**Files:** `backend/quiz/question_bank.py`, `tests/test_e2e/test_provider_e2e.py`. Commit: `3bb3e92`.
+
+---
+
+## Phase 69 — Mix quiz questions across all six Bloom's levels ✅ Complete
+
+**Goal:** Replace the single-difficulty quiz assembler with one that mixes questions across all six Bloom's levels in every attempt (per the confirmed scoping decision: no per-attempt level picker).
+
+**Fix:** Rewrote `backend/quiz/assembler.py::assemble_quiz()` to drop the `difficulty` parameter; `_select_questions()` now buckets questions by `bloom_level`, targets `n // 6` per level with `n % 6` levels randomly getting one extra question, and backfills any shortfall from the remaining pool across all levels (replacing the old adjacent-difficulty fallback).
+
+**Files:** `backend/quiz/assembler.py`, `tests/test_quiz/test_assembler.py` (rewritten: `test_assembles_correct_count`, `test_distributes_across_all_levels`, `test_falls_back_when_insufficient`, `test_different_orderings_across_calls`). Commit: `a2c71c7`.
+
+---
+
+## Phase 70 — Replace difficulty selector with Bloom's-level quiz UI ✅ Complete
+
+**Goal:** Update the Quiz page UI to match the mixed-level assembler — no level picker, per-question Bloom-level badges instead of one quiz-wide difficulty badge.
+
+**Fix:** `frontend/quiz_page.py` replaced `_DIFFICULTY_META_LIGHT/_DARK`/`_difficulty_meta()` with a 6-entry `_BLOOM_META_LIGHT/_DARK`/`_bloom_meta()` (icon/label/desc/colors per level: 🧠 Remember, 💡 Understand, 🔧 Apply, 🔍 Analyze, ⚖️ Evaluate, 🎨 Create). The old difficulty-selector screen was replaced with `_render_quiz_intro()`, showing a per-level question-count breakdown from the bank with a single "Start Quiz" button (no selection required). The per-question badge is now looked up per-question (`q.bloom_level`) instead of once for the whole quiz. Removed `"quiz_difficulty"` session-state references from `frontend/results_page.py`, `frontend/upload_page.py`, and `app.py`'s clear-keys lists.
+
+**Bug found and fixed during live verification:** `frontend/module_library_page.py::_bank_from_json` raised `KeyError` loading modules persisted before this change (old questions only have `difficulty`, not `bloom_level`). Added `_LEGACY_DIFFICULTY_TO_BLOOM = {"easy": "remember", "medium": "apply", "hard": "evaluate"}` mapping so old modules still load.
+
+**Verified:** live Playwright test against the running app — quiz intro screen shows the 6-level breakdown with no selector, each question's badge reflects its own level (confirmed badges differ across questions), submit and results page render correctly with no `quiz_difficulty` errors.
+
+**Files:** `frontend/quiz_page.py`, `frontend/results_page.py`, `frontend/upload_page.py`, `frontend/module_library_page.py`, `app.py`. Commit: `9ca4125`.
+
+---
+
+## Phase 71 — Tag inline per-topic questions with Bloom's levels ✅ Complete
+
+**Goal:** Extend Bloom's-level tagging to the inline per-topic comprehension questions in the Module Viewer (scoped to the first three levels only — remember/understand/apply — since those fit a quick comprehension check better than the higher-order levels).
+
+**Fix:** `backend/content/models.py::Question` gained `bloom_level: str = "understand"` (defaulted so old persisted modules round-trip via `Question(**d)` without a migration). `backend/content/inline_question_gen.py` added `_INLINE_BLOOM_LEVELS = ["remember", "understand", "apply"]`, added `bloom_level` to `_TOOL_SCHEMA` and `_SYSTEM` (asks for one remember/understand-level and one apply-level question), and `generate_inline_questions()` maps the new field.
+
+**Regression caught by tests:** `tests/test_content/test_pipeline.py::test_enrich_has_questions` failed after the schema change — its mock LLM responses lacked `bloom_level`, which `sliding_pipeline.py` was silently swallowing via a broad try/except around `generate_inline_questions`. Fixed by adding `bloom_level` to the mock question dicts.
+
+**Files:** `backend/content/models.py`, `backend/content/inline_question_gen.py`, `tests/test_content/test_inline_question_gen.py` (new), `tests/test_content/test_pipeline.py`, `tests/test_e2e/test_provider_e2e.py`. Commit: `c7b7b87`.
+
+---
+
+## Phase 72 — Reword diagnostic/tutor-room prompts for Bloom's levels ✅ Complete
+
+**Goal:** Apply Bloom's-level language to the two remaining question-generation flows in the Adaptive Tutor (diagnostic pre-assessment, tutor-room single question), as prompt-text-only changes — no schema changes, per the confirmed scoping decision.
+
+**Fix:** `backend/interactive_tutor/graph.py::_DIAGNOSTIC_SYSTEM` now asks for a mix of Remember-level and Understand-level questions only (a pre-lesson diagnostic shouldn't probe Apply/Analyze/Evaluate/Create yet). Added `_DEPTH_TO_BLOOM = {"beginner": "remember or understand", "intermediate": "apply or analyze", "advanced": "evaluate or create"}`; `ask_question()`'s prompt now targets the mapped Bloom's level pair for the student's `presentation_depth` instead of a vague "match the student's level" instruction.
+
+**Files:** `backend/interactive_tutor/graph.py`. Commit: `7e60e25`.
+
+---
+
+## Branch sync note
+
+While Phases 67-72 were in progress, `origin/main` advanced 8 commits ahead (max-topics-limit upload UX, audio/diagram fixes, session-restore-via-query-params). Per this project's commit convention, all 6 phases were committed individually before merging `origin/main` in, so the work was never at risk of being lost to a conflict. The merge (`e889f98`) resolved with zero textual conflicts; a pre-existing, unrelated test failure (`test_present_concept_fallback_populates_key_takeaways_even_with_diagram`) was confirmed via an isolated `git worktree` check to already fail on `origin/main` alone, not introduced by this branch.
+
+---
+
 ## Commit convention
 
 Format: `[Phase N] <short description>`
