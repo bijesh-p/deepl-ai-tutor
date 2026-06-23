@@ -151,23 +151,28 @@ present concept, hint, and simplify steps use graph-guided retrieval
 
 \subsection{Tool servers}
 
-A document server parses an uploaded PDF, PPT, word or transcript file and extracts 
-embedded images. Any other input format needs a new tool in server. An assessment
-server checks whether piece of generated code matches the expected calling code schema.
-A storage server saves the finished module to database and reads/writes the vector store.
-The pipeline and tutor never import a parsing library/database driver or vector store's 
-client directly as each server reaches through same client
-
- 
- 
+All effects outside the language model are isolated behind three tool servers
+that follow the Model Context Protocol~\cite{anthropic2024mcp}, reached through a
+single client. A document server parses an uploaded PDF, slide deck, Word file,
+or transcript and extracts embedded images; any other input format would need a
+new tool on that server. An assessment server checks that a piece of generated
+output matches the schema the calling code expects. A storage server saves a
+finished module to the database and reads and writes the vector store
+(Section 2.5). Because every server is reached through the same client, the
+pipeline and tutor never import a parsing library, database driver, or vector
+store client directly. Appendix A gives the full pipeline diagram, the tools each
+server exposes, and the VTT transcript path.
 
 \subsection{Vector retrieval}
 
-The full explanation is embedded and saved into per module collection in vector
-database through storage server after a topic is enriched.A small embedding model 
-runs locally than a separate provider call. The vector store is 
-system of record for actual text of each concept. When the pipeline's own content 
-for current topic is missing, then tutor's hint and concept presentation query this store.
+Right after a topic is enriched, its explanation is embedded by a small local
+model~\cite{reimers2019sentence} and saved into a per module collection through
+the storage server. This store is the system of record for each concept's text:
+the knowledge graph in Section 4 decides which concept to fetch, but the text
+always comes from here, never from the graph. The tutor queries it only when the
+pipeline's own content for the current topic is missing, and every query is
+filtered to the current module, for the reason given as the third reliability
+lesson in Appendix E.
 
 
 \subsection{Multi-provider access}
@@ -233,13 +238,20 @@ relationship types and the retrieval algorithm.
 
 \section{Bloom's taxonomy for question generation}
 
-There are four places where system can generate questions. End of module quiz, 
-comprehensive questions, pre lesson diagnostic and  tutor’s follow up questions.
-The systems has blooms six level cognitive levels: remember, understand, apply, 
-analyse, evaluate and create. The level of easy, medium, hard are under these bloom levels.
-The end of module has all questions from six levels.The tutor follow up questions maps to the
-user understanding depth. The end of module quiz is timed. The timer decrements as on expiry,
-the quiz is submitted automatically.
+The system generates questions in four places: the end of module quiz, each
+topic's comprehension questions, the pre lesson diagnostic, and the tutor's
+follow up question. Each used to carry an informal easy, medium, or hard label;
+every question now carries one of Bloom's six cognitive levels
+instead~\cite{anderson2001taxonomy}: remember, understand, apply, analyze,
+evaluate, and create. This follows Scaria et al.~\cite{scaria2024bloom}, who
+found that a persona, reasoning before writing, and stating each level's
+definition in the prompt worked best, while hand written examples made results
+worse. Each place uses a different slice of the six levels: the quiz mixes all
+six, comprehension questions use the first three, the diagnostic uses only
+remember and understand, and the follow up question maps the learner's depth to a
+pair of levels. The end of module quiz is timed, and on expiry it is submitted
+automatically. Appendix D gives the full definitions and the question fields that
+changed.
 
 \section{Evaluation results}
 \label{sec:eval-results}
